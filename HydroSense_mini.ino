@@ -1,6 +1,4 @@
 #include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
-#include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 
 // Dane logowania do WiFi
@@ -14,16 +12,41 @@ const char* mqtt_user = "hydrosense";
 const char* mqtt_password = "hydrosense";
 
 // Piny
-#define PIN_TRIG D6
-#define PIN_ECHO D7
-#define PIN_SENSOR D5
-#define PIN_PUMP D1
-#define PIN_BUZZER D2
-#define PIN_BUTTON D3
+#define TRIG_PIN D6
+#define ECHO_PIN D7
 
+// Definicje pinów dla innych elementów
+#define SENSOR_PIN D5  // Czujnik poziomu wody
+#define PUMP_PIN D1    // Pompa
+#define BUZZER_PIN D2  // Buzzer
+#define BUTTON_PIN D3  // Przycisk kasowania alarmu
+
+// Tworzenie obiektu klienta Wi-Fi, który będzie używany do komunikacji
 WiFiClient espClient;
-PubSubClient client(espClient);
-Ticker ticker;
+// Inicjalizacja urządzenia Home Assistant o nazwie "HydroSense"
+HADevice device("HydroSense");
+// Inicjalizacja obiektu MQTT z wykorzystaniem klienta Wi-Fi i urządzenia
+HAMqtt haMqtt(espClient, device);
+// Czujniki
+HASensor waterSensor("water");  // Czujnik wody - informuje Home Assistant o aktualnym stanie czujnika wody (włączony/wyłączony).
+HASensor pumpSensor("pump");  // Sterowanie pompą - ten obiekt umożliwia włączanie i wyłączanie pompy za pomocą Home Assistant.
+HASensor waterLevelPercent("water_level_percent");  // Procent zapełnienia zbiornika - informuje Home Assistant o aktualnym poziomie wody w zbiorniku w procentach.
+HASensor waterVolumeLiters("water_volume_liters");  // Ilość wody w litrach - informuje Home Assistant o ilości wody w zbiorniku w litrach.
+HASensor reserveSensor("reserve");  // Czujnik rezerwy
+HASensor pomiarSensor("pomiar");  // Czujnik odległości - aktualny odczyt w mm
+HASensor waterEmptySensor("water_empty");  // Sensor "Brak wody" do HA
+// Przełączniki
+HASwitch buzzerSwitch("buzzer");  // Sterowanie buzzerem - umożliwia włączanie i wyłączanie buzzera przez Home Assistant.
+HASwitch alarmSwitch("alarm_switch");  // Wyświetlanie i kasowanie alarmu - ten przełącznik pozwala na wyświetlenie stanu alarmu oraz jego ręczne kasowanie.
+HASwitch serviceSwitch("service_mode");  // Tryb serwis - przełącznik pozwalający na włączenie lub wyłączenie trybu serwisowego (ignorowanie niektórych funkcji).
+// Ustawienia liczbowe
+HANumber pumpTimeNumber("pump_time");  // Czas pracy pompy - pozwala ustawić czas pracy pompy, z dokładnością do pełnych sekund.
+HANumber delayTimeNumber("delay_time");  // Czas opóźnienia - umożliwia ustawienie opóźnienia przed włączeniem pompy, z dokładnością do pełnych sekund.
+HANumber tankDiameterHA("tank_diameter");  // Średnica zbiornika - umożliwia ustawienie średnicy zbiornika w Home Assistant.
+HANumber distanceFullHA("distance_full");  // Odległość pełnego zbiornika - ustawienie odległości czujnika od powierzchni wody, gdy zbiornik jest pełny.
+HANumber distanceEmptyHA("distance_empty");  // Odległość pustego zbiornika - ustawienie odległości czujnika od dna zbiornika, gdy zbiornik jest pusty.
+HANumber reserveThresholdHA("reserve_threshold");  // Ustawienie progu rezerwy
+
 
 long duration;
 int distance;
@@ -31,17 +54,30 @@ bool pumpState = false;
 unsigned long previousMillis = 0;
 const long interval = 2000; // Interwał pomiaru w milisekundach
 
+// Nowe zmienne
+int pompa_opoznienie = 5;
+int pompa_praca = 60;
+int zbiornik_pelny = 65;
+int zbiornik_pusty = 510;
+int zbiornik_rezerwa = 450;
+int zbiornik_histereza = 10;
+bool alarm = false;
+bool brak_wody = false;
+bool dzwiek = false;
+
+
 void setup() {
   pinMode(PIN_TRIG, OUTPUT);
   pinMode(PIN_ECHO, INPUT);
   pinMode(PIN_PUMP, OUTPUT);
+  digitalWrite(PIN_PUMP, LOW);
   pinMode(PIN_BUZZER, OUTPUT);
+  digitalWrite(PIN_BUZZER, LOW);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_SENSOR, INPUT_PULLUP);
 
   Serial.begin(115200);
   setup_wifi();
-  client.setServer(mqtt_server, mqtt_port);
-  client.setCallback(callback);
 
   // Konfiguracja OTA
   ArduinoOTA.onStart([]() {
@@ -51,7 +87,6 @@ void setup() {
     } else { // U_SPIFFS
       type = "filesystem";
     }
-    // NOTE: jeśli używasz SPIFFS, "FS.begin()" tutaj.
     Serial.println("Start OTA: " + type);
   });
   ArduinoOTA.onEnd([]() {
@@ -78,7 +113,6 @@ void setup() {
 }
 
 void setup_wifi() {
-  delay(10);
   Serial.println();
   Serial.print("Łączenie z ");
   Serial.println(ssid);
@@ -94,10 +128,6 @@ void setup_wifi() {
   Serial.println("WiFi połączone");
   Serial.println("Adres IP: ");
   Serial.println(WiFi.localIP());
-}
-
-void callback(char* topic, byte* payload, unsigned int length) {
-  // Obsługa wiadomości MQTT tutaj
 }
 
 void reconnect() {
@@ -125,7 +155,11 @@ void measureDistance() {
   duration = pulseIn(PIN_ECHO, HIGH);
   distance = duration * 0.034 / 2;
 
-  if (distance < 10) { // Dostosuj próg według potrzeb
+  zbiornik_pelny = distance < 10;
+  zbiornik_pusty = distance > 100;
+  zbiornik_rezerwa = distance < 20 && distance > 10;
+
+  if (zbiornik_pelny) { // Zbiornik pełny
     if (!pumpState) {
       digitalWrite(PIN_PUMP, HIGH);
       pumpState = true;
@@ -137,13 +171,13 @@ void measureDistance() {
     }
   }
 
-  if (distance < 5) { // Próg alarmowy
+  if (zbiornik_pelny && distance < 5) { // Próg alarmowy
     digitalWrite(PIN_BUZZER, HIGH);
+    dzwiek = true;
   } else {
     digitalWrite(PIN_BUZZER, LOW);
+    dzwiek = false;
   }
-
-  client.publish("hydrosense/level", String(distance).c_str(), true);
 }
 
 void loop() {
