@@ -448,24 +448,30 @@ private:
         return constrain(percentage, 0.0f, 100.0f);
     }
 
-    void handleButton() {
-        static unsigned long pressStartTime = 0;
-        static bool wasPressed = false;
-        static bool serviceMode = false;
-        static bool longPressActionExecuted = false;
-        
-        bool isPressed = (digitalRead(PIN_BUTTON) == LOW);
-        
-        if (isPressed && !wasPressed) {
-            pressStartTime = millis();
-            wasPressed = true;
-            longPressActionExecuted = false;
+void handleButton() {
+    static unsigned long pressStartTime = 0;
+    static bool wasPressed = false;
+    static bool serviceMode = false;
+    static bool longPressActionExecuted = false;
+    
+    bool isPressed = (digitalRead(PIN_BUTTON) == LOW);
+    
+    if (isPressed && !wasPressed) {
+        pressStartTime = millis();
+        wasPressed = true;
+        longPressActionExecuted = false;
+    }
+    else if (isPressed && wasPressed) {
+        if (!longPressActionExecuted && (millis() - pressStartTime >= 1000)) {
+            Serial.println("Wykonuję kasowanie alarmu...");
+            digitalWrite(PIN_BUZZER, LOW);
+            longPressActionExecuted = true;
         }
-        else if (isPressed && wasPressed) {
-            if (!longPressActionExecuted && (millis() - pressStartTime >= 1000)) {
-                Serial.println("Wykonuję kasowanie alarmu...");
-                digitalWrite(PIN_BUZZER, LOW);
-                // Sygnał dźwięk
+    }
+    else if (!isPressed && wasPressed) {
+        wasPressed = false;
+    }
+}
 
 void setup() {
     // Initialize serial communication
