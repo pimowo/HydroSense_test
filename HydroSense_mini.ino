@@ -2,190 +2,344 @@
 #include <ArduinoOTA.h>
 #include <ArduinoHA.h>
 
-// WiFi login data
-const char* ssid = "pimowo";
-const char* password = "ckH59LRZQzCDQFiUgj";
+// ========== SYSTEM CONFIGURATION ==========
+// Konfiguracja systemu
+const char* WIFI_SSID = "pimowo";
+const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";
+const char* MQTT_SERVER = "192.168.1.14";
+const int MQTT_PORT = 1883;
+const char* MQTT_USER = "hydrosense";
+const char* MQTT_PASSWORD = "hydrosense";
 
-// MQTT login data
-const char* mqtt_server = "192.168.1.14";
-const int mqtt_port = 1883;
-const char* mqtt_user = "hydrosense";
-const char* mqtt_password = "hydrosense";
+// ========== PIN DEFINITIONS ==========
+// Definicje pinów
+#define PIN_ULTRASONIC_TRIG D6    // Pin trigger czujnika ultradźwiękowego
+#define PIN_ULTRASONIC_ECHO D7    // Pin echo czujnika ultradźwiękowego
+#define PIN_WATER_LEVEL D5        // Czujnik poziomu wody
+#define PIN_PUMP D1               // Sterowanie pompą
+#define PIN_BUZZER D2            // Sygnalizator dźwiękowy
+#define PIN_RESET_BUTTON D3      // Przycisk resetu alarmu
 
-// Pins
-#define TRIG_PIN D6
-#define ECHO_PIN D7
-#define SENSOR_PIN D5  // Water level sensor
-#define PUMP_PIN D1    // Pump
-#define BUZZER_PIN D2  // Buzzer
-#define BUTTON_PIN D3  // Alarm reset button
-
-// Creating a Wi-Fi client object for communication
+// ========== COMMUNICATION OBJECTS ==========
+// Obiekty komunikacyjne
 WiFiClient espClient;
-// Initializing the Home Assistant device named "HydroSense"
 HADevice device("HydroSense");
-// Initializing the MQTT object using the Wi-Fi client and device
 HAMqtt haMqtt(espClient, device);
-// Sensors
-HASensor waterSensor("water");  // Water sensor - informs Home Assistant about the current state of the water sensor (on/off).
-HASensor pumpSensor("pump");  // Pump control - allows turning the pump on and off via Home Assistant.
-HASensor waterLevelPercent("water_level_percent");  // Tank fill percentage - informs Home Assistant about the current water level in the tank in percent.
-HASensor waterVolumeLiters("water_volume_liters");  // Water volume in liters - informs Home Assistant about the amount of water in the tank in liters.
-HASensor reserveSensor("reserve");  // Reserve sensor
-HASensor pomiarSensor("pomiar");  // Distance sensor - current reading in mm
-HASensor waterEmptySensor("water_empty");  // "No water" sensor for HA
-// Switches
-HASwitch buzzerSwitch("buzzer");  // Buzzer control - allows turning the buzzer on and off via Home Assistant.
-HASwitch alarmSwitch("alarm_switch");  // Displaying and resetting the alarm - allows displaying the alarm status and manually clearing it.
-HASwitch serviceSwitch("service_mode");  // Service mode - switch allowing to turn the service mode on or off (ignoring some functions).
-// Numeric settings
-HANumber pumpTimeNumber("pump_time");  // Pump working time - allows setting the pump working time, with an accuracy of full seconds.
-HANumber delayTimeNumber("delay_time");  // Delay time - allows setting the delay before turning on the pump, with an accuracy of full seconds.
-HANumber tankDiameterHA("tank_diameter");  // Tank diameter - allows setting the tank diameter in Home Assistant.
-HANumber distanceFullHA("distance_full");  // Full tank distance - setting the sensor distance from the water surface when the tank is full.
-HANumber distanceEmptyHA("distance_empty");  // Empty tank distance - setting the sensor distance from the tank bottom when the tank is empty.
-HANumber reserveThresholdHA("reserve_threshold");  // Reserve threshold setting
 
-long duration;
-int distance;
-bool pumpState = false;
-unsigned long previousMillis = 0;
-const long interval = 2000; // Measurement interval in milliseconds
+// ========== HOME ASSISTANT SENSORS ==========
+// Czujniki Home Assistant
+HASensor sensorWaterPresence("water");                    // Obecność wody
+HASensor sensorPumpStatus("pump"); // Uproszczona deklaracja
+HASensor sensorWaterLevel("water_level_percent");         // Poziom wody w %
+HASensor sensorWaterVolume("water_volume_liters");        // Objętość wody
+HASensor sensorReserveStatus("reserve");                  // Status rezerwy
+HASensor sensorDistance("distance");                      // Pomiar odległości
+HASensor sensorWaterEmpty("water_empty");                 // Status braku wody
 
-// New variables
-int pompa_opoznienie = 5;
-int pompa_praca = 60;
-int zbiornik_pelny = 65;
-int zbiornik_pusty = 510;
-int zbiornik_rezerwa = 450;
-int zbiornik_histereza = 10;
-bool alarm = false;
-bool brak_wody = false;
-bool dzwiek = false;
+// ========== HOME ASSISTANT SWITCHES ==========
+// Przełączniki Home Assistant
+HASwitch switchBuzzer("buzzer");                         // Kontrola sygnalizatora
+HASwitch switchAlarm("alarm_switch");                     // Kontrola alarmu
+HASwitch switchServiceMode("service_mode");               // Tryb serwisowy
 
-void setup() {
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  pinMode(PUMP_PIN, OUTPUT);
-  digitalWrite(PUMP_PIN, LOW);
-  pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
-  pinMode(SENSOR_PIN, INPUT_PULLUP);
+// ========== HOME ASSISTANT CONFIGURATION PARAMETERS ==========
+// Parametry konfiguracyjne Home Assistant
+HANumber configPumpTime("pump_time");
+HANumber configDelayTime("delay_time");
+HANumber configTankDiameter("tank_diameter");
+HANumber configDistanceFull("distance_full");
+HANumber configDistanceEmpty("distance_empty");
+HANumber configReserveThreshold("reserve_threshold");
 
-  Serial.begin(115200);
-  setup_wifi();
+// ========== SYSTEM VARIABLES ==========
+// Zmienne systemowe
+struct SystemStatus {
+    long ultrasonicDuration;
+    int currentDistance;
+    bool isPumpActive;
+    unsigned long lastMeasurementTime;
+    unsigned long lastPumpActivationTime;
+    const unsigned long MEASUREMENT_INTERVAL = 2000;  // ms
+    unsigned long pumpStartDelay = 0;    // Czas rozpoczęcia odliczania opóźnienia
+    bool isPumpDelayActive = false;      // Flaga wskazująca czy trwa odliczanie opóźnienia
+    bool isWaterLevelLow = false;        // Stan czujnika wody (niski = true)
+    bool lastPumpState = false;      // Poprzedni stan pompy do wykrywania zmian
+} status;
 
-  // OTA configuration
+// ========== TANK CONFIGURATION ==========
+// Konfiguracja zbiornika
+struct TankParameters {
+  int pumpDelay = 5;
+  int pumpWorkTime = 60;
+  int distanceWhenFull = 65;
+  int distanceWhenEmpty = 510;
+  int reserveLevel = 450;
+  int hysteresis = 10;
+  bool alarmActive = false;
+  bool waterEmpty = false;
+  bool buzzerActive = false;
+} tankConfig;
+
+// ========== WELCOME MELODY ==========
+// Melodia powitalna
+struct WelcomeMelody {
+  static const int NOTE_C4 = 262;
+  static const int NOTE_D4 = 294;
+  static const int NOTE_E4 = 330;
+  static const int NOTE_F4 = 349;
+  static const int NOTE_G4 = 392;
+  
+  int notes[5] = {NOTE_C4, NOTE_E4, NOTE_G4, NOTE_E4, NOTE_C4};
+  int durations[5] = {200, 200, 200, 200, 400};
+  int count = 5;
+} melody;
+
+// ========== SYSTEM FUNCTIONS ==========
+// Funkcje systemowe
+void initializeSystem() {
+    Serial.begin(115200);
+    configurePins();
+    
+    // Upewnij się, że pompa jest wyłączona na starcie i zaktualizuj stan w HA
+    stopPump();
+    status.lastPumpState = false;
+    sensorPumpStatus.setValue("OFF"); // Wysyłamy początkowy stan do HA
+    
+    initializeWiFi();
+    setupOTA();
+    playWelcomeMelody();
+}
+
+// Dodana funkcja setupOTA
+void setupOTA() {
   ArduinoOTA.onStart([]() {
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH) {
-      type = "sketch";
-    } else { // U_SPIFFS
-      type = "filesystem";
-    }
-    Serial.println("Start OTA: " + type);
+    Serial.println("Start OTA");
   });
   ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
+    Serial.println("\nKoniec OTA");
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    Serial.printf("Postęp: %u%%\r", (progress / (total / 100)));
   });
   ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) {
-      Serial.println("Auth Failed");
-    } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
-    } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
-    } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
-    } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
-    }
+    Serial.printf("Błąd[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Błąd autoryzacji");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Błąd rozpoczęcia");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Błąd połączenia");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Błąd odbioru");
+    else if (error == OTA_END_ERROR) Serial.println("Błąd zakończenia");
   });
   ArduinoOTA.begin();
 }
 
-void setup_wifi() {
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+void configurePins() {
+  pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
+  pinMode(PIN_ULTRASONIC_ECHO, INPUT);
+  pinMode(PIN_PUMP, OUTPUT);
+  pinMode(PIN_BUZZER, OUTPUT);
+  pinMode(PIN_RESET_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);
+  
+  digitalWrite(PIN_PUMP, LOW);
+  digitalWrite(PIN_BUZZER, LOW);
 }
 
-void reconnect() {
-  while (!haMqtt.isConnected()) {
-    Serial.print("Attempting MQTT connection...");
-    if (haMqtt.begin(mqtt_server, mqtt_port, mqtt_user, mqtt_password)) {
-      Serial.println("connected");
-      haMqtt.subscribe("hydrosense/control");
-    } else {
-      Serial.println("failed, try again in 5 seconds");
-      delay(5000);
+void initializeWiFi() {
+  Serial.print("Łączenie z siecią WiFi: ");
+  Serial.println(WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  
+  unsigned long connectionStartTime = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - connectionStartTime < 10000) {
+    handleSystemTasks();
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("Połączono z WiFi");
+    Serial.print("Adres IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("Błąd połączenia WiFi");
+  }
+}
+
+void handleSystemTasks() {
+  if (haMqtt.isConnected()) {
+    haMqtt.loop();
+  }
+  ArduinoOTA.handle();
+}
+
+void playWelcomeMelody() {
+  for (int i = 0; i < melody.count; i++) {
+    tone(PIN_BUZZER, melody.notes[i]);
+    unsigned long noteStartTime = millis();
+    while (millis() - noteStartTime < melody.durations[i]) {
+      handleSystemTasks();
+    }
+    noTone(PIN_BUZZER);
+    
+    noteStartTime = millis();
+    while (millis() - noteStartTime < 50) {
+      handleSystemTasks();
     }
   }
 }
 
-void measureDistance() {
-  digitalWrite(TRIG_PIN, LOW);
+void performMeasurement() {
+  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
   delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
+  digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
   delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
+  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+  
+  status.ultrasonicDuration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH);
+  status.currentDistance = status.ultrasonicDuration * 0.034 / 2;
+  
+  // Konwersja int na String
+  sensorDistance.setValue(String(status.currentDistance).c_str());
+}
 
-  duration = pulseIn(ECHO_PIN, HIGH);
-  distance = duration * 0.034 / 2;
+void updateSystemStatus() {
+  bool isTankFull = status.currentDistance < tankConfig.distanceWhenFull;
+  bool isTankEmpty = status.currentDistance > tankConfig.distanceWhenEmpty;
+  bool isReserveLevel = status.currentDistance > tankConfig.reserveLevel && !isTankEmpty;
+  
+  int waterLevelPercentage = map(status.currentDistance, 
+                                tankConfig.distanceWhenEmpty, 
+                                tankConfig.distanceWhenFull, 
+                                0, 100);
+  
+  // Konwersja wartości na String
+  sensorWaterLevel.setValue(String(waterLevelPercentage).c_str());
+  sensorReserveStatus.setValue(isReserveLevel ? "ON" : "OFF");
+  sensorWaterEmpty.setValue(isTankEmpty ? "ON" : "OFF");
+  
+  controlPump(isTankFull);
+}
 
-  zbiornik_pelny = distance < 10;
-  zbiornik_pusty = distance > 100;
-  zbiornik_rezerwa = distance < 20 && distance > 10;
+void controlPump(bool shouldPumpBeActive) {
+  if (shouldPumpBeActive && !status.isPumpActive) {
+    digitalWrite(PIN_PUMP, HIGH);
+    status.isPumpActive = true;
+    sensorPumpStatus.setValue("ON");
+  } else if (!shouldPumpBeActive && status.isPumpActive) {
+    digitalWrite(PIN_PUMP, LOW);
+    status.isPumpActive = false;
+    sensorPumpStatus.setValue("OFF");
+  }
+}
 
-  if (zbiornik_pelny) { // Full tank
-    if (!pumpState) {
-      digitalWrite(PUMP_PIN, HIGH);
-      pumpState = true;
+void updatePumpControl() {
+    bool currentWaterLevel = digitalRead(PIN_WATER_LEVEL);  // Odczyt stanu czujnika
+    
+    // Aktualizacja stanu czujnika wody
+    status.isWaterLevelLow = currentWaterLevel == LOW;
+    
+    // Wysoki poziom wody - natychmiastowe wyłączenie pompy
+    if (!status.isWaterLevelLow && status.isPumpActive) {
+        stopPump();
+        status.isPumpDelayActive = false;
+        status.pumpStartDelay = 0;
+        return;
     }
-  } else {
-    if (pumpState) {
-      digitalWrite(PUMP_PIN, LOW);
-      pumpState = false;
+    
+    // Niski poziom wody - rozpocznij odliczanie jeśli jeszcze nie rozpoczęto
+    if (status.isWaterLevelLow && !status.isPumpActive && !status.isPumpDelayActive) {
+        status.isPumpDelayActive = true;
+        status.pumpStartDelay = millis();
+        Serial.println("Rozpoczęcie odliczania opóźnienia pompy");
+        return;
+    }
+    
+    // Sprawdzenie czy minął czas opóźnienia
+    if (status.isPumpDelayActive && !status.isPumpActive) {
+        if (millis() - status.pumpStartDelay >= (tankConfig.pumpDelay * 1000)) {
+            startPump();
+            status.isPumpDelayActive = false;
+            return;
+        }
+    }
+    
+    // Sprawdzenie czasu pracy pompy
+    if (status.isPumpActive) {
+        if (millis() - status.lastPumpActivationTime >= (tankConfig.pumpWorkTime * 1000)) {
+            stopPump();
+            return;
+        }
+    }
+}
+
+void startPump() {
+    digitalWrite(PIN_PUMP, HIGH);
+    status.isPumpActive = true;
+    status.lastPumpActivationTime = millis();
+    
+    // Wysyłaj do HA tylko jeśli stan się zmienił
+    if (status.lastPumpState != status.isPumpActive) {
+        sensorPumpStatus.setValue("ON");
+        status.lastPumpState = status.isPumpActive;
+        Serial.println("Pompa włączona - stan wysłany do HA");
+    }
+}
+
+void stopPump() {
+    digitalWrite(PIN_PUMP, LOW);
+    status.isPumpActive = false;
+    
+    // Wysyłaj do HA tylko jeśli stan się zmienił
+    if (status.lastPumpState != status.isPumpActive) {
+        sensorPumpStatus.setValue("OFF");
+        status.lastPumpState = status.isPumpActive;
+        Serial.println("Pompa wyłączona - stan wysłany do HA");
+    }
+}
+
+void handleButtonPress() {
+  if (digitalRead(PIN_RESET_BUTTON) == LOW) {
+    tankConfig.alarmActive = false;
+    // Używamy setState zamiast setValue dla HASwitch
+    switchAlarm.setState(false);  
+    unsigned long debounceStartTime = millis();
+    while (millis() - debounceStartTime < 50) {
+      handleSystemTasks();
     }
   }
+}
 
-  if (zbiornik_pelny && distance < 5) { // Alarm threshold
-    digitalWrite(BUZZER_PIN, HIGH);
-    dzwiek = true;
-  } else {
-    digitalWrite(BUZZER_PIN, LOW);
-    dzwiek = false;
-  }
+void setup() {
+  initializeSystem();
 }
 
 void loop() {
+    unsigned long currentTime = millis();
+    
+    if (!haMqtt.isConnected()) {
+        reconnectMQTT();
+    }
+    
+    handleSystemTasks();
+    
+    if (currentTime - status.lastMeasurementTime >= status.MEASUREMENT_INTERVAL) {
+        status.lastMeasurementTime = currentTime;
+        performMeasurement();
+        updateSystemStatus();
+    }
+    
+    // Dodaj obsługę pompy
+    updatePumpControl();
+    
+    handleButtonPress();
+}
+
+void reconnectMQTT() {
   if (!haMqtt.isConnected()) {
-    reconnect();
-  }
-  haMqtt.loop();
-
-  ArduinoOTA.handle();
-
-  unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= interval) {
-    previousMillis = currentMillis;
-    measureDistance();
+    Serial.print("Próba połączenia MQTT... ");
+    if (haMqtt.begin(MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD)) {
+      Serial.println("połączono");
+      haMqtt.subscribe("hydrosense/control");
+    } else {
+      Serial.println("nieudane");
+    }
   }
 }
