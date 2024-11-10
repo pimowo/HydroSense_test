@@ -466,3 +466,60 @@ private:
                 Serial.println("Wykonuję kasowanie alarmu...");
                 digitalWrite(PIN_BUZZER, LOW);
                 // Sygnał dźwięk
+
+void setup() {
+    // Initialize serial communication
+    Serial.begin(115200);
+
+    // Initialize pin modes
+    pinMode(PIN_TRIG, OUTPUT);
+    pinMode(PIN_ECHO, INPUT);
+    pinMode(PIN_SENSOR, INPUT);
+    pinMode(PIN_PUMP, OUTPUT);
+    pinMode(PIN_BUZZER, OUTPUT);
+    pinMode(PIN_BUTTON, INPUT_PULLUP);
+
+    // Initialize WiFi
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("WiFi connected");
+
+    // Initialize MQTT
+    mqtt.begin(MQTT_BROKER, MQTT_PORT, wifiClient);
+    while (!mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD)) {
+        delay(500);
+        Serial.print("*");
+    }
+    Serial.println("MQTT connected");
+
+    // Load settings
+    settings.load();
+}
+
+void loop() {
+    // Update the HydroSense app
+    hydroSenseApp.update();
+
+    // Handle the button press
+    handleButton();
+
+    // Call the update method regularly
+    if (millis() - lastUpdateTime >= UPDATE_INTERVAL) {
+        lastUpdateTime = millis();
+        hydroSenseApp.update();
+    }
+
+    // Check WiFi and MQTT connection
+    if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {
+        lastWiFiCheck = millis();
+        if (WiFi.status() != WL_CONNECTED) {
+            WiFi.reconnect();
+        }
+        if (!mqtt.connected()) {
+            mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD);
+        }
+    }
+}
