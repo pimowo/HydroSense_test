@@ -1,10 +1,3 @@
-/***************************************
- * System HydroSense
- * Wersja: 2.0
- * Autor: PMW
- * Data: 2024
- ***************************************/
-
 #include <ESP8266WiFi.h>
 #include <EEPROM.h>
 #include <ArduinoHA.h>
@@ -14,189 +7,177 @@
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
 
-// Definicje makr
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
 #define BUILD_DATE TOSTRING(__DATE__)
-#define STACK_PROTECTOR  512 // bytes
+#define STACK_PROTECTOR 512 // bytes
 
 namespace HydroSense {
 
-// Konfiguracja pinów
-constexpr uint8_t PIN_TRIG = D6;
-constexpr uint8_t PIN_ECHO = D7;
-constexpr uint8_t PIN_SENSOR = D5;
-constexpr uint8_t PIN_PUMP = D1;
-constexpr uint8_t PIN_BUZZER = D2;
-constexpr uint8_t PIN_BUTTON = D3;
+  constexpr uint8_t PIN_TRIG = D6;
+  constexpr uint8_t PIN_ECHO = D7;
+  constexpr uint8_t PIN_SENSOR = D5;
+  constexpr uint8_t PIN_PUMP = D1;
+  constexpr uint8_t PIN_BUZZER = D2;
+  constexpr uint8_t PIN_BUTTON = D3;
 
-// Stałe konfiguracyjne
-constexpr unsigned long SENSOR_CHECK_INTERVAL = 1000; // ms
-constexpr unsigned long MQTT_RETRY_INTERVAL = 5000;   // ms
-constexpr float TANK_DIAMETER_MIN = 50.0f;           // mm
-constexpr float TANK_DIAMETER_MAX = 250.0f;          // mm
+  constexpr unsigned long SENSOR_CHECK_INTERVAL = 1000; // ms
+  constexpr unsigned long MQTT_RETRY_INTERVAL = 5000;   // ms
+  constexpr float TANK_DIAMETER_MIN = 50.0f;           // mm
+  constexpr float TANK_DIAMETER_MAX = 250.0f;          // mm
 
-// WiFi credentials
-const char* WIFI_SSID = "pimowo";
-const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";
+  const char* WIFI_SSID = "pimowo";
+  const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";
 
-// Konfiguracja MQTT
-const char* MQTT_BROKER = "192.168.1.14";
-const uint16_t MQTT_PORT = 1883;
-const char* MQTT_USER = "hydrosense";
-const char* MQTT_PASSWORD = "hydrosense";
-const char* MQTT_CLIENT_ID = "HydroSense_ESP8266"; // Dodajemy unikalny identyfikator klienta
+  const char* MQTT_BROKER = "192.168.1.14";
+  const uint16_t MQTT_PORT = 1883;
+  const char* MQTT_USER = "hydrosense";
+  const char* MQTT_PASSWORD = "hydrosense";
+  const char* MQTT_CLIENT_ID = "HydroSense_ESP8266";
 
-class WaterLevelSensor {
-public:
-    WaterLevelSensor() : lastMeasurement(0), distance(0.0f) {}
+  class WaterLevelSensor {
+
+    public:
+      WaterLevelSensor() : lastMeasurement(0), distance(0.0f) {}
     
-    float measureDistance() {
+      float measureDistance() {
         if (millis() - lastMeasurement < SENSOR_CHECK_INTERVAL) {
-            return distance;
+          return distance;
         }
-        
-        // Pomiar z użyciem średniej z 3 odczytów
+          
         float measurements[3];
         for (int i = 0; i < 3; ++i) {
-            digitalWrite(PIN_TRIG, LOW);
-            delayMicroseconds(2);
-            digitalWrite(PIN_TRIG, HIGH);
-            delayMicroseconds(10);
-            digitalWrite(PIN_TRIG, LOW);
-            
-            measurements[i] = pulseIn(PIN_ECHO, HIGH) * 0.343f / 2.0f;
-            delayMicroseconds(50);
+          digitalWrite(PIN_TRIG, LOW);
+          delayMicroseconds(2);
+          digitalWrite(PIN_TRIG, HIGH);
+          delayMicroseconds(10);
+          digitalWrite(PIN_TRIG, LOW);
+          
+          measurements[i] = pulseIn(PIN_ECHO, HIGH) * 0.343f / 2.0f;
+          delayMicroseconds(50);
         }
-        
+          
         distance = (measurements[0] + measurements[1] + measurements[2]) / 3.0f;
         lastMeasurement = millis();
         return distance;
-    }
+      }
     
-private:
-    unsigned long lastMeasurement;
-    float distance;
-};
+    private:
+      unsigned long lastMeasurement;
+      float distance;
+  };
 
-class PumpController {
-public:
-    enum class State {
+  class PumpController {
+    
+    public:
+      enum class State {
         IDLE,
         DELAYED_START,
         RUNNING,
         ERROR
-    };
+      }
     
-    PumpController() : 
-        state(State::IDLE),
-        startTime(0),
-        pumpDuration(30000), // 30 sekund
-        delayDuration(5000)  // 5 sekund
-    {}
+      PumpController() : 
+      state(State::IDLE),
+      startTime(0),
+      pumpDuration(30000), // 30 sekund
+      delayDuration(5000)  // 5 sekund
+      {}
     
-    void update() {
+      void update() {
         unsigned long currentTime = millis();
         
         switch (state) {
-            case State::DELAYED_START:
-                if (currentTime - startTime >= delayDuration) {
-                    startPump();
-                }
-                break;
+          case State::DELAYED_START:
+            if (currentTime - startTime >= delayDuration) {
+              startPump();
+            }
+            break;
                 
-            case State::RUNNING:
-                if (currentTime - startTime >= pumpDuration) {
-                    stopPump();
-                }
-                break;
+          case State::RUNNING:
+            if (currentTime - startTime >= pumpDuration) {
+              stopPump();
+            }
+            break;
                 
-            default:
-                break;
+          default:
+            break;
         }
-    }
+      }
     
-    void requestStart() {
+      void requestStart() {
         if (state == State::IDLE) {
-            state = State::DELAYED_START;
-            startTime = millis();
+          state = State::DELAYED_START;
+          startTime = millis();
         }
-    }
+      }
     
-    void stop() {
+      void stop() {
         stopPump();
-    }
+      }
     
-private:
-    void startPump() {
+    private:
+      void startPump() {
         digitalWrite(PIN_PUMP, HIGH);
         state = State::RUNNING;
         startTime = millis();
-    }
+      }
     
-    void stopPump() {
+      void stopPump() {
         digitalWrite(PIN_PUMP, LOW);
         state = State::IDLE;
-    }
+      }
     
-    State state;
-    unsigned long startTime;
-    unsigned long pumpDuration;
-    unsigned long delayDuration;
-};
+      State state;
+      unsigned long startTime;
+      unsigned long pumpDuration;
+      unsigned long delayDuration;
+  };
 
+  class Settings {
+    
+    private:
+      static const uint32_t SETTINGS_MAGIC = 0xABCD1234;
+      uint32_t m_magic;
 
-class Settings {
-private:
-    static const uint32_t SETTINGS_MAGIC = 0xABCD1234;
-    uint32_t m_magic;
+      char m_wifiSSID[32];
+      char m_wifiPassword[64];
 
-    // WiFi settings
-    char m_wifiSSID[32];
-    char m_wifiPassword[64];
+      char m_mqttServer[40];
+      uint16_t m_mqttPort;
+      char m_mqttUser[40];
+      char m_mqttPassword[40];
 
-    // MQTT settings
-    char m_mqttServer[40];
-    uint16_t m_mqttPort;
-    char m_mqttUser[40];
-    char m_mqttPassword[40];
+      float m_tankDiameter;
+      float m_tankWidth;
+      float m_tankHeight;
+      float m_fullDistance;
+      float m_emptyDistance;
+      float m_reserveLevel;
+      float m_reserveHysteresis;
 
-    // Tank dimensions
-    float m_tankDiameter;     // mm
-    float m_tankWidth;        // mm
-    float m_tankHeight;       // mm
-    float m_fullDistance;     // mm
-    float m_emptyDistance;    // mm
-    float m_reserveLevel;     // mm
-    float m_reserveHysteresis;// mm
+      uint32_t m_pumpDelay;
+      uint32_t m_pumpWork;
 
-    // Pump timing
-    uint32_t m_pumpDelay;    // seconds
-    uint32_t m_pumpWork;     // seconds
+      bool m_soundEnabled = true;
+      bool m_reserveState;
 
-    // States
-    bool m_soundEnabled = true;
-    bool m_reserveState;     // Zmieniliśmy nazwę zmiennej z isInReserve na m_reserveState
-
-public:
-    Settings() {
+    public:    
+      Settings() {
         loadDefaults();
-    }
+      }
 
-    void loadDefaults() {
+      void loadDefaults() {
         m_magic = SETTINGS_MAGIC;
         
-        // WiFi defaults
         memset(m_wifiSSID, 0, sizeof(m_wifiSSID));
         memset(m_wifiPassword, 0, sizeof(m_wifiPassword));
 
-        // MQTT defaults
         memset(m_mqttServer, 0, sizeof(m_mqttServer));
         m_mqttPort = 1883;
         memset(m_mqttUser, 0, sizeof(m_mqttUser));
         memset(m_mqttPassword, 0, sizeof(m_mqttPassword));
 
-        // Tank defaults
         m_tankDiameter = 200.0f;
         m_tankWidth = 0.0f;
         m_tankHeight = 300.0f;
@@ -205,34 +186,31 @@ public:
         m_reserveLevel = 250.0f;
         m_reserveHysteresis = 20.0f;
 
-        // Pump defaults
-        m_pumpDelay = 300;    // 5 minut
-        m_pumpWork = 60;      // 1 minuta
+        m_pumpDelay = 300;
+        m_pumpWork = 60;
 
-        // State defaults
         m_soundEnabled = true;
         m_reserveState = false;
 
         save();
-    }
+      }
 
-    // WiFi getters and setters
-    const char* getWiFiSSID() const { return m_wifiSSID; }
-    void setWiFiCredentials(const char* ssid, const char* password) {
+      const char* getWiFiSSID() const { return m_wifiSSID; }
+      
+      void setWiFiCredentials(const char* ssid, const char* password) {
         strncpy(m_wifiSSID, ssid, sizeof(m_wifiSSID) - 1);
         strncpy(m_wifiPassword, password, sizeof(m_wifiPassword) - 1);
         m_wifiSSID[sizeof(m_wifiSSID) - 1] = '\0';
         m_wifiPassword[sizeof(m_wifiPassword) - 1] = '\0';
         save();
-    }
+      }
 
-    // MQTT getters and setters
-    const char* getMqttServer() const { return m_mqttServer; }
-    uint16_t getMqttPort() const { return m_mqttPort; }
-    const char* getMqttUser() const { return m_mqttUser; }
-    const char* getMqttPassword() const { return m_mqttPassword; }
+      const char* getMqttServer() const { return m_mqttServer; }
+      uint16_t getMqttPort() const { return m_mqttPort; }
+      const char* getMqttUser() const { return m_mqttUser; }
+      const char* getMqttPassword() const { return m_mqttPassword; }
     
-    void setMqttConfig(const char* server, uint16_t port, const char* user, const char* password) {
+      void setMqttConfig(const char* server, uint16_t port, const char* user, const char* password) {
         strncpy(m_mqttServer, server, sizeof(m_mqttServer) - 1);
         m_mqttPort = port;
         strncpy(m_mqttUser, user, sizeof(m_mqttUser) - 1);
@@ -241,23 +219,22 @@ public:
         m_mqttUser[sizeof(m_mqttUser) - 1] = '\0';
         m_mqttPassword[sizeof(m_mqttPassword) - 1] = '\0';
         save();
-    }
+      }
 
-    void setReserveLevel(float level) {
+      void setReserveLevel(float level) {
         m_reserveLevel = level;
         save();
-    }
+      }
 
-    // Tank dimension getters and setters
-    float getTankDiameter() const { return m_tankDiameter; }
-    float getTankWidth() const { return m_tankWidth; }
-    float getTankHeight() const { return m_tankHeight; }
-    float getFullDistance() const { return m_fullDistance; }
-    float getEmptyDistance() const { return m_emptyDistance; }
-    float getReserveLevel() const { return m_reserveLevel; }
-    float getReserveHysteresis() const { return m_reserveHysteresis; }
+      float getTankDiameter() const { return m_tankDiameter; }
+      float getTankWidth() const { return m_tankWidth; }
+      float getTankHeight() const { return m_tankHeight; }
+      float getFullDistance() const { return m_fullDistance; }
+      float getEmptyDistance() const { return m_emptyDistance; }
+      float getReserveLevel() const { return m_reserveLevel; }
+      float getReserveHysteresis() const { return m_reserveHysteresis; }
 
-    void setTankDimensions(float diameter, float width, float height, float fullDist, float emptyDist, float reserveLevel) {
+      void setTankDimensions(float diameter, float width, float height, float fullDist, float emptyDist, float reserveLevel) {
         m_tankDiameter = diameter;
         m_tankWidth = width;
         m_tankHeight = height;
@@ -265,37 +242,35 @@ public:
         m_emptyDistance = emptyDist;
         m_reserveLevel = reserveLevel;
         save();
-    }
+      }
 
-    // Pump timing getters and setters
-    uint32_t getPumpDelay() const { return m_pumpDelay; }
-    uint32_t getPumpWork() const { return m_pumpWork; }
+      uint32_t getPumpDelay() const { return m_pumpDelay; }
+      uint32_t getPumpWork() const { return m_pumpWork; }
     
-    void setPumpTiming(uint32_t delay, uint32_t work) {
+      void setPumpTiming(uint32_t delay, uint32_t work) {
         m_pumpDelay = delay;
         m_pumpWork = work;
         save();
-    }
+      }
 
-    // State getters and setters
-    bool isSoundEnabled() const { return m_soundEnabled; }
-    void setSoundEnabled(bool enabled) {
+      bool isSoundEnabled() const { return m_soundEnabled; }
+      
+      void setSoundEnabled(bool enabled) {
         m_soundEnabled = enabled;
         save();
-    }
+      }
 
-    bool isInReserve() const { return m_reserveState; }
-
-    bool checkReserveState(float currentDistance) {
+      bool isInReserve() const { return m_reserveState; }
+      bool checkReserveState(float currentDistance) {
         if (!m_reserveState && currentDistance >= m_reserveLevel) {
-            m_reserveState = true;
+          m_reserveState = true;
         } else if (m_reserveState && currentDistance <= (m_reserveLevel - m_reserveHysteresis)) {
-            m_reserveState = false;
+          m_reserveState = false;
         }
         return m_reserveState;
-    }
+      }
 
-    void save() {
+      void save() {
         EEPROM.begin(512);
         uint16_t addr = 0;
 
@@ -324,49 +299,47 @@ public:
         EEPROM.end();
 
         Serial.println("Ustawienia zapisane");
-        //printSettings();
-    }
+      }
 
-void load() {
-    EEPROM.begin(512);
-    uint16_t addr = 0;
+      void load() {
+        EEPROM.begin(512);
+        uint16_t addr = 0;
 
-    Serial.println("Ładowanie ustawień z EEPROM");
+        Serial.println("Ładowanie ustawień z EEPROM");
 
-    EEPROM.get(addr, m_magic); addr += sizeof(m_magic);
+        EEPROM.get(addr, m_magic); addr += sizeof(m_magic);
 
-    if (m_magic != SETTINGS_MAGIC) {
-        Serial.println("Wykryto niezainicjalizowany EEPROM - ładowanie wartości domyślnych");
+        if (m_magic != SETTINGS_MAGIC) {
+          Serial.println("Wykryto niezainicjalizowany EEPROM - ładowanie wartości domyślnych");
+          EEPROM.end();
+          loadDefaults();
+          return;
+        }
+
+        EEPROM.get(addr, m_wifiSSID); addr += sizeof(m_wifiSSID);
+        EEPROM.get(addr, m_wifiPassword); addr += sizeof(m_wifiPassword);
+        EEPROM.get(addr, m_mqttServer); addr += sizeof(m_mqttServer);
+        EEPROM.get(addr, m_mqttPort); addr += sizeof(m_mqttPort);
+        EEPROM.get(addr, m_mqttUser); addr += sizeof(m_mqttUser);
+        EEPROM.get(addr, m_mqttPassword); addr += sizeof(m_mqttPassword);
+        EEPROM.get(addr, m_tankDiameter); addr += sizeof(m_tankDiameter);
+        EEPROM.get(addr, m_tankWidth); addr += sizeof(m_tankWidth);
+        EEPROM.get(addr, m_tankHeight); addr += sizeof(m_tankHeight);
+        EEPROM.get(addr, m_fullDistance); addr += sizeof(m_fullDistance);
+        EEPROM.get(addr, m_emptyDistance); addr += sizeof(m_emptyDistance);
+        EEPROM.get(addr, m_reserveLevel); addr += sizeof(m_reserveLevel);
+        EEPROM.get(addr, m_reserveHysteresis); addr += sizeof(m_reserveHysteresis);
+        EEPROM.get(addr, m_pumpDelay); addr += sizeof(m_pumpDelay);
+        EEPROM.get(addr, m_pumpWork); addr += sizeof(m_pumpWork);
+        EEPROM.get(addr, m_soundEnabled); addr += sizeof(m_soundEnabled);
+        EEPROM.get(addr, m_reserveState); addr += sizeof(m_reserveState);
+
         EEPROM.end();
-        loadDefaults();
-        return;
-    }
 
-    EEPROM.get(addr, m_wifiSSID); addr += sizeof(m_wifiSSID);
-    EEPROM.get(addr, m_wifiPassword); addr += sizeof(m_wifiPassword);
-    EEPROM.get(addr, m_mqttServer); addr += sizeof(m_mqttServer);
-    EEPROM.get(addr, m_mqttPort); addr += sizeof(m_mqttPort);
-    EEPROM.get(addr, m_mqttUser); addr += sizeof(m_mqttUser);
-    EEPROM.get(addr, m_mqttPassword); addr += sizeof(m_mqttPassword);
-    EEPROM.get(addr, m_tankDiameter); addr += sizeof(m_tankDiameter);
-    EEPROM.get(addr, m_tankWidth); addr += sizeof(m_tankWidth);
-    EEPROM.get(addr, m_tankHeight); addr += sizeof(m_tankHeight);
-    EEPROM.get(addr, m_fullDistance); addr += sizeof(m_fullDistance);
-    EEPROM.get(addr, m_emptyDistance); addr += sizeof(m_emptyDistance);
-    EEPROM.get(addr, m_reserveLevel); addr += sizeof(m_reserveLevel);
-    EEPROM.get(addr, m_reserveHysteresis); addr += sizeof(m_reserveHysteresis);
-    EEPROM.get(addr, m_pumpDelay); addr += sizeof(m_pumpDelay);
-    EEPROM.get(addr, m_pumpWork); addr += sizeof(m_pumpWork);
-    EEPROM.get(addr, m_soundEnabled); addr += sizeof(m_soundEnabled);
-    EEPROM.get(addr, m_reserveState); addr += sizeof(m_reserveState);
+        Serial.println("Ustawienia załadowane");
+      }
 
-    EEPROM.end();
-
-    Serial.println("Ustawienia załadowane");
-    //printSettings();
-}
-
-    void printSettings() {
+      void printSettings() {
         Serial.printf("m_wifiSSID: %s\n", m_wifiSSID);
         Serial.printf("m_wifiPassword: %s\n", m_wifiPassword);
         Serial.printf("m_mqttServer: %s\n", m_mqttServer);
@@ -384,46 +357,39 @@ void load() {
         Serial.printf("m_pumpWork: %d s\n", m_pumpWork);
         Serial.printf("m_soundEnabled: %d\n", m_soundEnabled);
         Serial.printf("m_reserveState: %d\n", m_reserveState);
-    }
-};
+      }
+  };
 
-// Główna klasa aplikacji
-class HydroSenseApp {
-private:
-    char mqtt_broker[40] = "";
-    char mqtt_user[40] = "";
-    char mqtt_password[40] = "";
-    uint16_t mqtt_port = 1883;
+  class HydroSenseApp {
+    private:
+      char mqtt_broker[40] = "";
+      char mqtt_user[40] = "";
+      char mqtt_password[40] = "";
+      uint16_t mqtt_port = 1883;
     
-    // WiFiManager
-    WiFiManager wm;
+      WiFiManager wm;
     
-    // Stałe czasowe
-    static constexpr unsigned long WIFI_CHECK_INTERVAL = 30000;  // ms
-    static constexpr unsigned long UPDATE_INTERVAL = 1000;       // ms
-    
-    // Komponenty sieciowe
-    WiFiClient wifiClient;
-    String deviceId;
-    HADevice device;
-    HAMqtt mqtt;
-    ESP8266WebServer webServer;
-    unsigned long lastWiFiCheck;
-    unsigned long lastMqttRetry;
-    unsigned long lastUpdateTime;
+      static constexpr unsigned long WIFI_CHECK_INTERVAL = 30000;  // ms
+      static constexpr unsigned long UPDATE_INTERVAL = 1000;       // ms
+      
+      WiFiClient wifiClient;
+      String deviceId;
+      HADevice device;
+      HAMqtt mqtt;
+      ESP8266WebServer webServer;
+      unsigned long lastWiFiCheck;
+      unsigned long lastMqttRetry;
+      unsigned long lastUpdateTime;
 
-    // Sensory HA
-    HASensor haWaterLevelSensor;
-    HASensor haWaterLevelPercentSensor;
-    HABinarySensor reserveSensor;
+      HASensor haWaterLevelSensor;
+      HASensor haWaterLevelPercentSensor;
+      HABinarySensor reserveSensor;
 
-    // Inne komponenty
-    Settings settings;
-    WaterLevelSensor levelSensor;
-    PumpController pumpController;
+      Settings settings;
+      WaterLevelSensor levelSensor;
+      PumpController pumpController;
 
-    // Przeniesienie metod pomocniczych do klasy
-    String createSensorConfig(const char* id, const char* name, const char* unit) {
+      String createSensorConfig(const char* id, const char* name, const char* unit) {
         String config = "{";
         config += "\"name\":\"" + String(name) + "\",";
         config += "\"device_class\":\"" + String(id) + "\",";
@@ -437,95 +403,86 @@ private:
         config += "\"manufacturer\":\"PMW\"";
         config += "}}";
         return config;
-    }
+      }
 
-    float calculateWaterPercentage(float waterLevel) {
+      float calculateWaterPercentage(float waterLevel) {
         float maxLevel = settings.getEmptyDistance() - settings.getFullDistance();
         if (maxLevel <= 0) return 0.0f;
         
         float currentLevel = settings.getEmptyDistance() - waterLevel;
         float percentage = (currentLevel / maxLevel) * 100.0f;
         return constrain(percentage, 0.0f, 100.0f);
-    }
+      }
 
-void handleButton() {
-    static unsigned long pressStartTime = 0;
-    static bool wasPressed = false;
-    static bool serviceMode = false;
-    static bool longPressActionExecuted = false;
-    
-    bool isPressed = (digitalRead(PIN_BUTTON) == LOW);
-    
-    if (isPressed && !wasPressed) {
-        pressStartTime = millis();
-        wasPressed = true;
-        longPressActionExecuted = false;
-    }
-    else if (isPressed && wasPressed) {
-        if (!longPressActionExecuted && (millis() - pressStartTime >= 1000)) {
+    public:
+      void handleButton() {
+        static unsigned long pressStartTime = 0;
+        static bool wasPressed = false;
+        static bool serviceMode = false;
+        static bool longPressActionExecuted = false;
+        
+        bool isPressed = (digitalRead(PIN_BUTTON) == LOW);
+        
+        if (isPressed && !wasPressed) {
+          pressStartTime = millis();
+          wasPressed = true;
+          longPressActionExecuted = false;
+        } else if (isPressed && wasPressed) {
+          if (!longPressActionExecuted && (millis() - pressStartTime >= 1000)) {
             Serial.println("Wykonuję kasowanie alarmu...");
             digitalWrite(PIN_BUZZER, LOW);
             longPressActionExecuted = true;
+          }
+        } else if (!isPressed && wasPressed) {
+          wasPressed = false;
         }
-    }
-    else if (!isPressed && wasPressed) {
-        wasPressed = false;
-    }
-}
+  };     
+};
 
 void setup() {
-    // Initialize serial communication
-    Serial.begin(115200);
+  Serial.begin(115200);
 
-    // Initialize pin modes
-    pinMode(PIN_TRIG, OUTPUT);
-    pinMode(PIN_ECHO, INPUT);
-    pinMode(PIN_SENSOR, INPUT);
-    pinMode(PIN_PUMP, OUTPUT);
-    pinMode(PIN_BUZZER, OUTPUT);
-    pinMode(PIN_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_TRIG, OUTPUT);
+  pinMode(PIN_ECHO, INPUT);
+  pinMode(PIN_SENSOR, INPUT);
+  pinMode(PIN_PUMP, OUTPUT);
+  pinMode(PIN_BUZZER, OUTPUT);
+  pinMode(PIN_BUTTON, INPUT_PULLUP);
 
-    // Initialize WiFi
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("WiFi connected");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("WiFi connected");
 
-    // Initialize MQTT
-    mqtt.begin(MQTT_BROKER, MQTT_PORT, wifiClient);
-    while (!mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD)) {
-        delay(500);
-        Serial.print("*");
-    }
-    Serial.println("MQTT connected");
+  mqtt.begin(MQTT_BROKER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD);
+  while (!mqtt.connected()) {
+    delay(500);
+    Serial.print("*");
+  }
+  Serial.println("MQTT connected");
 
-    // Load settings
-    settings.load();
+  settings.load();
 }
 
 void loop() {
-    // Update the HydroSense app
+  hydroSenseApp.update();
+
+  handleButton();
+
+  if (millis() - lastUpdateTime >= UPDATE_INTERVAL) {
+    lastUpdateTime = millis();
     hydroSenseApp.update();
+  }
 
-    // Handle the button press
-    handleButton();
-
-    // Call the update method regularly
-    if (millis() - lastUpdateTime >= UPDATE_INTERVAL) {
-        lastUpdateTime = millis();
-        hydroSenseApp.update();
+  if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {
+    lastWiFiCheck = millis();
+    if (WiFi.status() != WL_CONNECTED) {
+      WiFi.reconnect();
     }
-
-    // Check WiFi and MQTT connection
-    if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {
-        lastWiFiCheck = millis();
-        if (WiFi.status() != WL_CONNECTED) {
-            WiFi.reconnect();
-        }
-        if (!mqtt.connected()) {
-            mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD);
-        }
+    if (!mqtt.connected()) {
+      mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD);
     }
+  }
 }
