@@ -815,36 +815,36 @@ namespace HydroSense {
       }
   };
 
-  class HydroSenseApp {
-    private:
-      char mqtt_broker[40] = "";
-      char mqtt_user[40] = "";
-      char mqtt_password[40] = "";
-      uint16_t mqtt_port = 1883;
+class HydroSenseApp {
+private:
+    char mqtt_broker[40] = "";
+    char mqtt_user[40] = "";
+    char mqtt_password[40] = "";
+    uint16_t mqtt_port = 1883;
+
+    WiFiManager wm;
+
+    static constexpr unsigned long WIFI_CHECK_INTERVAL = 30000;  // ms
+    static constexpr unsigned long UPDATE_INTERVAL = 1000;       // ms
     
-      WiFiManager wm;
-    
-      static constexpr unsigned long WIFI_CHECK_INTERVAL = 30000;  // ms
-      static constexpr unsigned long UPDATE_INTERVAL = 1000;       // ms
-      
-      WiFiClient wifiClient;
-      String deviceId;
-      HADevice device;
-      HAMqtt mqtt;
-      ESP8266WebServer webServer;
-      unsigned long lastWiFiCheck;
-      unsigned long lastMqttRetry;
-      unsigned long lastUpdateTime;
+    WiFiClient wifiClient;
+    String deviceId;
+    HADevice device;
+    HAMqtt mqtt;
+    ESP8266WebServer webServer;
+    unsigned long lastWiFiCheck;
+    unsigned long lastMqttRetry;
+    unsigned long lastUpdateTime;
 
-      HASensor haWaterLevelSensor;
-      HASensor haWaterLevelPercentSensor;
-      HABinarySensor reserveSensor;
+    HASensor haWaterLevelSensor;
+    HASensor haWaterLevelPercentSensor;
+    HABinarySensor reserveSensor;
 
-      Settings settings;
-      WaterLevelSensor levelSensor;
-      PumpController pumpController;
+    Settings settings;
+    WaterLevelSensor levelSensor;
+    PumpController pumpController;
 
-      String createSensorConfig(const char* id, const char* name, const char* unit) {
+    String createSensorConfig(const char* id, const char* name, const char* unit) {
         String config = "{";
         config += "\"name\":\"" + String(name) + "\",";
         config += "\"device_class\":\"" + String(id) + "\",";
@@ -858,19 +858,26 @@ namespace HydroSense {
         config += "\"manufacturer\":\"PMW\"";
         config += "}}";
         return config;
-      }
+    }
 
-      float calculateWaterPercentage(float waterLevel) {
+    float calculateWaterPercentage(float waterLevel) {
         float maxLevel = settings.getEmptyDistance() - settings.getFullDistance();
         if (maxLevel <= 0) return 0.0f;
         
         float currentLevel = settings.getEmptyDistance() - waterLevel;
         float percentage = (currentLevel / maxLevel) * 100.0f;
         return constrain(percentage, 0.0f, 100.0f);
-      }
+    }
 
-    public:
-      void handleButton() {
+public:
+    HydroSenseApp()
+      : mqtt(wifiClient, device, 0), 
+        haWaterLevelSensor("water_level_sensor"), 
+        haWaterLevelPercentSensor("water_level_percent_sensor"), 
+        reserveSensor("reserve_sensor") 
+    {}
+
+    void handleButton() {
         static unsigned long pressStartTime = 0;
         static bool wasPressed = false;
         static bool serviceMode = false;
@@ -879,32 +886,32 @@ namespace HydroSense {
         bool isPressed = (digitalRead(PIN_BUTTON) == LOW);
         
         if (isPressed && !wasPressed) {
-          pressStartTime = millis();
-          wasPressed = true;
-          longPressActionExecuted = false;
+            pressStartTime = millis();
+            wasPressed = true;
+            longPressActionExecuted = false;
         } else if (isPressed && wasPressed) {
-          if (!longPressActionExecuted && (millis() - pressStartTime >= 1000)) {
-            Serial.println("Wykonuję kasowanie alarmu...");
-            digitalWrite(PIN_BUZZER, LOW);
-            longPressActionExecuted = true;
-          }
+            if (!longPressActionExecuted && (millis() - pressStartTime >= 1000)) {
+                Serial.println("Wykonuję kasowanie alarmu...");
+                digitalWrite(PIN_BUZZER, LOW);
+                longPressActionExecuted = true;
+            }
         } else if (!isPressed && wasPressed) {
-          wasPressed = false;
+            wasPressed = false;
         }
-      }
-      
-      void update() {
+    }
+    
+    void update() {
         levelSensor.measureDistance();
         float waterLevel = levelSensor.measureDistance();
         float waterPercentage = calculateWaterPercentage(waterLevel);
 
-        haWaterLevelSensor.setValue(waterLevel);
-        haWaterLevelPercentSensor.setValue(waterPercentage);
+        haWaterLevelSensor.setValue(String(waterLevel).c_str());
+        haWaterLevelPercentSensor.setValue(String(waterPercentage).c_str());
         reserveSensor.setState(settings.checkReserveState(waterLevel));
 
         pumpController.update();
-      }
-  };     
+    }
+};     
 
 HydroSenseApp hydroSenseApp;
 
