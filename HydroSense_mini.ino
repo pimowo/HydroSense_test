@@ -11,11 +11,6 @@ const int MQTT_PORT = 1883;
 const char* MQTT_USER = "hydrosense";
 const char* MQTT_PASSWORD = "hydrosense";
 
-// ========== SR04 MEASUREMENT CONFIGURATION ==========
-const int MEASUREMENTS = 10;          // Liczba pomiarów
-const int OUTLIERS = 2;              // Liczba odrzucanych skrajnych wartości
-const unsigned long MEASUREMENT_DELAY = 1000;  // Opóźnienie między pomiarami (1s)
-
 // ========== PIN DEFINITIONS ==========
 // Definicje pinów
 #define PIN_ULTRASONIC_TRIG D6 // Pin trigger czujnika ultradźwiękowego
@@ -59,7 +54,6 @@ HANumber configReserveThreshold("reserve_threshold");
 // ========== SYSTEM VARIABLES ==========
 // Zmienne systemowe
 struct SystemStatus {
-  long ultrasonicDuration;
   int currentDistance;
   bool isPumpActive;
   unsigned long lastMeasurementTime;
@@ -79,7 +73,6 @@ struct TankParameters {
   int distanceWhenFull = 65;
   int distanceWhenEmpty = 510;
   int reserveLevel = 450;
-  int hysteresis = 10;
   bool alarmActive = false;
   bool waterEmpty = false;
   bool buzzerActive = false;
@@ -255,143 +248,6 @@ void playWelcomeMelody() {
   }
 }
 
-int getStableReading() {
-    const unsigned long TRIGGER_DURATION = 10; // mikrosekundy
-    const unsigned long MAX_ECHO_WAIT = 30000; // mikrosekundy (30ms dla ~5m)
-    
-    switch (sensorData.state) {
-        case STATE_IDLE:
-            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            delayMicroseconds(2);
-            digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-            sensorData.triggerStartTime = micros();
-            sensorData.state = STATE_TRIGGER_SENT;
-            break;
-            
-        case STATE_TRIGGER_SENT:
-            if (micros() - sensorData.triggerStartTime >= TRIGGER_DURATION) {
-                digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-                sensorData.state = STATE_WAITING_FOR_ECHO;
-                sensorData.lastStateChange = micros();
-            }
-            break;
-            
-        case STATE_WAITING_FOR_ECHO:
-            if (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
-                sensorData.triggerStartTime = micros();
-                sensorData.state = STATE_COLLECTING_SAMPLES;
-            } else if (micros() - sensorData.lastStateChange >= MAX_ECHO_WAIT) {
-                // Timeout - restart pomiaru
-                sensorData.state = STATE_IDLE;
-                return -1;
-            }
-            break;
-            
-        case STATE_COLLECTING_SAMPLES:
-            if (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
-                unsigned long duration = micros() - sensorData.triggerStartTime;
-                int distance = (int)((duration * 0.343) / 2);
-                
-                if (distance > 0 && distance < 4000) { // Sprawdź czy odczyt jest sensowny (0-4m)
-                    sensorData.measurements[sensorData.measurementCount++] = distance;
-                    
-                    if (sensorData.measurementCount >= 5) {
-                        // Sortuj pomiary
-                        for (int i = 0; i < 4; i++) {
-                            for (int j = 0; j < 4 - i; j++) {
-                                if (sensorData.measurements[j] > sensorData.measurements[j + 1]) {
-                                    int temp = sensorData.measurements[j];
-                                    sensorData.measurements[j] = sensorData.measurements[j + 1];
-                                    sensorData.measurements[j + 1] = temp;
-                                }
-                            }
-                        }
-                        
-                        // Weź średnią z 3 środkowych pomiarów
-                        int sum = sensorData.measurements[1] + sensorData.measurements[2] + sensorData.measurements[3];
-                        int avgDistance = sum / 3;
-                        
-                        // Reset stanu
-                        sensorData.measurementCount = 0;
-                        sensorData.state = STATE_IDLE;
-                        
-                        return avgDistance;
-                    }
-                }
-                
-                sensorData.state = STATE_IDLE;
-                yield(); // Daj czas na inne operacje
-            }
-            break;
-    }
-    
-    return -1; // Pomiar w toku
-}
-
-int getDistance() {
-    const int MAX_DISTANCE = 4000; // maksymalny dystans w mm
-    const int MIN_DISTANCE = 20;   // minimalny dystans w mm
-    
-    ESP.wdtFeed(); // Nakarm watchdoga przed pomiarem
-    
-    // Wyślij impuls
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    delayMicroseconds(2);
-    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    
-    yield(); // Daj czas systemowi
-    ESP.wdtFeed();
-    
-    // Pomiar czasu powrotu sygnału z limitem czasu
-    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 30000); // timeout 30ms
-    
-    if (duration == 0) {
-        return -1; // Timeout lub błąd
-    }
-    
-    // Oblicz dystans
-    int distance = (int)((duration * 0.343) / 2);
-    
-    // Sprawdź czy wynik jest sensowny
-    if (distance >= MIN_DISTANCE && distance <= MAX_DISTANCE) {
-        return distance;
-    }
-    
-    return -1;
-}
-
-// Uproszczona funkcja pomiaru
-int takeSingleMeasurement() {
-    ESP.wdtFeed();
-    
-    // Krótki impuls trigger
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    delayMicroseconds(2);
-    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    
-    // Krótkie oczekiwanie
-    yield();
-    
-    // Pomiar z timeoutem
-    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529);
-    
-    if (duration == 0) {
-        return -1;
-    }
-    
-    int distance = (int)((duration * 0.343) / 2);
-    
-    if (distance >= MIN_DISTANCE && distance <= MAX_DISTANCE) {
-        return distance;
-    }
-    
-    return -1;
-}
-
 // Funkcja dodająca pomiar do bufora
 void addMeasurement(int measurement) {
     if (measurement <= 0) {
@@ -446,34 +302,6 @@ int takeSingleMeasurement() {
     }
     
     return -1;
-}
-
-// Dodanie pomiaru do bufora
-void addMeasurementToBuffer(int measurement) {
-    if (measurement <= 0) {
-        return;
-    }
-    
-    measurementBuffer.values[measurementBuffer.index] = measurement;
-    measurementBuffer.index = (measurementBuffer.index + 1) % MEASUREMENT_BUFFER_SIZE;
-    
-    if (measurementBuffer.index == 0) {
-        measurementBuffer.isFull = true;
-    }
-}
-
-// Obliczenie średniej z bufora
-int calculateAverageDistance() {
-    if (!measurementBuffer.isFull) {
-        return -1;
-    }
-    
-    int sum = 0;
-    for (int i = 0; i < MEASUREMENT_BUFFER_SIZE; i++) {
-        sum += measurementBuffer.values[i];
-    }
-    
-    return sum / MEASUREMENT_BUFFER_SIZE;
 }
 
 int measureDistance() {
