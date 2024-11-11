@@ -85,22 +85,13 @@ struct TankParameters {
   bool buzzerActive = false;
 } tankConfig;
 
-// Definicje i zmienne globalne
-const unsigned long MEASUREMENT_INTERVAL = 100; // 100ms między pomiarami
-const int BUFFER_SIZE = 3;
-const int MAX_DISTANCE = 4000; // mm
-const int MIN_DISTANCE = 20;   // mm
+// Stałe dla czujnika ultradźwiękowego
+const int MAX_DISTANCE_MM = 4000;  // maksymalny dystans w mm
+const int MIN_DISTANCE_MM = 20;    // minimalny dystans w mm
+const unsigned long MEASUREMENT_TIMEOUT = 23529; // timeout dla 4m
+const unsigned long MEASUREMENT_INTERVAL = 100;  // 100ms między pomiarami
 
-struct DistanceBuffer {
-    int values[BUFFER_SIZE];
-    int index;
-    bool isFull;
-} distanceBuffer = {
-    .values = {0},
-    .index = 0,
-    .isFull = false
-};
-
+// Zmienne globalne dla pomiarów
 unsigned long lastMeasurementTime = 0;
 int lastValidDistance = 0;
 
@@ -429,34 +420,123 @@ int calculateAverage() {
     return sum / BUFFER_SIZE;
 }
 
+// Pojedynczy pomiar
+int takeSingleMeasurement() {
+    ESP.wdtFeed();
+    
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    delayMicroseconds(2);
+    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    
+    yield();
+    
+    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, MEASUREMENT_TIMEOUT);
+    
+    if (duration == 0) {
+        return -1;
+    }
+    
+    // Przeliczenie na dystans w mm
+    int distance = (int)((duration * 0.343) / 2);
+    
+    if (distance >= MIN_DISTANCE_MM && distance <= MAX_DISTANCE_MM) {
+        return distance;
+    }
+    
+    return -1;
+}
+
+// Dodanie pomiaru do bufora
+void addMeasurementToBuffer(int measurement) {
+    if (measurement <= 0) {
+        return;
+    }
+    
+    measurementBuffer.values[measurementBuffer.index] = measurement;
+    measurementBuffer.index = (measurementBuffer.index + 1) % MEASUREMENT_BUFFER_SIZE;
+    
+    if (measurementBuffer.index == 0) {
+        measurementBuffer.isFull = true;
+    }
+}
+
+// Obliczenie średniej z bufora
+int calculateAverageDistance() {
+    if (!measurementBuffer.isFull) {
+        return -1;
+    }
+    
+    int sum = 0;
+    for (int i = 0; i < MEASUREMENT_BUFFER_SIZE; i++) {
+        sum += measurementBuffer.values[i];
+    }
+    
+    return sum / MEASUREMENT_BUFFER_SIZE;
+}
+
+int measureDistance() {
+    ESP.wdtFeed();
+    
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    delayMicroseconds(2);
+    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    
+    yield();
+    
+    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, MEASUREMENT_TIMEOUT);
+    
+    if (duration == 0) {
+        return -1;  // Błąd pomiaru
+    }
+    
+    int distance = (int)((duration * 0.343) / 2);
+    
+    if (distance >= MIN_DISTANCE_MM && distance <= MAX_DISTANCE_MM) {
+        return distance;
+    }
+    
+    return -1;  // Wynik poza zakresem
+}
+
 // Główna funkcja pomiaru
 void performMeasurement() {
     unsigned long currentTime = millis();
     
+    // Sprawdź czy minął wymagany czas między pomiarami
     if (currentTime - lastMeasurementTime < MEASUREMENT_INTERVAL) {
         return;
     }
     
     lastMeasurementTime = currentTime;
     
-    int measurement = takeSingleMeasurement();
-    if (measurement > 0) {
-        addMeasurement(measurement);
-        
-        if (distanceBuffer.isFull) {
-            int avgDistance = calculateAverage();
-            if (avgDistance > 0) {
-                // Aktualizuj tylko jeśli zmiana nie jest zbyt duża
-                if (abs(avgDistance - lastValidDistance) < 100 || lastValidDistance == 0) {
-                    lastValidDistance = avgDistance;
-                    status.currentDistance = avgDistance;
-                    sensorDistance.setValue(String(avgDistance).c_str());
-                }
-            }
+    // Wykonaj 3 pomiary i weź średnią
+    int sum = 0;
+    int validMeasurements = 0;
+    
+    for (int i = 0; i < 3; i++) {
+        int measurement = measureDistance();
+        if (measurement > 0) {
+            sum += measurement;
+            validMeasurements++;
         }
+        yield();
     }
     
-    yield();
+    // Jeśli mamy przynajmniej 2 prawidłowe pomiary
+    if (validMeasurements >= 2) {
+        int avgDistance = sum / validMeasurements;
+        
+        // Sprawdź czy zmiana nie jest zbyt duża
+        if (abs(avgDistance - lastValidDistance) < 100 || lastValidDistance == 0) {
+            lastValidDistance = avgDistance;
+            status.currentDistance = avgDistance;
+            sensorDistance.setValue(String(avgDistance).c_str());
+        }
+    }
 }
 
 void updateSystemStatus() {
@@ -569,11 +649,11 @@ void handleButtonPress() {
 void setup() {
     initializeSystem();
 
-    lastMeasurementTime = 0;
-    lastValidDistance = 0;
-    distanceBuffer.index = 0;
-    distanceBuffer.isFull = false;
-    memset(distanceBuffer.values, 0, sizeof(distanceBuffer.values));
+    measurementBuffer.index = 0;
+    measurementBuffer.isFull = false;
+    measurementBuffer.lastMeasurementTime = 0;
+    measurementBuffer.lastValidDistance = 0;
+    memset(measurementBuffer.values, 0, sizeof(measurementBuffer.values));
 }
 
 void loop() {
@@ -586,35 +666,28 @@ void loop() {
         lastWDTFeed = currentTime;
     }
     
-    // MQTT
     if (!haMqtt.isConnected()) {
         reconnectMQTT();
         yield();
     }
     
-    // System tasks
     handleSystemTasks();
     yield();
     
-    // Pomiar
     performMeasurement();
     yield();
     
-    // Status update
     if (currentTime - status.lastMeasurementTime >= status.MEASUREMENT_INTERVAL) {
         status.lastMeasurementTime = currentTime;
         updateSystemStatus();
         yield();
     }
     
-    // Pump control
     updatePumpControl();
     yield();
     
-    // Button handling
     handleButtonPress();
     yield();
     
-    // Krótka przerwa
     delay(1);
 }
