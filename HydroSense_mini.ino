@@ -1,5 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <ArduinoHA.h>
+#include <EEPROM.h>
 
 // Konfiguracja WiFi i MQTT
 const char* WIFI_SSID = "pimowo";
@@ -13,6 +14,15 @@ const char* MQTT_PASSWORD = "hydrosense";
 #define PIN_ULTRASONIC_ECHO D7
 #define PIN_WATER_LEVEL D5
 #define PIN_PUMP D1
+//#define PIN_SERVICE_BUTTON D2  // Pin dla przycisku serwisowego
+#define BUZZER_PIN D2
+#define PIN_BUZZER D3         // Pin dla buzzera
+
+// Stałe dla przycisku
+#define LONG_PRESS_TIME 1000  // 1 sekunda dla długiego naciśnięcia
+
+// Dodajemy adresy EEPROM
+#define EEPROM_SOUND_STATE_ADDR 0
 
 // Konfiguracja zbiornika i pomiarów
 const int DISTANCE_WHEN_FULL = 65;  // pełny zbiornik - mm
@@ -37,6 +47,8 @@ HASensor sensorWaterPresence("water");                 // obecność wody (czujn
 HASensor sensorWaterAlarm("water_alarm");             // alarm niskiego poziomu
 HASensor sensorWaterReserve("water_reserve");         // stan rezerwy
 HASwitch pumpAlarm("pump_alarm");                     // alarm przepracowania pompy
+HASwitch serviceSwitch("service_mode");     // przełącznik trybu serwisowego
+HASwitch soundSwitch("sound_switch");       // przełącznik dźwięku
 
 // Status systemu
 struct {
@@ -47,7 +59,18 @@ struct {
     bool pumpSafetyLock = false;
     bool waterAlarmActive = false;   
     bool waterReserveActive = false;
+    bool soundEnabled = false;        // stan dźwięku
+    bool isServiceMode = false;      // stan trybu serwisowego
 } status;
+
+// Struktura dla obsługi przycisku
+struct ButtonState {
+    bool currentState = HIGH;
+    bool lastState = HIGH;
+    unsigned long pressedTime = 0;
+    unsigned long releasedTime = 0;
+    bool isLongPressHandled = false;
+} buttonState;
 
 // Funkcja obliczająca poziom wody w procentach
 int calculateWaterLevel(int distance) {
@@ -59,6 +82,67 @@ int calculateWaterLevel(int distance) {
                       100.0;
     
     return (int)percentage;
+}
+
+// Obsługa przełącznika trybu serwisowego
+void onServiceSwitchCommand(bool state, HASwitch* sender) {
+    status.isServiceMode = state;
+    if (status.isServiceMode && status.isPumpActive) {
+        // Wyłącz pompę jeśli jest aktywna
+        digitalWrite(PIN_PUMP, LOW);
+        status.isPumpActive = false;
+        status.pumpStartTime = 0;
+        sensorPumpStatus.setValue("OFF");
+    }
+}
+
+// Obsługa przełącznika dźwięku
+void onSoundSwitchCommand(bool state, HASwitch* sender) {
+    status.soundEnabled = state;
+    EEPROM.write(0, state ? 1 : 0);
+    EEPROM.commit();
+}
+
+// Funkcja do obsługi przycisku
+void handleButton() {
+    // Odczyt stanu przycisku
+    bool reading = digitalRead(PIN_BUTTON);
+    
+    // Jeśli stan się zmienił
+    if (reading != buttonState.lastState) {
+        if (reading == LOW) { // Przycisk wciśnięty
+            buttonState.pressedTime = millis();
+            buttonState.isLongPressHandled = false;
+        } else { // Przycisk zwolniony
+            buttonState.releasedTime = millis();
+            
+            // Krótkie naciśnięcie - przełącz tryb serwisowy
+            if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
+                status.isServiceMode = !status.isServiceMode;
+                serviceSwitch.setState(status.isServiceMode);
+                
+                if (status.isServiceMode && status.isPumpActive) {
+                    // Wyłącz pompę jeśli jest aktywna
+                    digitalWrite(PIN_PUMP, LOW);
+                    status.isPumpActive = false;
+                    status.pumpStartTime = 0;
+                    sensorPumpStatus.setValue("OFF");
+                }
+            }
+        }
+    }
+    
+    // Sprawdzenie długiego naciśnięcia
+    if (reading == LOW && !buttonState.isLongPressHandled) {
+        if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
+            // Kasowanie alarmu pompy
+            status.pumpSafetyLock = false;
+            pumpAlarm.setState(false);
+            buttonState.isLongPressHandled = true;
+        }
+    }
+    
+    buttonState.lastState = reading;
 }
 
 // Ulepszona funkcja pomiaru odległości z uśrednianiem
@@ -160,6 +244,17 @@ void updatePump() {
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
     sensorWaterPresence.setValue(waterPresent ? "ON" : "OFF");
     
+    // Sprawdź czy nie jest aktywny tryb serwisowy
+    if (status.isServiceMode) {
+        if (status.isPumpActive) {
+            digitalWrite(PIN_PUMP, LOW);
+            status.isPumpActive = false;
+            status.pumpStartTime = 0;
+            sensorPumpStatus.setValue("OFF");
+        }
+        return;
+    }
+
     // Sprawdź czy pompa nie pracuje za długo
     if (status.isPumpActive && (millis() - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
         digitalWrite(PIN_PUMP, LOW);
@@ -217,9 +312,15 @@ void setup() {
     pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
     pinMode(PIN_ULTRASONIC_ECHO, INPUT);
     pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);
+    pinMode(PIN_BUTTON, INPUT_PULLUP);
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);
     pinMode(PIN_PUMP, OUTPUT);
     digitalWrite(PIN_PUMP, LOW);
     
+    // Odczyt stanu dźwięku z EEPROM
+    status.soundEnabled = EEPROM.read(0) == 1;
+
     // Połączenie z WiFi
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {
@@ -256,6 +357,15 @@ void setup() {
     sensorWaterReserve.setIcon("mdi:alert-outline");
     sensorWaterReserve.setValue("OFF");    // Stan początkowy rezerwy wody
 
+    serviceSwitch.setName("Tryb serwisowy");
+    serviceSwitch.setIcon("mdi:tools");
+    serviceSwitch.onCommand(onServiceSwitchCommand);
+    
+    soundSwitch.setName("Dźwięk");
+    soundSwitch.setIcon("mdi:volume-high");
+    soundSwitch.onCommand(onSoundSwitchCommand);
+    soundSwitch.setState(status.soundEnabled);
+
     pumpAlarm.setName("Alarm pompy");
     pumpAlarm.setIcon("mdi:alert");
     pumpAlarm.onCommand(onPumpAlarmCommand);
@@ -267,6 +377,9 @@ void setup() {
 void loop() {
     mqtt.loop();
     
+    // Obsługa przycisku
+    handleButton();
+
     static unsigned long lastMeasurement = 0;
     if (millis() - lastMeasurement > 1000) {
         int distance = measureDistance();
