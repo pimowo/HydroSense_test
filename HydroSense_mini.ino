@@ -248,24 +248,17 @@ void setup() {
     sensorWaterPresence.setName("Czujnik wody");
     sensorWaterPresence.setIcon("mdi:water");
 
-    sensorWaterAlarm.setName("Alarm wody");
-    sensorWaterAlarm.setIcon("mdi:tools");
+    sensorWaterAlarm.setName("Brak wody");
+    sensorWaterAlarm.setIcon("mdi:water-alert");
+    sensorWaterAlarm.setValue("OFF");  // Stan początkowy alarmu wody
     
     sensorWaterReserve.setName("Rezerwa wody");
     sensorWaterReserve.setIcon("mdi:alert-outline");
-
-    //sensorLowWaterAlarm.setName("Alarm niskiego poziomu");
-
-    // serviceSwitch.setName("Serwis");
-    // serviceSwitch.setIcon("mdi:tools");
+    sensorWaterReserve.setValue("OFF");    // Stan początkowy rezerwy wody
 
     pumpAlarm.setName("Alarm pompy");
     pumpAlarm.setIcon("mdi:alert");
     pumpAlarm.onCommand(onPumpAlarmCommand);
-
-    // pumpAlarm.setName("Alarm wody");
-    // pumpAlarm.setIcon("mdi:alert");
-    // pumpAlarm.onCommand(onPumpAlarmCommand);
     
     // Połączenie MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
