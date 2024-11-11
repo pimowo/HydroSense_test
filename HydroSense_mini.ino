@@ -60,10 +60,10 @@ struct SystemStatus {
     unsigned long lastMeasurementTime;
     unsigned long lastPumpActivationTime;
     const unsigned long MEASUREMENT_INTERVAL = 2000;  // ms
-    unsigned long pumpStartDelay = 0;    // Czas rozpoczęcia odliczania opóźnienia
-    bool isPumpDelayActive = false;      // Flaga wskazująca czy trwa odliczanie opóźnienia
-    bool isWaterLevelLow = false;        // Stan czujnika wody (niski = true)
-    bool lastPumpState = false;      // Poprzedni stan pompy do wykrywania zmian
+    unsigned long pumpStartDelay = 0;  // Czas rozpoczęcia odliczania opóźnienia
+    bool isPumpDelayActive = false;  // Flaga wskazująca czy trwa odliczanie opóźnienia
+    bool isWaterLevelLow = false;  // Stan czujnika wody (niski = true)
+    bool lastPumpState = false;  // Poprzedni stan pompy do wykrywania zmian
 } status;
 
 // ========== TANK CONFIGURATION ==========
@@ -103,7 +103,7 @@ void initializeSystem() {
     // Upewnij się, że pompa jest wyłączona na starcie i zaktualizuj stan w HA
     stopPump();
     status.lastPumpState = false;
-    sensorPumpStatus.setValue("OFF"); // Wysyłamy początkowy stan do HA
+    sensorPumpStatus.setValue("OFF");  // Wysyłamy początkowy stan do HA
     
     initializeWiFi();
     setupOTA();
@@ -132,16 +132,17 @@ void setupOTA() {
   ArduinoOTA.begin();
 }
 
+// Funkcja konfigurująca piny
 void configurePins() {
-  pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
-  pinMode(PIN_ULTRASONIC_ECHO, INPUT);
-  pinMode(PIN_PUMP, OUTPUT);
-  pinMode(PIN_BUZZER, OUTPUT);
-  pinMode(PIN_RESET_BUTTON, INPUT_PULLUP);
-  pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);
+  pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);  // Ustawia pin trigger czujnika ultradźwiękowego jako wyjście
+  pinMode(PIN_ULTRASONIC_ECHO, INPUT);   // Ustawia pin echo czujnika ultradźwiękowego jako wejście
+  pinMode(PIN_PUMP, OUTPUT);  // Ustawia pin pompy jako wyjście
+  pinMode(PIN_BUZZER, OUTPUT);  // Ustawia pin sygnalizatora dźwiękowego jako wyjście
+  pinMode(PIN_RESET_BUTTON, INPUT_PULLUP);  // Ustawia pin przycisku resetu z wbudowanym rezystorem pull-up
+  pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);  // Ustawia pin czujnika poziomu wody z wbudowanym rezystorem pull-up
   
-  digitalWrite(PIN_PUMP, LOW);
-  digitalWrite(PIN_BUZZER, LOW);
+  digitalWrite(PIN_PUMP, LOW);  // Ustawia stan niski na pinie pompy (pompa wyłączona)
+  digitalWrite(PIN_BUZZER, LOW);  // Ustawia stan niski na pinie sygnalizatora dźwiękowego (sygnalizator wyłączony)
 }
 
 // Funkcja inicjalizująca połączenie WiFi
@@ -188,17 +189,33 @@ void playWelcomeMelody() {
   }
 }
 
+// Funkcja wykonująca pomiar odległości przy użyciu czujnika ultradźwiękowego
+// void performMeasurement() {
+//   digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Ustawienie stanu niskiego na pinie trigger
+//   delayMicroseconds(2);  // Opóźnienie 2 mikrosekundy
+//   digitalWrite(PIN_ULTRASONIC_TRIG, HIGH); // Ustawienie stanu wysokiego na pinie trigger, aby zainicjować pomiar
+//   delayMicroseconds(10);  // Opóźnienie 10 mikrosekund
+//   digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Ustawienie stanu niskiego na pinie trigger
+  
+//   status.ultrasonicDuration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH);  // Pomiar czasu trwania impulsu echo
+//   status.currentDistance = status.ultrasonicDuration * 0.034 / 2;  // Obliczenie odległości w centymetrach
+  
+//   // Konwersja int na String i zapisanie wartości w czujniku Home Assistant
+//   sensorDistance.setValue(String(status.currentDistance).c_str());
+// }
+
+// Funkcja wykonująca pomiar odległości przy użyciu czujnika ultradźwiękowego
 void performMeasurement() {
-  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-  delayMicroseconds(2);
-  digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Ustawienie stanu niskiego na pinie trigger
+  delayMicroseconds(2);  // Opóźnienie 2 mikrosekundy
+  digitalWrite(PIN_ULTRASONIC_TRIG, HIGH); // Ustawienie stanu wysokiego na pinie trigger, aby zainicjować pomiar
+  delayMicroseconds(10);  // Opóźnienie 10 mikrosekund
+  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Ustawienie stanu niskiego na pinie trigger
   
-  status.ultrasonicDuration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH);
-  status.currentDistance = status.ultrasonicDuration * 0.034 / 2;
+  status.ultrasonicDuration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH);  // Pomiar czasu trwania impulsu echo
+  status.currentDistance = (status.ultrasonicDuration * 0.343) / 2;  // Obliczenie odległości w milimetrach (bez miejsc po przecinku)
   
-  // Konwersja int na String
+  // Konwersja int na String i zapisanie wartości w czujniku Home Assistant
   sensorDistance.setValue(String(status.currentDistance).c_str());
 }
 
