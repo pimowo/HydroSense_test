@@ -82,7 +82,6 @@ struct TankParameters {
 const int MAX_DISTANCE_MM = 4000;  // maksymalny dystans w mm
 const int MIN_DISTANCE_MM = 20;    // minimalny dystans w mm
 const unsigned long MEASUREMENT_TIMEOUT = 23529; // timeout dla 4m
-const unsigned long MEASUREMENT_INTERVAL = 100;  // 100ms między pomiarami
 
 // Zmienne globalne dla pomiarów
 unsigned long lastMeasurementTime = 0;
@@ -248,136 +247,72 @@ void playWelcomeMelody() {
   }
 }
 
-// Funkcja dodająca pomiar do bufora
-void addMeasurement(int measurement) {
-    if (measurement <= 0) {
-        return;
-    }
-    
-    distanceBuffer.values[distanceBuffer.index] = measurement;
-    distanceBuffer.index = (distanceBuffer.index + 1) % BUFFER_SIZE;
-    
-    if (distanceBuffer.index == 0) {
-        distanceBuffer.isFull = true;
-    }
-}
-
-// Funkcja obliczająca średnią z bufora
-int calculateAverage() {
-    if (!distanceBuffer.isFull) {
-        return -1;
-    }
-    
-    int sum = 0;
-    for (int i = 0; i < BUFFER_SIZE; i++) {
-        sum += distanceBuffer.values[i];
-    }
-    
-    return sum / BUFFER_SIZE;
-}
-
-// Pojedynczy pomiar
-int takeSingleMeasurement() {
-    ESP.wdtFeed();
-    
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    delayMicroseconds(2);
-    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    
-    yield();
-    
-    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, MEASUREMENT_TIMEOUT);
-    
-    if (duration == 0) {
-        return -1;
-    }
-    
-    // Przeliczenie na dystans w mm
-    int distance = (int)((duration * 0.343) / 2);
-    
-    if (distance >= MIN_DISTANCE_MM && distance <= MAX_DISTANCE_MM) {
-        return distance;
-    }
-    
-    return -1;
-}
-
 int measureDistance() {
-    ESP.wdtFeed();
-    
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    delayMicroseconds(2);
-    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    
-    yield();
-    
-    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, MEASUREMENT_TIMEOUT);
-    
-    if (duration == 0) {
-        return -1;  // Błąd pomiaru
-    }
-    
-    int distance = (int)((duration * 0.343) / 2);
-    
-    if (distance >= MIN_DISTANCE_MM && distance <= MAX_DISTANCE_MM) {
-        return distance;
-    }
-    
-    return -1;  // Wynik poza zakresem
+  ESP.wdtFeed();
+  
+  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+      
+  unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, MEASUREMENT_TIMEOUT);
+  
+  if (duration == 0) {
+    return -1;  // Błąd pomiaru
+  }
+  
+  ESP.wdtFeed();
+  
+  int distance = (int)((duration * 0.343) / 2);
+  
+  if (distance >= MIN_DISTANCE_MM && distance <= MAX_DISTANCE_MM) {
+    return distance;
+  }
+  
+  return -1;  // Wynik poza zakresem lub nieprawidłowy
 }
 
 // Główna funkcja pomiaru
 void performMeasurement() {
-    unsigned long currentTime = millis();
-    
-    // Sprawdź czy minął wymagany czas między pomiarami
-    if (currentTime - lastMeasurementTime < MEASUREMENT_INTERVAL) {
-        return;
+  static unsigned long lastSampleTime = 0;
+  unsigned long currentTime = millis();
+  
+  // Sprawdź czy minął wymagany czas między pomiarami
+  if (currentTime - lastSampleTime < 100) { // stała wartość zamiast MEASUREMENT_INTERVAL
+    return;
+  }
+  
+  lastSampleTime = currentTime;
+  ESP.wdtFeed(); // Dodatkowe karmienie watchdoga
+  
+  // Wykonaj 3 pomiary i weź średnią
+  int sum = 0;
+  int validMeasurements = 0;
+  
+  for (int i = 0; i < 3; i++) {
+    ESP.wdtFeed(); // Karmienie w pętli
+    int measurement = measureDistance();
+    if (measurement > 0) {
+      sum += measurement;
+      validMeasurements++;
     }
+  }
+  
+  // Jeśli mamy przynajmniej 2 prawidłowe pomiary
+  if (validMeasurements >= 2) {
+    int avgDistance = sum / validMeasurements;
     
-    lastMeasurementTime = currentTime;
-    
-    // Wykonaj 3 pomiary i weź średnią
-    int sum = 0;
-    int validMeasurements = 0;
-    
-    for (int i = 0; i < 3; i++) {
-        int measurement = measureDistance();
-        if (measurement > 0) {
-            sum += measurement;
-            validMeasurements++;
-        }
-        yield();
+    // Sprawdź czy zmiana nie jest zbyt duża
+    if (abs(avgDistance - lastValidDistance) < 100 || lastValidDistance == 0) {
+      lastValidDistance = avgDistance;
+      status.currentDistance = avgDistance;
+      sensorDistance.setValue(String(avgDistance).c_str());
     }
-    
-    // Jeśli mamy przynajmniej 2 prawidłowe pomiary
-    if (validMeasurements >= 2) {
-        int avgDistance = sum / validMeasurements;
-        
-        // Sprawdź czy zmiana nie jest zbyt duża
-        if (abs(avgDistance - lastValidDistance) < 100 || lastValidDistance == 0) {
-            lastValidDistance = avgDistance;
-            status.currentDistance = avgDistance;
-            sensorDistance.setValue(String(avgDistance).c_str());
-        }
-    }
+  }
 }
 
 void updateSystemStatus() {
-  bool isTankFull = status.currentDistance < tankConfig.distanceWhenFull;
-  bool isTankEmpty = status.currentDistance > tankConfig.distanceWhenEmpty;
-  bool isReserveLevel = status.currentDistance > tankConfig.reserveLevel && !isTankEmpty;
-  
-  int waterLevelPercentage = map(status.currentDistance, 
-                                tankConfig.distanceWhenEmpty, 
-                                tankConfig.distanceWhenFull, 
-                                0, 100);
-  
-  // Konwersja wartości na String
   sensorWaterLevel.setValue(String(waterLevelPercentage).c_str());
   sensorReserveStatus.setValue(isReserveLevel ? "ON" : "OFF");
   sensorWaterEmpty.setValue(isTankEmpty ? "ON" : "OFF");
@@ -398,43 +333,43 @@ void controlPump(bool shouldPumpBeActive) {
 }
 
 void updatePumpControl() {
-    bool currentWaterLevel = digitalRead(PIN_WATER_LEVEL);  // Odczyt stanu czujnika
-    
-    // Aktualizacja stanu czujnika wody
-    status.isWaterLevelLow = currentWaterLevel == LOW;
-    
-    // Wysoki poziom wody - natychmiastowe wyłączenie pompy
-    if (!status.isWaterLevelLow && status.isPumpActive) {
-        stopPump();
-        status.isPumpDelayActive = false;
-        status.pumpStartDelay = 0;
-        return;
+  bool currentWaterLevel = digitalRead(PIN_WATER_LEVEL);  // Odczyt stanu czujnika
+  
+  // Aktualizacja stanu czujnika wody
+  status.isWaterLevelLow = currentWaterLevel == LOW;
+  
+  // Wysoki poziom wody - natychmiastowe wyłączenie pompy
+  if (!status.isWaterLevelLow && status.isPumpActive) {
+    stopPump();
+    status.isPumpDelayActive = false;
+    status.pumpStartDelay = 0;
+    return;
+  }
+  
+  // Niski poziom wody - rozpocznij odliczanie jeśli jeszcze nie rozpoczęto
+  if (status.isWaterLevelLow && !status.isPumpActive && !status.isPumpDelayActive) {
+    status.isPumpDelayActive = true;
+    status.pumpStartDelay = millis();
+    Serial.println("Rozpoczęcie odliczania opóźnienia pompy");
+    return;
+  }
+  
+  // Sprawdzenie czy minął czas opóźnienia
+  if (status.isPumpDelayActive && !status.isPumpActive) {
+    if (millis() - status.pumpStartDelay >= (tankConfig.pumpDelay * 1000)) {
+      startPump();
+      status.isPumpDelayActive = false;
+      return;
     }
-    
-    // Niski poziom wody - rozpocznij odliczanie jeśli jeszcze nie rozpoczęto
-    if (status.isWaterLevelLow && !status.isPumpActive && !status.isPumpDelayActive) {
-        status.isPumpDelayActive = true;
-        status.pumpStartDelay = millis();
-        Serial.println("Rozpoczęcie odliczania opóźnienia pompy");
-        return;
+  }
+  
+  // Sprawdzenie czasu pracy pompy
+  if (status.isPumpActive) {
+    if (millis() - status.lastPumpActivationTime >= (tankConfig.pumpWorkTime * 1000)) {
+      stopPump();
+      return;
     }
-    
-    // Sprawdzenie czy minął czas opóźnienia
-    if (status.isPumpDelayActive && !status.isPumpActive) {
-        if (millis() - status.pumpStartDelay >= (tankConfig.pumpDelay * 1000)) {
-            startPump();
-            status.isPumpDelayActive = false;
-            return;
-        }
-    }
-    
-    // Sprawdzenie czasu pracy pompy
-    if (status.isPumpActive) {
-        if (millis() - status.lastPumpActivationTime >= (tankConfig.pumpWorkTime * 1000)) {
-            stopPump();
-            return;
-        }
-    }
+  }
 }
 
 void startPump() {
@@ -475,47 +410,31 @@ void handleButtonPress() {
 }
 
 void setup() {
-    initializeSystem();
-
-    measurementBuffer.index = 0;
-    measurementBuffer.isFull = false;
-    measurementBuffer.lastMeasurementTime = 0;
-    measurementBuffer.lastValidDistance = 0;
-    memset(measurementBuffer.values, 0, sizeof(measurementBuffer.values));
+  initializeSystem();
 }
 
 void loop() {
-    static unsigned long lastWDTFeed = 0;
-    unsigned long currentTime = millis();
-    
-    // Karm watchdoga co 50ms
-    if (currentTime - lastWDTFeed >= 50) {
-        ESP.wdtFeed();
-        lastWDTFeed = currentTime;
-    }
-    
-    if (!haMqtt.isConnected()) {
-        reconnectMQTT();
-        yield();
-    }
-    
-    handleSystemTasks();
-    yield();
-    
-    performMeasurement();
-    yield();
-    
-    if (currentTime - status.lastMeasurementTime >= status.MEASUREMENT_INTERVAL) {
-        status.lastMeasurementTime = currentTime;
-        updateSystemStatus();
-        yield();
-    }
-    
-    updatePumpControl();
-    yield();
-    
-    handleButtonPress();
-    yield();
-    
-    delay(1);
+  static unsigned long lastWDTFeed = 0;
+  unsigned long currentTime = millis();
+  
+  // Karm watchdoga co 50ms
+  if (currentTime - lastWDTFeed >= 50) {
+    ESP.wdtFeed();
+    lastWDTFeed = currentTime;
+  }
+  
+  if (!haMqtt.isConnected()) {
+    reconnectMQTT();
+  }
+  
+  handleSystemTasks();    
+  performMeasurement();
+  
+  if (currentTime - status.lastMeasurementTime >= status.MEASUREMENT_INTERVAL) {
+    status.lastMeasurementTime = currentTime;
+    updateSystemStatus();
+  }
+  
+  updatePumpControl();    
+  handleButtonPress();
 }
