@@ -254,60 +254,73 @@ void playWelcomeMelody() {
 }
 
 int getStableReading() {
-    static const int MEASUREMENTS = 5;      // Stała liczba pomiarów
-    static const int OUTLIERS = 1;         // Liczba odrzucanych skrajnych wartości
+    static const int MEASUREMENTS = 5;
+    static const int OUTLIERS = 1;
+    static int measurements[5];
+    static int currentIndex = 0;
     
-    // Inicjalizacja pomiaru
     digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
     delayMicroseconds(2);
     digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
     delayMicroseconds(10);
     digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
     
-    long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529); // timeout ~4m
-    int distance = (duration > 0) ? (int)((duration * 0.343) / 2) : 0;
+    ESP.wdtFeed(); // Nakarm watchdoga przed długą operacją
+    long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529);
+    int distance = (duration > 0) ? (int)((duration * 0.343) / 2) : -1;
     
-    // Zapisz pomiar
-    measurementState.measurements[measurementState.currentMeasurement] = distance;
-    measurementState.currentMeasurement++;
-    
-    // Jeśli zebraliśmy wszystkie pomiary
-    if (measurementState.currentMeasurement >= MEASUREMENTS) {
-        measurementState.currentMeasurement = 0;
+    if (distance > 0) {
+        measurements[currentIndex] = distance;
+        currentIndex++;
         
-        // Sortowanie bąbelkowe
-        for(int i = 0; i < MEASUREMENTS-1; i++) {
-            yield(); // Daj czas na obsługę WDT
-            for(int j = 0; j < MEASUREMENTS-i-1; j++) {
-                if(measurementState.measurements[j] > measurementState.measurements[j+1]) {
-                    int temp = measurementState.measurements[j];
-                    measurementState.measurements[j] = measurementState.measurements[j+1];
-                    measurementState.measurements[j+1] = temp;
+        if (currentIndex >= MEASUREMENTS) {
+            currentIndex = 0;
+            
+            // Proste sortowanie insertion sort (bardziej efektywne dla małych zbiorów)
+            int tempMeas[MEASUREMENTS];
+            memcpy(tempMeas, measurements, sizeof(measurements));
+            
+            for (int i = 1; i < MEASUREMENTS; i++) {
+                ESP.wdtFeed();
+                int key = tempMeas[i];
+                int j = i - 1;
+                while (j >= 0 && tempMeas[j] > key) {
+                    tempMeas[j + 1] = tempMeas[j];
+                    j--;
                 }
+                tempMeas[j + 1] = key;
             }
+            
+            // Oblicz średnią z wartości środkowych
+            int sum = 0;
+            for (int i = OUTLIERS; i < MEASUREMENTS - OUTLIERS; i++) {
+                sum += tempMeas[i];
+            }
+            
+            return sum / (MEASUREMENTS - 2 * OUTLIERS);
         }
-        
-        // Obliczenie średniej z środkowych wartości
-        long sum = 0;
-        for(int i = OUTLIERS; i < MEASUREMENTS-OUTLIERS; i++) {
-            sum += measurementState.measurements[i];
-        }
-        
-        return (int)(sum / (MEASUREMENTS - 2*OUTLIERS));
     }
     
-    return -1; // Zwróć -1 jeśli pomiary są w toku
+    return -1;
 }
 
 // Funkcja wykonująca pomiar odległości przy użyciu czujnika ultradźwiękowego
 void performMeasurement() {
-  int result = getStableReading();
-  if (result >= 0) {
-    status.currentDistance = result;
-    sensorDistance.setValue(String(status.currentDistance).c_str());
-  }
-  yield(); // Daj czas na obsługę WDT
+    static unsigned long lastMeasurementTime = 0;
+    
+    if (millis() - lastMeasurementTime < 1000) {
+        return; // Nie wykonuj pomiarów częściej niż co sekundę
+    }
+    
+    int result = getStableReading();
+    if (result > 0) {
+        status.currentDistance = result;
+        sensorDistance.setValue(String(status.currentDistance).c_str());
+        lastMeasurementTime = millis();
+    }
+    ESP.wdtFeed();
 }
+
 void updateSystemStatus() {
   bool isTankFull = status.currentDistance < tankConfig.distanceWhenFull;
   bool isTankEmpty = status.currentDistance > tankConfig.distanceWhenEmpty;
@@ -424,7 +437,14 @@ void setup() {
 }
 
 void loop() {
+    static unsigned long lastWDTFeed = 0;
     unsigned long currentTime = millis();
+    
+    // Karm watchdoga co 100ms
+    if (currentTime - lastWDTFeed >= 100) {
+        ESP.wdtFeed();
+        lastWDTFeed = currentTime;
+    }
     
     if (!haMqtt.isConnected()) {
         reconnectMQTT();
@@ -438,8 +458,9 @@ void loop() {
         updateSystemStatus();
     }
     
-    // Dodaj obsługę pompy
     updatePumpControl();
-    
     handleButtonPress();
+    
+    // Daj trochę czasu systemowi
+    yield();
 }
