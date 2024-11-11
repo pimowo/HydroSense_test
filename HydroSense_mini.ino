@@ -313,11 +313,27 @@ void performMeasurement() {
 }
 
 void updateSystemStatus() {
-  sensorWaterLevel.setValue(String(waterLevelPercentage).c_str());
-  sensorReserveStatus.setValue(isReserveLevel ? "ON" : "OFF");
-  sensorWaterEmpty.setValue(isTankEmpty ? "ON" : "OFF");
-  
-  controlPump(isTankFull);
+    // Deklaracje zmiennych na początku funkcji
+    bool isTankFull = (status.currentDistance < tankConfig.distanceWhenFull);
+    bool isTankEmpty = (status.currentDistance > tankConfig.distanceWhenEmpty);
+    bool isReserveLevel = (status.currentDistance > tankConfig.reserveLevel && !isTankEmpty);
+    
+    // Obliczanie procentowego poziomu wody
+    int waterLevelPercentage = constrain(
+        map(status.currentDistance, 
+            tankConfig.distanceWhenEmpty, 
+            tankConfig.distanceWhenFull, 
+            0, 100),
+        0, 100
+    );
+    
+    // Aktualizacja czujników
+    sensorWaterLevel.setValue(String(waterLevelPercentage).c_str());
+    sensorReserveStatus.setValue(isReserveLevel ? "ON" : "OFF");
+    sensorWaterEmpty.setValue(isTankEmpty ? "ON" : "OFF");
+    
+    // Kontrola pompy
+    controlPump(isTankFull);
 }
 
 void controlPump(bool shouldPumpBeActive) {
