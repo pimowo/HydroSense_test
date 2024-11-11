@@ -1,11 +1,6 @@
-// Biblioteka do obsługi WiFi na ESP8266
-#include <ESP8266WiFi.h>
-
-// Biblioteka do obsługi Over-the-Air (OTA) aktualizacji
-#include <ArduinoOTA.h>
-
-// Biblioteka do integracji z Home Assistant przez MQTT
-#include <ArduinoHA.h>
+#include <ESP8266WiFi.h>  // Biblioteka do obsługi WiFi na ESP8266
+#include <ArduinoOTA.h>  // Biblioteka do obsługi Over-the-Air (OTA) aktualizacji
+#include <ArduinoHA.h>  // Biblioteka do integracji z Home Assistant przez MQTT
 
 // ========== SYSTEM CONFIGURATION ==========
 // Konfiguracja systemu
@@ -33,19 +28,19 @@ HAMqtt haMqtt(espClient, device);
 
 // ========== HOME ASSISTANT SENSORS ==========
 // Czujniki Home Assistant
-HASensor sensorWaterPresence("water");                    // Obecność wody
-HASensor sensorPumpStatus("pump"); // Uproszczona deklaracja
-HASensor sensorWaterLevel("water_level_percent");         // Poziom wody w %
-HASensor sensorWaterVolume("water_volume_liters");        // Objętość wody
-HASensor sensorReserveStatus("reserve");                  // Status rezerwy
-HASensor sensorDistance("distance");                      // Pomiar odległości
-HASensor sensorWaterEmpty("water_empty");                 // Status braku wody
+HASensor sensorWaterPresence("water"); // Sensor wody
+HASensor sensorPumpStatus("pump"); // Pompa
+HASensor sensorWaterLevel("water_level_percent"); // Poziom wody w %
+HASensor sensorWaterVolume("water_volume_liters"); // Objętość wody
+HASensor sensorReserveStatus("reserve"); // Status rezerwy
+HASensor sensorDistance("distance"); // Pomiar odległości
+HASensor sensorWaterEmpty("water_empty"); // Status braku wody
 
 // ========== HOME ASSISTANT SWITCHES ==========
 // Przełączniki Home Assistant
-HASwitch switchBuzzer("buzzer");                         // Kontrola sygnalizatora
-HASwitch switchAlarm("alarm_switch");                     // Kontrola alarmu
-HASwitch switchServiceMode("service_mode");               // Tryb serwisowy
+HASwitch switchBuzzer("buzzer"); // Dzwięk
+HASwitch switchAlarm("alarm_switch"); // Alarm
+HASwitch switchServiceMode("service_mode");  // Serwis
 
 // ========== HOME ASSISTANT CONFIGURATION PARAMETERS ==========
 // Parametry konfiguracyjne Home Assistant
@@ -115,7 +110,7 @@ void initializeSystem() {
     playWelcomeMelody();
 }
 
-// Dodana funkcja setupOTA
+// Funkcja OTA
 void setupOTA() {
   ArduinoOTA.onStart([]() {
     Serial.println("Start OTA");
@@ -149,30 +144,32 @@ void configurePins() {
   digitalWrite(PIN_BUZZER, LOW);
 }
 
+// Funkcja inicjalizująca połączenie WiFi
 void initializeWiFi() {
   Serial.print("Łączenie z siecią WiFi: ");
-  Serial.println(WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.println(WIFI_SSID);  // Wyświetla nazwę sieci WiFi
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  // Rozpoczyna próbę połączenia z siecią WiFi
   
-  unsigned long connectionStartTime = millis();
+  unsigned long connectionStartTime = millis();  // Zapisuje czas rozpoczęcia połączenia
   while (WiFi.status() != WL_CONNECTED && millis() - connectionStartTime < 10000) {
-    handleSystemTasks();
+    handleSystemTasks();  // Wykonuje zadania systemowe podczas oczekiwania na połączenie
   }
   
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("Połączono z WiFi");
+    Serial.println("Połączono z WiFi");  // Informuje o pomyślnym połączeniu
     Serial.print("Adres IP: ");
-    Serial.println(WiFi.localIP());
+    Serial.println(WiFi.localIP());  // Wyświetla adres IP urządzenia
   } else {
-    Serial.println("Błąd połączenia WiFi");
+    Serial.println("Błąd połączenia WiFi");  // Informuje o nieudanej próbie połączenia
   }
 }
 
+// Funkcja obsługująca zadania systemowe
 void handleSystemTasks() {
   if (haMqtt.isConnected()) {
-    haMqtt.loop();
+    haMqtt.loop();  // Obsługuje komunikację MQTT, jeśli połączono
   }
-  ArduinoOTA.handle();
+  ArduinoOTA.handle();  // Obsługuje zadania OTA (Over-the-Air)
 }
 
 void playWelcomeMelody() {
