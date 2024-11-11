@@ -38,7 +38,7 @@ HASensor sensorPumpStatus("pump"); // Pompa
 HASensor sensorWaterLevel("water_level_percent"); // Poziom wody w %
 HASensor sensorWaterVolume("water_volume_liters"); // Objętość wody
 HASensor sensorReserveStatus("reserve"); // Status rezerwy
-HASensor sensorDistance("distance"); // Pomiar odległości
+HASensor sensorDistance("distance"); // Pomiar odległości w mm
 HASensor sensorWaterEmpty("water_empty"); // Status braku wody
 
 // ========== HOME ASSISTANT SWITCHES ==========
@@ -64,7 +64,7 @@ struct SystemStatus {
     bool isPumpActive;
     unsigned long lastMeasurementTime;
     unsigned long lastPumpActivationTime;
-    const unsigned long MEASUREMENT_INTERVAL = 2000;  // ms
+    const unsigned long MEASUREMENT_INTERVAL = 60000;  // 60 sekund (1 minuta) między cyklami pomiarów
     unsigned long pumpStartDelay = 0;  // Czas rozpoczęcia odliczania opóźnienia
     bool isPumpDelayActive = false;  // Flaga wskazująca czy trwa odliczanie opóźnienia
     bool isWaterLevelLow = false;  // Stan czujnika wody (niski = true)
@@ -108,7 +108,46 @@ void initializeSystem() {
     // Upewnij się, że pompa jest wyłączona na starcie i zaktualizuj stan w HA
     stopPump();
     status.lastPumpState = false;
-    sensorPumpStatus.setValue("OFF");  // Wysyłamy początkowy stan do HA
+
+    // Konfiguracja urządzenia dla Home Assistant
+    device.setName("HydroSense");  // Ustaw nazwę urządzenia
+    device.setModel("HS ESP8266");  // Ustaw model urządzenia
+    device.setManufacturer("PMW");  // Ustaw producenta
+    device.setSoftwareVersion("11.11.24");  // Ustaw wersję oprogramowania
+    // Czujnik wody
+    sensorWaterPresence.setName("Czujnik wody");
+    sensorWaterPresence.setIcon("mdi:water"); 
+    // Pompa
+    sensorPumpStatus.setName("Pompa");
+    sensorPumpStatus.setIcon("mdi:water-pump");
+    sensorPumpStatus.setValue("OFF");
+    // Czujnik odległości
+    sensorDistance.setName("Pomiar odległości");
+    sensorDistance.setIcon("mdi:ruler");
+    sensorDistance.setUnitOfMeasurement("mm");
+    // Poziom wody
+    sensorWaterLevel.setName("Zapełnienie zbiornika");
+    sensorWaterLevel.setIcon("mdi:water-percent");
+    sensorWaterLevel.setUnitOfMeasurement("%");
+    // Oobjętość wody
+    sensorWaterVolume.setName("Ilość wody");
+    sensorWaterVolume.setIcon("mdi:cup-water");
+    sensorWaterVolume.setUnitOfMeasurement("l");
+    // Rezerwa
+    sensorReserveStatus.setName("Rezerwa");
+    sensorReserveStatus.setIcon("mdi:alert-outline");
+    // Brak wody
+    sensorWaterEmpty.setName("Brak wody");
+    sensorWaterEmpty.setIcon("mdi:water-off");
+    // Dźwięk
+    switchBuzzer.setName("Dzwięk");
+    switchBuzzer.setIcon("mdi:bell");
+    // Alarm
+    switchAlarm.setName("Alarm");
+    switchAlarm.setIcon("mdi:alert");
+    // Serwis
+    switchServiceMode.setName("Serwis");
+    switchServiceMode.setIcon("mdi:tools");
     
     initializeWiFi();
     setupOTA();
@@ -167,6 +206,18 @@ void initializeWiFi() {
     Serial.println(WiFi.localIP());  // Wyświetla adres IP urządzenia
   } else {
     Serial.println("Błąd połączenia WiFi");  // Informuje o nieudanej próbie połączenia
+  }
+}
+
+void reconnectMQTT() {
+  if (!haMqtt.isConnected()) {
+    Serial.print("Próba połączenia MQTT... ");
+    if (haMqtt.begin(MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD)) {
+      Serial.println("połączono");
+      haMqtt.subscribe("hydrosense/control");
+    } else {
+      Serial.println("nieudane");
+    }
   }
 }
 
@@ -368,16 +419,4 @@ void loop() {
     updatePumpControl();
     
     handleButtonPress();
-}
-
-void reconnectMQTT() {
-  if (!haMqtt.isConnected()) {
-    Serial.print("Próba połączenia MQTT... ");
-    if (haMqtt.begin(MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASSWORD)) {
-      Serial.println("połączono");
-      haMqtt.subscribe("hydrosense/control");
-    } else {
-      Serial.println("nieudane");
-    }
-  }
 }
