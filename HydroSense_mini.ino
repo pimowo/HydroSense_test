@@ -14,11 +14,12 @@ const char* MQTT_PASSWORD = "hydrosense";
 #define PIN_WATER_LEVEL D5
 #define PIN_PUMP D1
 
-// Konfiguracja zbiornika
-const int DISTANCE_WHEN_FULL = 65;    // mm
-const int DISTANCE_WHEN_EMPTY = 510;  // mm
-const int PUMP_DELAY = 5;             // sekundy
-const int PUMP_WORK_TIME = 60;        // sekundy
+// Konfiguracja zbiornika i pomiarów
+const int DISTANCE_WHEN_FULL = 65;     // mm
+const int DISTANCE_WHEN_EMPTY = 510;   // mm
+const int PUMP_DELAY = 5;              // sekundy
+const int PUMP_WORK_TIME = 60;         // sekundy
+const int MEASUREMENTS_COUNT = 5;       // liczba pomiarów do uśrednienia
 
 // Obiekty do komunikacji
 WiFiClient client;
@@ -41,16 +42,63 @@ struct {
 
 // Funkcja obliczająca poziom wody w procentach
 int calculateWaterLevel(int distance) {
-    // Upewnij się, że distance jest w zakresie
     if (distance < DISTANCE_WHEN_FULL) distance = DISTANCE_WHEN_FULL;
     if (distance > DISTANCE_WHEN_EMPTY) distance = DISTANCE_WHEN_EMPTY;
     
-    // Oblicz procent wypełnienia
     float percentage = (float)(DISTANCE_WHEN_EMPTY - distance) / 
                       (float)(DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL) * 
                       100.0;
     
     return (int)percentage;
+}
+
+// Ulepszona funkcja pomiaru odległości z uśrednianiem
+int measureDistance() {
+    int measurements[MEASUREMENTS_COUNT];
+    int validMeasurements = 0;
+    
+    // Wykonaj serie pomiarów
+    for(int i = 0; i < MEASUREMENTS_COUNT; i++) {
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+        delayMicroseconds(2);
+        digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+        
+        long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529);
+        if (duration == 0) continue;
+        
+        int distance = (duration * 343) / 2000; // mm
+        if (distance >= 20 && distance <= 4000) {
+            measurements[validMeasurements] = distance;
+            validMeasurements++;
+        }
+        
+        delay(10); // krótka przerwa między pomiarami
+    }
+    
+    // Jeśli nie ma wystarczającej liczby poprawnych pomiarów
+    if (validMeasurements < 3) {
+        return -1;
+    }
+    
+    // Sortowanie pomiarów (aby usunąć skrajne wartości)
+    for(int i = 0; i < validMeasurements-1; i++) {
+        for(int j = 0; j < validMeasurements-i-1; j++) {
+            if(measurements[j] > measurements[j+1]) {
+                int temp = measurements[j];
+                measurements[j] = measurements[j+1];
+                measurements[j+1] = temp;
+            }
+        }
+    }
+    
+    // Obliczenie średniej z pomiarów (pomijając skrajne wartości)
+    long sum = 0;
+    int start = validMeasurements > 3 ? 1 : 0;  // pomijamy najniższą wartość jeśli mamy więcej niż 3 pomiary
+    int end = validMeasurements > 3 ? validMeasurements-1 : validMeasurements;  // pomijamy najwyższą wartość
+    
+    return sum / (end - start);
 }
 
 void setup() {
@@ -90,27 +138,9 @@ void setup() {
     
     sensorWaterPresence.setName("Czujnik wody");
     sensorWaterPresence.setIcon("mdi:water");
-        
+    
     // Połączenie MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
-}
-
-// Pomiar odległości
-int measureDistance() {
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    delayMicroseconds(2);
-    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    
-    long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529);
-    if (duration == 0) return -1;
-    
-    int distance = (duration * 343) / 2000; // mm
-    if (distance >= 20 && distance <= 4000) {
-        return distance;
-    }
-    return -1;
 }
 
 // Kontrola pompy
@@ -162,7 +192,7 @@ void loop() {
     
     static unsigned long lastMeasurement = 0;
     if (millis() - lastMeasurement > 1000) {
-        // Pomiar odległości
+        // Pomiar odległości z uśrednianiem
         int distance = measureDistance();
         if (distance > 0) {
             sensorDistance.setValue(String(distance).c_str());
