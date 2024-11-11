@@ -11,6 +11,11 @@ const int MQTT_PORT = 1883;
 const char* MQTT_USER = "hydrosense";
 const char* MQTT_PASSWORD = "hydrosense";
 
+// ========== SR04 MEASUREMENT CONFIGURATION ==========
+const int MEASUREMENTS = 10;          // Liczba pomiarów
+const int OUTLIERS = 2;              // Liczba odrzucanych skrajnych wartości
+const unsigned long MEASUREMENT_DELAY = 1000;  // Opóźnienie między pomiarami (1s)
+
 // ========== PIN DEFINITIONS ==========
 // Definicje pinów
 #define PIN_ULTRASONIC_TRIG D6 // Pin trigger czujnika ultradźwiękowego
@@ -189,34 +194,48 @@ void playWelcomeMelody() {
   }
 }
 
-// Funkcja wykonująca pomiar odległości przy użyciu czujnika ultradźwiękowego
-// void performMeasurement() {
-//   digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Ustawienie stanu niskiego na pinie trigger
-//   delayMicroseconds(2);  // Opóźnienie 2 mikrosekundy
-//   digitalWrite(PIN_ULTRASONIC_TRIG, HIGH); // Ustawienie stanu wysokiego na pinie trigger, aby zainicjować pomiar
-//   delayMicroseconds(10);  // Opóźnienie 10 mikrosekund
-//   digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Ustawienie stanu niskiego na pinie trigger
-  
-//   status.ultrasonicDuration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH);  // Pomiar czasu trwania impulsu echo
-//   status.currentDistance = status.ultrasonicDuration * 0.034 / 2;  // Obliczenie odległości w centymetrach
-  
-//   // Konwersja int na String i zapisanie wartości w czujniku Home Assistant
-//   sensorDistance.setValue(String(status.currentDistance).c_str());
-// }
+int getStableReading() {
+    float measurements[MEASUREMENTS];
+    
+    for(int i = 0; i < MEASUREMENTS; i++) {
+        // Wykonanie pojedynczego pomiaru
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+        delayMicroseconds(2);
+        digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+        
+        long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH);
+        measurements[i] = (duration * 0.343) / 2;  // Obliczenie odległości w mm
+        
+        delay(MEASUREMENT_DELAY);
+        handleSystemTasks();  // Obsługa zadań systemowych podczas oczekiwania
+    }
+    
+    // Sortowanie bąbelkowe
+    for(int i = 0; i < MEASUREMENTS-1; i++) {
+        for(int j = 0; j < MEASUREMENTS-i-1; j++) {
+            if(measurements[j] > measurements[j+1]) {
+                float temp = measurements[j];
+                measurements[j] = measurements[j+1];
+                measurements[j+1] = temp;
+            }
+        }
+    }
+    
+    // Obliczenie średniej z środkowych wartości
+    float sum = 0;
+    for(int i = OUTLIERS; i < MEASUREMENTS-OUTLIERS; i++) {
+        sum += measurements[i];
+    }
+    
+    return (int)(sum / (MEASUREMENTS - 2*OUTLIERS));
+}
 
 // Funkcja wykonująca pomiar odległości przy użyciu czujnika ultradźwiękowego
 void performMeasurement() {
-  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Ustawienie stanu niskiego na pinie trigger
-  delayMicroseconds(2);  // Opóźnienie 2 mikrosekundy
-  digitalWrite(PIN_ULTRASONIC_TRIG, HIGH); // Ustawienie stanu wysokiego na pinie trigger, aby zainicjować pomiar
-  delayMicroseconds(10);  // Opóźnienie 10 mikrosekund
-  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Ustawienie stanu niskiego na pinie trigger
-  
-  status.ultrasonicDuration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH);  // Pomiar czasu trwania impulsu echo
-  status.currentDistance = (status.ultrasonicDuration * 0.343) / 2;  // Obliczenie odległości w milimetrach (bez miejsc po przecinku)
-  
-  // Konwersja int na String i zapisanie wartości w czujniku Home Assistant
-  sensorDistance.setValue(String(status.currentDistance).c_str());
+    status.currentDistance = getStableReading();
+    sensorDistance.setValue(String(status.currentDistance).c_str());
 }
 
 void updateSystemStatus() {
