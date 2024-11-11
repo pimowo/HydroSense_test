@@ -1,5 +1,10 @@
+// Biblioteka do obsługi WiFi na ESP8266
 #include <ESP8266WiFi.h>
+
+// Biblioteka do obsługi Over-the-Air (OTA) aktualizacji
 #include <ArduinoOTA.h>
+
+// Biblioteka do integracji z Home Assistant przez MQTT
 #include <ArduinoHA.h>
 
 // ========== SYSTEM CONFIGURATION ==========
@@ -13,12 +18,12 @@ const char* MQTT_PASSWORD = "hydrosense";
 
 // ========== PIN DEFINITIONS ==========
 // Definicje pinów
-#define PIN_ULTRASONIC_TRIG D6    // Pin trigger czujnika ultradźwiękowego
-#define PIN_ULTRASONIC_ECHO D7    // Pin echo czujnika ultradźwiękowego
-#define PIN_WATER_LEVEL D5        // Czujnik poziomu wody
-#define PIN_PUMP D1               // Sterowanie pompą
-#define PIN_BUZZER D2            // Sygnalizator dźwiękowy
-#define PIN_RESET_BUTTON D3      // Przycisk resetu alarmu
+#define PIN_ULTRASONIC_TRIG D6 // Pin trigger czujnika ultradźwiękowego
+#define PIN_ULTRASONIC_ECHO D7 // Pin echo czujnika ultradźwiękowego
+#define PIN_WATER_LEVEL D5 // Czujnik poziomu wody
+#define PIN_PUMP D1 // Sterowanie pompą
+#define PIN_BUZZER D2 // Sygnalizator dźwiękowy
+#define PIN_RESET_BUTTON D3 // Przycisk resetu alarmu
 
 // ========== COMMUNICATION OBJECTS ==========
 // Obiekty komunikacyjne
