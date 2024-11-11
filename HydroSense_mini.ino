@@ -59,16 +59,16 @@ HANumber configReserveThreshold("reserve_threshold");
 // ========== SYSTEM VARIABLES ==========
 // Zmienne systemowe
 struct SystemStatus {
-    long ultrasonicDuration;
-    int currentDistance;
-    bool isPumpActive;
-    unsigned long lastMeasurementTime;
-    unsigned long lastPumpActivationTime;
-    const unsigned long MEASUREMENT_INTERVAL = 60000;  // 60 sekund (1 minuta) między cyklami pomiarów
-    unsigned long pumpStartDelay = 0;  // Czas rozpoczęcia odliczania opóźnienia
-    bool isPumpDelayActive = false;  // Flaga wskazująca czy trwa odliczanie opóźnienia
-    bool isWaterLevelLow = false;  // Stan czujnika wody (niski = true)
-    bool lastPumpState = false;  // Poprzedni stan pompy do wykrywania zmian
+  long ultrasonicDuration;
+  int currentDistance;
+  bool isPumpActive;
+  unsigned long lastMeasurementTime;
+  unsigned long lastPumpActivationTime;
+  const unsigned long MEASUREMENT_INTERVAL = 60000;  // 60 sekund (1 minuta) między cyklami pomiarów
+  unsigned long pumpStartDelay = 0;  // Czas rozpoczęcia odliczania opóźnienia
+  bool isPumpDelayActive = false;  // Flaga wskazująca czy trwa odliczanie opóźnienia
+  bool isWaterLevelLow = false;  // Stan czujnika wody (niski = true)
+  bool lastPumpState = false;  // Poprzedni stan pompy do wykrywania zmian
 } status;
 
 // ========== TANK CONFIGURATION ==========
@@ -85,13 +85,43 @@ struct TankParameters {
   bool buzzerActive = false;
 } tankConfig;
 
-// Zmienne do śledzenia stanu pomiarów
-struct MeasurementState {
+enum SensorStates {
+    STATE_IDLE,
+    STATE_TRIGGER_SENT,
+    STATE_WAITING_FOR_ECHO,
+    STATE_COLLECTING_SAMPLES
+};
+
+struct SensorData {
+    SensorStates state;
+    unsigned long lastStateChange;
     int measurements[5];
-    int currentMeasurement;
+    int measurementCount;
+    unsigned long triggerStartTime;
+    bool readingReady;
+};
+
+// Deklaracja globalnej zmiennej
+SensorData sensorData = {
+    .state = STATE_IDLE,
+    .lastStateChange = 0,
+    .measurements = {0},
+    .measurementCount = 0,
+    .triggerStartTime = 0,
+    .readingReady = false
+};
+
+// Dodaj tę definicję na początku pliku, przed funkcjami
+struct UltrasonicData {
+    int lastValidDistance;
     unsigned long lastMeasurementTime;
-    bool measurementInProgress;
-} measurementState;
+};
+
+// Deklaracja globalnej zmiennej
+UltrasonicData ultrasonicData = {
+    .lastValidDistance = 0,
+    .lastMeasurementTime = 0
+};
 
 // ========== WELCOME MELODY ==========
 // Melodia powitalna
@@ -110,56 +140,56 @@ struct WelcomeMelody {
 // ========== SYSTEM FUNCTIONS ==========
 // Funkcje systemowe
 void initializeSystem() {
-    Serial.begin(115200);
-    configurePins();
-    
-    // Upewnij się, że pompa jest wyłączona na starcie i zaktualizuj stan w HA
-    stopPump();
-    status.lastPumpState = false;
+  Serial.begin(115200);
+  configurePins();
+  
+  // Upewnij się, że pompa jest wyłączona na starcie i zaktualizuj stan w HA
+  stopPump();
+  status.lastPumpState = false;
 
-    // Konfiguracja urządzenia dla Home Assistant
-    device.setName("HydroSense");  // Ustaw nazwę urządzenia
-    device.setModel("HS ESP8266");  // Ustaw model urządzenia
-    device.setManufacturer("PMW");  // Ustaw producenta
-    device.setSoftwareVersion("11.11.24");  // Ustaw wersję oprogramowania
-    // Czujnik wody
-    sensorWaterPresence.setName("Czujnik wody");
-    sensorWaterPresence.setIcon("mdi:water"); 
-    // Pompa
-    sensorPumpStatus.setName("Pompa");
-    sensorPumpStatus.setIcon("mdi:water-pump");
-    sensorPumpStatus.setValue("OFF");
-    // Czujnik odległości
-    sensorDistance.setName("Pomiar odległości");
-    sensorDistance.setIcon("mdi:ruler");
-    sensorDistance.setUnitOfMeasurement("mm");
-    // Poziom wody
-    sensorWaterLevel.setName("Zapełnienie zbiornika");
-    sensorWaterLevel.setIcon("mdi:water-percent");
-    sensorWaterLevel.setUnitOfMeasurement("%");
-    // Oobjętość wody
-    sensorWaterVolume.setName("Ilość wody");
-    sensorWaterVolume.setIcon("mdi:cup-water");
-    sensorWaterVolume.setUnitOfMeasurement("l");
-    // Rezerwa
-    sensorReserveStatus.setName("Rezerwa");
-    sensorReserveStatus.setIcon("mdi:alert-outline");
-    // Brak wody
-    sensorWaterEmpty.setName("Brak wody");
-    sensorWaterEmpty.setIcon("mdi:water-off");
-    // Dźwięk
-    switchBuzzer.setName("Dzwięk");
-    switchBuzzer.setIcon("mdi:bell");
-    // Alarm
-    switchAlarm.setName("Alarm");
-    switchAlarm.setIcon("mdi:alert");
-    // Serwis
-    switchServiceMode.setName("Serwis");
-    switchServiceMode.setIcon("mdi:tools");
-    
-    initializeWiFi();
-    setupOTA();
-    playWelcomeMelody();
+  // Konfiguracja urządzenia dla Home Assistant
+  device.setName("HydroSense");  // Ustaw nazwę urządzenia
+  device.setModel("HS ESP8266");  // Ustaw model urządzenia
+  device.setManufacturer("PMW");  // Ustaw producenta
+  device.setSoftwareVersion("11.11.24");  // Ustaw wersję oprogramowania
+  // Czujnik wody
+  sensorWaterPresence.setName("Czujnik wody");
+  sensorWaterPresence.setIcon("mdi:water"); 
+  // Pompa
+  sensorPumpStatus.setName("Pompa");
+  sensorPumpStatus.setIcon("mdi:water-pump");
+  sensorPumpStatus.setValue("OFF");
+  // Czujnik odległości
+  sensorDistance.setName("Pomiar odległości");
+  sensorDistance.setIcon("mdi:ruler");
+  sensorDistance.setUnitOfMeasurement("mm");
+  // Poziom wody
+  sensorWaterLevel.setName("Zapełnienie zbiornika");
+  sensorWaterLevel.setIcon("mdi:water-percent");
+  sensorWaterLevel.setUnitOfMeasurement("%");
+  // Oobjętość wody
+  sensorWaterVolume.setName("Ilość wody");
+  sensorWaterVolume.setIcon("mdi:cup-water");
+  sensorWaterVolume.setUnitOfMeasurement("l");
+  // Rezerwa
+  sensorReserveStatus.setName("Rezerwa");
+  sensorReserveStatus.setIcon("mdi:alert-outline");
+  // Brak wody
+  sensorWaterEmpty.setName("Brak wody");
+  sensorWaterEmpty.setIcon("mdi:water-off");
+  // Dźwięk
+  switchBuzzer.setName("Dzwięk");
+  switchBuzzer.setIcon("mdi:bell");
+  // Alarm
+  switchAlarm.setName("Alarm");
+  switchAlarm.setIcon("mdi:alert");
+  // Serwis
+  switchServiceMode.setName("Serwis");
+  switchServiceMode.setIcon("mdi:tools");
+  
+  initializeWiFi();
+  setupOTA();
+  playWelcomeMelody();
 }
 
 // Funkcja OTA
@@ -254,71 +284,145 @@ void playWelcomeMelody() {
 }
 
 int getStableReading() {
-    static const int MEASUREMENTS = 5;
-    static const int OUTLIERS = 1;
-    static int measurements[5];
-    static int currentIndex = 0;
+    const unsigned long TRIGGER_DURATION = 10; // mikrosekundy
+    const unsigned long MAX_ECHO_WAIT = 30000; // mikrosekundy (30ms dla ~5m)
     
+    switch (sensorData.state) {
+        case STATE_IDLE:
+            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+            delayMicroseconds(2);
+            digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+            sensorData.triggerStartTime = micros();
+            sensorData.state = STATE_TRIGGER_SENT;
+            break;
+            
+        case STATE_TRIGGER_SENT:
+            if (micros() - sensorData.triggerStartTime >= TRIGGER_DURATION) {
+                digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+                sensorData.state = STATE_WAITING_FOR_ECHO;
+                sensorData.lastStateChange = micros();
+            }
+            break;
+            
+        case STATE_WAITING_FOR_ECHO:
+            if (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
+                sensorData.triggerStartTime = micros();
+                sensorData.state = STATE_COLLECTING_SAMPLES;
+            } else if (micros() - sensorData.lastStateChange >= MAX_ECHO_WAIT) {
+                // Timeout - restart pomiaru
+                sensorData.state = STATE_IDLE;
+                return -1;
+            }
+            break;
+            
+        case STATE_COLLECTING_SAMPLES:
+            if (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
+                unsigned long duration = micros() - sensorData.triggerStartTime;
+                int distance = (int)((duration * 0.343) / 2);
+                
+                if (distance > 0 && distance < 4000) { // Sprawdź czy odczyt jest sensowny (0-4m)
+                    sensorData.measurements[sensorData.measurementCount++] = distance;
+                    
+                    if (sensorData.measurementCount >= 5) {
+                        // Sortuj pomiary
+                        for (int i = 0; i < 4; i++) {
+                            for (int j = 0; j < 4 - i; j++) {
+                                if (sensorData.measurements[j] > sensorData.measurements[j + 1]) {
+                                    int temp = sensorData.measurements[j];
+                                    sensorData.measurements[j] = sensorData.measurements[j + 1];
+                                    sensorData.measurements[j + 1] = temp;
+                                }
+                            }
+                        }
+                        
+                        // Weź średnią z 3 środkowych pomiarów
+                        int sum = sensorData.measurements[1] + sensorData.measurements[2] + sensorData.measurements[3];
+                        int avgDistance = sum / 3;
+                        
+                        // Reset stanu
+                        sensorData.measurementCount = 0;
+                        sensorData.state = STATE_IDLE;
+                        
+                        return avgDistance;
+                    }
+                }
+                
+                sensorData.state = STATE_IDLE;
+                yield(); // Daj czas na inne operacje
+            }
+            break;
+    }
+    
+    return -1; // Pomiar w toku
+}
+
+int getDistance() {
+    const int MAX_DISTANCE = 4000; // maksymalny dystans w mm
+    const int MIN_DISTANCE = 20;   // minimalny dystans w mm
+    
+    ESP.wdtFeed(); // Nakarm watchdoga przed pomiarem
+    
+    // Wyślij impuls
     digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
     delayMicroseconds(2);
     digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
     delayMicroseconds(10);
     digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
     
-    ESP.wdtFeed(); // Nakarm watchdoga przed długą operacją
-    long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529);
-    int distance = (duration > 0) ? (int)((duration * 0.343) / 2) : -1;
+    yield(); // Daj czas systemowi
+    ESP.wdtFeed();
     
-    if (distance > 0) {
-        measurements[currentIndex] = distance;
-        currentIndex++;
-        
-        if (currentIndex >= MEASUREMENTS) {
-            currentIndex = 0;
-            
-            // Proste sortowanie insertion sort (bardziej efektywne dla małych zbiorów)
-            int tempMeas[MEASUREMENTS];
-            memcpy(tempMeas, measurements, sizeof(measurements));
-            
-            for (int i = 1; i < MEASUREMENTS; i++) {
-                ESP.wdtFeed();
-                int key = tempMeas[i];
-                int j = i - 1;
-                while (j >= 0 && tempMeas[j] > key) {
-                    tempMeas[j + 1] = tempMeas[j];
-                    j--;
-                }
-                tempMeas[j + 1] = key;
-            }
-            
-            // Oblicz średnią z wartości środkowych
-            int sum = 0;
-            for (int i = OUTLIERS; i < MEASUREMENTS - OUTLIERS; i++) {
-                sum += tempMeas[i];
-            }
-            
-            return sum / (MEASUREMENTS - 2 * OUTLIERS);
-        }
+    // Pomiar czasu powrotu sygnału z limitem czasu
+    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 30000); // timeout 30ms
+    
+    if (duration == 0) {
+        return -1; // Timeout lub błąd
+    }
+    
+    // Oblicz dystans
+    int distance = (int)((duration * 0.343) / 2);
+    
+    // Sprawdź czy wynik jest sensowny
+    if (distance >= MIN_DISTANCE && distance <= MAX_DISTANCE) {
+        return distance;
     }
     
     return -1;
 }
 
-// Funkcja wykonująca pomiar odległości przy użyciu czujnika ultradźwiękowego
 void performMeasurement() {
+    static int measurements[3] = {0, 0, 0};
+    static int measurementIndex = 0;
     static unsigned long lastMeasurementTime = 0;
     
-    if (millis() - lastMeasurementTime < 1000) {
-        return; // Nie wykonuj pomiarów częściej niż co sekundę
+    unsigned long currentTime = millis();
+    
+    if (currentTime - lastMeasurementTime < 100) {
+        return;
     }
     
-    int result = getStableReading();
-    if (result > 0) {
-        status.currentDistance = result;
-        sensorDistance.setValue(String(status.currentDistance).c_str());
-        lastMeasurementTime = millis();
-    }
+    lastMeasurementTime = currentTime;
     ESP.wdtFeed();
+    
+    int distance = getDistance();
+    if (distance > 0) {
+        measurements[measurementIndex] = distance;
+        measurementIndex = (measurementIndex + 1) % 3;
+        
+        if (measurementIndex == 0) {
+            int sum = measurements[0] + measurements[1] + measurements[2];
+            int avgDistance = sum / 3;
+            
+            if (abs(avgDistance - ultrasonicData.lastValidDistance) < 100 || 
+                ultrasonicData.lastValidDistance == 0) {
+                ultrasonicData.lastValidDistance = avgDistance;
+                status.currentDistance = avgDistance;
+                sensorDistance.setValue(String(avgDistance).c_str());
+            }
+        }
+    }
+    
+    yield();
 }
 
 void updateSystemStatus() {
@@ -392,28 +496,28 @@ void updatePumpControl() {
 }
 
 void startPump() {
-    digitalWrite(PIN_PUMP, HIGH);
-    status.isPumpActive = true;
-    status.lastPumpActivationTime = millis();
-    
-    // Wysyłaj do HA tylko jeśli stan się zmienił
-    if (status.lastPumpState != status.isPumpActive) {
-        sensorPumpStatus.setValue("ON");
-        status.lastPumpState = status.isPumpActive;
-        Serial.println("Pompa włączona - stan wysłany do HA");
-    }
+  digitalWrite(PIN_PUMP, HIGH);
+  status.isPumpActive = true;
+  status.lastPumpActivationTime = millis();
+  
+  // Wysyłaj do HA tylko jeśli stan się zmienił
+  if (status.lastPumpState != status.isPumpActive) {
+    sensorPumpStatus.setValue("ON");
+    status.lastPumpState = status.isPumpActive;
+    Serial.println("Pompa włączona - stan wysłany do HA");
+  }
 }
 
 void stopPump() {
-    digitalWrite(PIN_PUMP, LOW);
-    status.isPumpActive = false;
-    
-    // Wysyłaj do HA tylko jeśli stan się zmienił
-    if (status.lastPumpState != status.isPumpActive) {
-        sensorPumpStatus.setValue("OFF");
-        status.lastPumpState = status.isPumpActive;
-        Serial.println("Pompa wyłączona - stan wysłany do HA");
-    }
+  digitalWrite(PIN_PUMP, LOW);
+  status.isPumpActive = false;
+  
+  // Wysyłaj do HA tylko jeśli stan się zmienił
+  if (status.lastPumpState != status.isPumpActive) {
+    sensorPumpStatus.setValue("OFF");
+    status.lastPumpState = status.isPumpActive;
+    Serial.println("Pompa wyłączona - stan wysłany do HA");
+  }
 }
 
 void handleButtonPress() {
@@ -429,38 +533,43 @@ void handleButtonPress() {
 }
 
 void setup() {
-  initializeSystem();
-
-  measurementState.currentMeasurement = 0;
-  measurementState.lastMeasurementTime = 0;
-  measurementState.measurementInProgress = false;
+    initializeSystem();
+    ultrasonicData.lastValidDistance = 0;
+    ultrasonicData.lastMeasurementTime = 0;
 }
 
 void loop() {
-    static unsigned long lastWDTFeed = 0;
     unsigned long currentTime = millis();
+    static unsigned long lastWDTFeed = 0;
     
-    // Karm watchdoga co 100ms
-    if (currentTime - lastWDTFeed >= 100) {
+    // Karm watchdoga co 50ms
+    if (currentTime - lastWDTFeed >= 50) {
         ESP.wdtFeed();
         lastWDTFeed = currentTime;
     }
     
     if (!haMqtt.isConnected()) {
         reconnectMQTT();
+        yield();
     }
     
     handleSystemTasks();
+    yield();
+    
+    performMeasurement();
     
     if (currentTime - status.lastMeasurementTime >= status.MEASUREMENT_INTERVAL) {
         status.lastMeasurementTime = currentTime;
-        performMeasurement();
         updateSystemStatus();
+        yield();
     }
     
     updatePumpControl();
-    handleButtonPress();
-    
-    // Daj trochę czasu systemowi
     yield();
+    
+    handleButtonPress();
+    yield();
+    
+    // Daj więcej czasu dla systemu
+    delay(1);
 }
