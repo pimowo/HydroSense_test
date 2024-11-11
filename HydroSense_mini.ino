@@ -85,43 +85,24 @@ struct TankParameters {
   bool buzzerActive = false;
 } tankConfig;
 
-enum SensorStates {
-    STATE_IDLE,
-    STATE_TRIGGER_SENT,
-    STATE_WAITING_FOR_ECHO,
-    STATE_COLLECTING_SAMPLES
+// Definicje i zmienne globalne
+const unsigned long MEASUREMENT_INTERVAL = 100; // 100ms między pomiarami
+const int BUFFER_SIZE = 3;
+const int MAX_DISTANCE = 4000; // mm
+const int MIN_DISTANCE = 20;   // mm
+
+struct DistanceBuffer {
+    int values[BUFFER_SIZE];
+    int index;
+    bool isFull;
+} distanceBuffer = {
+    .values = {0},
+    .index = 0,
+    .isFull = false
 };
 
-struct SensorData {
-    SensorStates state;
-    unsigned long lastStateChange;
-    int measurements[5];
-    int measurementCount;
-    unsigned long triggerStartTime;
-    bool readingReady;
-};
-
-// Deklaracja globalnej zmiennej
-SensorData sensorData = {
-    .state = STATE_IDLE,
-    .lastStateChange = 0,
-    .measurements = {0},
-    .measurementCount = 0,
-    .triggerStartTime = 0,
-    .readingReady = false
-};
-
-// Dodaj tę definicję na początku pliku, przed funkcjami
-struct UltrasonicData {
-    int lastValidDistance;
-    unsigned long lastMeasurementTime;
-};
-
-// Deklaracja globalnej zmiennej
-UltrasonicData ultrasonicData = {
-    .lastValidDistance = 0,
-    .lastMeasurementTime = 0
-};
+unsigned long lastMeasurementTime = 0;
+int lastValidDistance = 0;
 
 // ========== WELCOME MELODY ==========
 // Melodia powitalna
@@ -390,34 +371,87 @@ int getDistance() {
     return -1;
 }
 
-void performMeasurement() {
-    static int measurements[3] = {0, 0, 0};
-    static int measurementIndex = 0;
-    static unsigned long lastMeasurementTime = 0;
+// Uproszczona funkcja pomiaru
+int takeSingleMeasurement() {
+    ESP.wdtFeed();
     
+    // Krótki impuls trigger
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    delayMicroseconds(2);
+    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    
+    // Krótkie oczekiwanie
+    yield();
+    
+    // Pomiar z timeoutem
+    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529);
+    
+    if (duration == 0) {
+        return -1;
+    }
+    
+    int distance = (int)((duration * 0.343) / 2);
+    
+    if (distance >= MIN_DISTANCE && distance <= MAX_DISTANCE) {
+        return distance;
+    }
+    
+    return -1;
+}
+
+// Funkcja dodająca pomiar do bufora
+void addMeasurement(int measurement) {
+    if (measurement <= 0) {
+        return;
+    }
+    
+    distanceBuffer.values[distanceBuffer.index] = measurement;
+    distanceBuffer.index = (distanceBuffer.index + 1) % BUFFER_SIZE;
+    
+    if (distanceBuffer.index == 0) {
+        distanceBuffer.isFull = true;
+    }
+}
+
+// Funkcja obliczająca średnią z bufora
+int calculateAverage() {
+    if (!distanceBuffer.isFull) {
+        return -1;
+    }
+    
+    int sum = 0;
+    for (int i = 0; i < BUFFER_SIZE; i++) {
+        sum += distanceBuffer.values[i];
+    }
+    
+    return sum / BUFFER_SIZE;
+}
+
+// Główna funkcja pomiaru
+void performMeasurement() {
     unsigned long currentTime = millis();
     
-    if (currentTime - lastMeasurementTime < 100) {
+    if (currentTime - lastMeasurementTime < MEASUREMENT_INTERVAL) {
         return;
     }
     
     lastMeasurementTime = currentTime;
-    ESP.wdtFeed();
     
-    int distance = getDistance();
-    if (distance > 0) {
-        measurements[measurementIndex] = distance;
-        measurementIndex = (measurementIndex + 1) % 3;
+    int measurement = takeSingleMeasurement();
+    if (measurement > 0) {
+        addMeasurement(measurement);
         
-        if (measurementIndex == 0) {
-            int sum = measurements[0] + measurements[1] + measurements[2];
-            int avgDistance = sum / 3;
-            
-            if (abs(avgDistance - ultrasonicData.lastValidDistance) < 100 || 
-                ultrasonicData.lastValidDistance == 0) {
-                ultrasonicData.lastValidDistance = avgDistance;
-                status.currentDistance = avgDistance;
-                sensorDistance.setValue(String(avgDistance).c_str());
+        if (distanceBuffer.isFull) {
+            int avgDistance = calculateAverage();
+            if (avgDistance > 0) {
+                // Aktualizuj tylko jeśli zmiana nie jest zbyt duża
+                if (abs(avgDistance - lastValidDistance) < 100 || lastValidDistance == 0) {
+                    lastValidDistance = avgDistance;
+                    status.currentDistance = avgDistance;
+                    sensorDistance.setValue(String(avgDistance).c_str());
+                }
             }
         }
     }
@@ -534,13 +568,17 @@ void handleButtonPress() {
 
 void setup() {
     initializeSystem();
-    ultrasonicData.lastValidDistance = 0;
-    ultrasonicData.lastMeasurementTime = 0;
+
+    lastMeasurementTime = 0;
+    lastValidDistance = 0;
+    distanceBuffer.index = 0;
+    distanceBuffer.isFull = false;
+    memset(distanceBuffer.values, 0, sizeof(distanceBuffer.values));
 }
 
 void loop() {
-    unsigned long currentTime = millis();
     static unsigned long lastWDTFeed = 0;
+    unsigned long currentTime = millis();
     
     // Karm watchdoga co 50ms
     if (currentTime - lastWDTFeed >= 50) {
@@ -548,28 +586,35 @@ void loop() {
         lastWDTFeed = currentTime;
     }
     
+    // MQTT
     if (!haMqtt.isConnected()) {
         reconnectMQTT();
         yield();
     }
     
+    // System tasks
     handleSystemTasks();
     yield();
     
+    // Pomiar
     performMeasurement();
+    yield();
     
+    // Status update
     if (currentTime - status.lastMeasurementTime >= status.MEASUREMENT_INTERVAL) {
         status.lastMeasurementTime = currentTime;
         updateSystemStatus();
         yield();
     }
     
+    // Pump control
     updatePumpControl();
     yield();
     
+    // Button handling
     handleButtonPress();
     yield();
     
-    // Daj więcej czasu dla systemu
+    // Krótka przerwa
     delay(1);
 }
