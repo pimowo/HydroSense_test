@@ -15,22 +15,28 @@ const char* MQTT_PASSWORD = "hydrosense";
 #define PIN_PUMP D1
 
 // Konfiguracja zbiornika i pomiarów
-const int DISTANCE_WHEN_FULL = 65;     // mm
-const int DISTANCE_WHEN_EMPTY = 510;   // mm
-const int PUMP_DELAY = 5;              // sekundy
-const int PUMP_WORK_TIME = 60;         // sekundy
-const int MEASUREMENTS_COUNT = 5;       // liczba pomiarów do uśrednienia
+const int DISTANCE_WHEN_FULL = 65;  // pełny zbiornik - mm
+const int DISTANCE_WHEN_EMPTY = 510;  // pusty zbiornik - mm
+const int PUMP_DELAY = 5;  // opóźnienie włączenia pompy - sekundy
+const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
+const int MEASUREMENTS_COUNT = 5;  // liczba pomiarów do uśrednienia
+const int HYSTERESIS = 10;  // histereza - mm
+const int DISTANCE_RESERVE = 400;  // dystans dla rezerwy - mm
 
 // Obiekty do komunikacji
 WiFiClient client;
 HADevice device("HydroSense");
 HAMqtt mqtt(client, device);
-
-// Sensory
-HASensor sensorDistance("distance");
-HASensor sensorWaterLevel("water_level_percent");
-HASensor sensorPumpStatus("pump");
-HASensor sensorWaterPresence("water");
+// Sensory pomiarowe
+HASensor sensorDistance("distance");                    // odległość w mm
+HASensor sensorWaterLevel("water_level_percent");       // poziom wody w %
+// Sensory statusu
+HASensor sensorPumpStatus("pump");                     // status pompy
+HASensor sensorWaterPresence("water");                 // obecność wody (czujnik)
+// Sensory alarmowe
+HASensor sensorWaterAlarm("water_alarm");             // alarm niskiego poziomu
+HASensor sensorWaterReserve("water_reserve");         // stan rezerwy
+HASwitch pumpAlarm("pump_alarm");                     // alarm przepracowania pompy
 
 // Status systemu
 struct {
@@ -38,6 +44,9 @@ struct {
     unsigned long pumpStartTime = 0;
     bool isPumpDelayActive = false;
     unsigned long pumpDelayStartTime = 0;
+    bool pumpSafetyLock = false;
+    bool waterAlarmActive = false;   
+    bool waterReserveActive = false;
 } status;
 
 // Funkcja obliczająca poziom wody w procentach
@@ -66,19 +75,26 @@ int measureDistance() {
         digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
         
         long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529);
-        if (duration == 0) continue;
+        if (duration == 0) {
+            Serial.println("Błąd pomiaru - timeout");
+            continue;
+        }
         
         int distance = (duration * 343) / 2000; // mm
         if (distance >= 20 && distance <= 4000) {
             measurements[validMeasurements] = distance;
             validMeasurements++;
+            Serial.printf("Pomiar %d: %d mm\n", i+1, distance);
+        } else {
+            Serial.printf("Pomiar %d: poza zakresem (%d mm)\n", i+1, distance);
         }
         
-        delay(10); // krótka przerwa między pomiarami
+        delay(50); // krótka przerwa między pomiarami
     }
     
     // Jeśli nie ma wystarczającej liczby poprawnych pomiarów
     if (validMeasurements < 3) {
+        Serial.println("Za mało poprawnych pomiarów");
         return -1;
     }
     
@@ -95,10 +111,103 @@ int measureDistance() {
     
     // Obliczenie średniej z pomiarów (pomijając skrajne wartości)
     long sum = 0;
-    int start = validMeasurements > 3 ? 1 : 0;  // pomijamy najniższą wartość jeśli mamy więcej niż 3 pomiary
-    int end = validMeasurements > 3 ? validMeasurements-1 : validMeasurements;  // pomijamy najwyższą wartość
+    int start = validMeasurements > 3 ? 1 : 0;
+    int end = validMeasurements > 3 ? validMeasurements-1 : validMeasurements;
     
-    return sum / (end - start);
+    for(int i = start; i < end; i++) {
+        sum += measurements[i];
+    }
+    
+    int average = sum / (end - start);
+    Serial.printf("Średnia z %d pomiarów: %d mm\n", end-start, average);
+    
+    return average;
+}
+
+void onPumpAlarmCommand(bool state, HASwitch* sender) {
+    if (!state) {
+        status.pumpSafetyLock = false;
+    }
+}
+
+void checkWaterLevels(int distance) {
+    // Sprawdzenie alarmu wody
+    if (distance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
+        status.waterAlarmActive = true;
+        sensorWaterAlarm.setValue("ON");
+        Serial.println("Alarm: Krytycznie niski poziom wody!");
+    } else if (distance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
+        status.waterAlarmActive = false;
+        sensorWaterAlarm.setValue("OFF");
+        Serial.println("Alarm wody wyłączony");
+    }
+
+    // Sprawdzenie rezerwy
+    if (distance >= DISTANCE_RESERVE && !status.waterReserveActive) {
+        status.waterReserveActive = true;
+        sensorWaterReserve.setValue("ON");
+        Serial.println("Uwaga: Poziom rezerwy!");
+    } 
+    else if (distance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
+        status.waterReserveActive = false;
+        sensorWaterReserve.setValue("OFF");
+        Serial.println("Poziom powyżej rezerwy");
+    }
+}
+
+// Kontrola pompy
+void updatePump() {
+    bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
+    sensorWaterPresence.setValue(waterPresent ? "ON" : "OFF");
+    
+    // Sprawdź czy pompa nie pracuje za długo
+    if (status.isPumpActive && (millis() - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
+        digitalWrite(PIN_PUMP, LOW);
+        status.isPumpActive = false;
+        status.pumpStartTime = 0;
+        sensorPumpStatus.setValue("OFF");
+        status.pumpSafetyLock = true;
+        pumpAlarm.setState(true);
+        Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
+        return;
+    }
+    
+    // Sprawdź blokady bezpieczeństwa
+    if (status.pumpSafetyLock || status.waterAlarmActive) {
+        if (status.isPumpActive) {
+            digitalWrite(PIN_PUMP, LOW);
+            status.isPumpActive = false;
+            status.pumpStartTime = 0;
+            sensorPumpStatus.setValue("OFF");
+        }
+        return;
+    }
+    
+    // Reszta istniejącej logiki pozostaje bez zmian
+    if (!waterPresent && status.isPumpActive) {
+        digitalWrite(PIN_PUMP, LOW);
+        status.isPumpActive = false;
+        status.pumpStartTime = 0;
+        status.isPumpDelayActive = false;
+        sensorPumpStatus.setValue("OFF");
+        return;
+    }
+    
+    if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
+        status.isPumpDelayActive = true;
+        status.pumpDelayStartTime = millis();
+        return;
+    }
+    
+    if (status.isPumpDelayActive && !status.isPumpActive) {
+        if (millis() - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
+            digitalWrite(PIN_PUMP, HIGH);
+            status.isPumpActive = true;
+            status.pumpStartTime = millis();
+            status.isPumpDelayActive = false;
+            sensorPumpStatus.setValue("ON");
+        }
+    }
 }
 
 void setup() {
@@ -126,65 +235,40 @@ void setup() {
     device.setSoftwareVersion("11.11.24");
     
     sensorDistance.setName("Pomiar odległości");
-    sensorDistance.setUnitOfMeasurement("mm");
     sensorDistance.setIcon("mdi:ruler");
+    sensorDistance.setUnitOfMeasurement("mm");
     
     sensorWaterLevel.setName("Poziom wody");
-    sensorWaterLevel.setUnitOfMeasurement("%");
     sensorWaterLevel.setIcon("mdi:water-percent");
-    
+    sensorWaterLevel.setUnitOfMeasurement("%");
+        
     sensorPumpStatus.setName("Status pompy");
     sensorPumpStatus.setIcon("mdi:water-pump");
     
     sensorWaterPresence.setName("Czujnik wody");
     sensorWaterPresence.setIcon("mdi:water");
+
+    sensorWaterAlarm.setName("Alarm wody");
+    sensorWaterAlarm.setIcon("mdi:tools");
+    
+    sensorWaterReserve.setName("Rezerwa wody");
+    sensorWaterReserve.setIcon("mdi:alert-outline");
+
+    //sensorLowWaterAlarm.setName("Alarm niskiego poziomu");
+
+    // serviceSwitch.setName("Serwis");
+    // serviceSwitch.setIcon("mdi:tools");
+
+    pumpAlarm.setName("Alarm pompy");
+    pumpAlarm.setIcon("mdi:alert");
+    pumpAlarm.onCommand(onPumpAlarmCommand);
+
+    // pumpAlarm.setName("Alarm wody");
+    // pumpAlarm.setIcon("mdi:alert");
+    // pumpAlarm.onCommand(onPumpAlarmCommand);
     
     // Połączenie MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
-}
-
-// Kontrola pompy
-void updatePump() {
-    bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
-    sensorWaterPresence.setValue(waterPresent ? "ON" : "OFF");
-    
-    // Jeśli nie ma wody, wyłącz pompę
-    if (!waterPresent && status.isPumpActive) {
-        digitalWrite(PIN_PUMP, LOW);
-        status.isPumpActive = false;
-        status.pumpStartTime = 0;
-        status.isPumpDelayActive = false;
-        sensorPumpStatus.setValue("OFF");
-        return;
-    }
-    
-    // Jeśli jest woda i pompa nie jest aktywna, rozpocznij odliczanie
-    if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
-        status.isPumpDelayActive = true;
-        status.pumpDelayStartTime = millis();
-        return;
-    }
-    
-    // Sprawdź czy minął czas opóźnienia
-    if (status.isPumpDelayActive && !status.isPumpActive) {
-        if (millis() - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
-            digitalWrite(PIN_PUMP, HIGH);
-            status.isPumpActive = true;
-            status.pumpStartTime = millis();
-            status.isPumpDelayActive = false;
-            sensorPumpStatus.setValue("ON");
-        }
-    }
-    
-    // Sprawdź czas pracy pompy
-    if (status.isPumpActive) {
-        if (millis() - status.pumpStartTime >= (PUMP_WORK_TIME * 1000)) {
-            digitalWrite(PIN_PUMP, LOW);
-            status.isPumpActive = false;
-            status.pumpStartTime = 0;
-            sensorPumpStatus.setValue("OFF");
-        }
-    }
 }
 
 void loop() {
@@ -192,21 +276,22 @@ void loop() {
     
     static unsigned long lastMeasurement = 0;
     if (millis() - lastMeasurement > 1000) {
-        // Pomiar odległości z uśrednianiem
         int distance = measureDistance();
         if (distance > 0) {
             sensorDistance.setValue(String(distance).c_str());
             
-            // Obliczanie poziomu wody w procentach
             int waterLevel = calculateWaterLevel(distance);
             sensorWaterLevel.setValue(String(waterLevel).c_str());
+            
+            // Dodaj sprawdzenie poziomów alarmowych
+            checkWaterLevels(distance);
             
             Serial.printf("Odległość: %d mm, Poziom: %d%%\n", distance, waterLevel);
         }
         lastMeasurement = millis();
     }
     
-    // Aktualizacja pompy
+    // Modyfikacja updatePump()
     updatePump();
     
     yield();
