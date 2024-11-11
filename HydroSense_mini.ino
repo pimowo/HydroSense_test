@@ -85,6 +85,14 @@ struct TankParameters {
   bool buzzerActive = false;
 } tankConfig;
 
+// Zmienne do śledzenia stanu pomiarów
+struct MeasurementState {
+    int measurements[5];
+    int currentMeasurement;
+    unsigned long lastMeasurementTime;
+    bool measurementInProgress;
+} measurementState;
+
 // ========== WELCOME MELODY ==========
 // Melodia powitalna
 struct WelcomeMelody {
@@ -246,49 +254,60 @@ void playWelcomeMelody() {
 }
 
 int getStableReading() {
-    float measurements[MEASUREMENTS];
+    static const int MEASUREMENTS = 5;      // Stała liczba pomiarów
+    static const int OUTLIERS = 1;         // Liczba odrzucanych skrajnych wartości
     
-    for(int i = 0; i < MEASUREMENTS; i++) {
-        // Wykonanie pojedynczego pomiaru
-        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-        delayMicroseconds(2);
-        digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-        delayMicroseconds(10);
-        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-        
-        long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH);
-        measurements[i] = (duration * 0.343) / 2;  // Obliczenie odległości w mm
-        
-        delay(MEASUREMENT_DELAY);
-        handleSystemTasks();  // Obsługa zadań systemowych podczas oczekiwania
-    }
+    // Inicjalizacja pomiaru
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    delayMicroseconds(2);
+    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
     
-    // Sortowanie bąbelkowe
-    for(int i = 0; i < MEASUREMENTS-1; i++) {
-        for(int j = 0; j < MEASUREMENTS-i-1; j++) {
-            if(measurements[j] > measurements[j+1]) {
-                float temp = measurements[j];
-                measurements[j] = measurements[j+1];
-                measurements[j+1] = temp;
+    long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529); // timeout ~4m
+    int distance = (duration > 0) ? (int)((duration * 0.343) / 2) : 0;
+    
+    // Zapisz pomiar
+    measurementState.measurements[measurementState.currentMeasurement] = distance;
+    measurementState.currentMeasurement++;
+    
+    // Jeśli zebraliśmy wszystkie pomiary
+    if (measurementState.currentMeasurement >= MEASUREMENTS) {
+        measurementState.currentMeasurement = 0;
+        
+        // Sortowanie bąbelkowe
+        for(int i = 0; i < MEASUREMENTS-1; i++) {
+            yield(); // Daj czas na obsługę WDT
+            for(int j = 0; j < MEASUREMENTS-i-1; j++) {
+                if(measurementState.measurements[j] > measurementState.measurements[j+1]) {
+                    int temp = measurementState.measurements[j];
+                    measurementState.measurements[j] = measurementState.measurements[j+1];
+                    measurementState.measurements[j+1] = temp;
+                }
             }
         }
+        
+        // Obliczenie średniej z środkowych wartości
+        long sum = 0;
+        for(int i = OUTLIERS; i < MEASUREMENTS-OUTLIERS; i++) {
+            sum += measurementState.measurements[i];
+        }
+        
+        return (int)(sum / (MEASUREMENTS - 2*OUTLIERS));
     }
     
-    // Obliczenie średniej z środkowych wartości
-    float sum = 0;
-    for(int i = OUTLIERS; i < MEASUREMENTS-OUTLIERS; i++) {
-        sum += measurements[i];
-    }
-    
-    return (int)(sum / (MEASUREMENTS - 2*OUTLIERS));
+    return -1; // Zwróć -1 jeśli pomiary są w toku
 }
 
 // Funkcja wykonująca pomiar odległości przy użyciu czujnika ultradźwiękowego
 void performMeasurement() {
-    status.currentDistance = getStableReading();
+  int result = getStableReading();
+  if (result >= 0) {
+    status.currentDistance = result;
     sensorDistance.setValue(String(status.currentDistance).c_str());
+  }
+  yield(); // Daj czas na obsługę WDT
 }
-
 void updateSystemStatus() {
   bool isTankFull = status.currentDistance < tankConfig.distanceWhenFull;
   bool isTankEmpty = status.currentDistance > tankConfig.distanceWhenEmpty;
@@ -398,6 +417,10 @@ void handleButtonPress() {
 
 void setup() {
   initializeSystem();
+
+  measurementState.currentMeasurement = 0;
+  measurementState.lastMeasurementTime = 0;
+  measurementState.measurementInProgress = false;
 }
 
 void loop() {
