@@ -14,7 +14,6 @@ const char* MQTT_PASSWORD = "hydrosense";
 #define PIN_ULTRASONIC_ECHO D7
 #define PIN_WATER_LEVEL D5
 #define PIN_PUMP D1
-//#define PIN_SERVICE_BUTTON D2  // Pin dla przycisku serwisowego
 #define BUZZER_PIN D2
 #define PIN_BUZZER D3         // Pin dla buzzera
 
