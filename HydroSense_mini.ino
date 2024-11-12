@@ -31,6 +31,7 @@ const unsigned long WATCHDOG_TIMEOUT = 8000; // ms
 
 // EEPROM
 #define EEPROM_SIZE 512
+
 // Dodajemy adresy EEPROM
 #define EEPROM_SOUND_STATE_ADDR 0  // Adres w EEPROM dla stanu dźwięku
 
@@ -117,7 +118,7 @@ void setupWiFi() {
     static unsigned long lastWiFiCheck = 0;
     static bool wifiInitiated = false;
     
-    ESP.wdtFeed();  // Dodaj to
+    ESP.wdtFeed();
     
     if (!wifiInitiated) {
         WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -293,8 +294,9 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 
 // Kontrola pompy
 void updatePump() {
+    // Zabezpieczenie przed przepełnieniem millis()
     if (millis() < status.pumpStartTime) {
-        status.pumpStartTime = millis(); 
+        status.pumpStartTime = millis();
     }
     
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
