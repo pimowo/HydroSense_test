@@ -53,20 +53,22 @@ WiFiClient client;
 HADevice device("HydroSense");
 HAMqtt mqtt(client, device);
 // Sensory pomiarowe
-HASensor sensorDistance("water_level");              // zmieniona nazwa z waterLevelSensor
-HASensor sensorWaterLevel("water_level_percent");    // bez zmian
-HASensor sensorVolume("water_volume");               // uproszczona nazwa
-// Sensory statusu
-HASensor sensorPump("pump");                        // uproszczona nazwa
-HASensor sensorWater("water");                      // uproszczona nazwa
-// Sensory alarmowe
-HASensor sensorAlarm("water_alarm");                // uproszczona nazwa
-HASensor sensorReserve("water_reserve");            // uproszczona nazwa
-// Przełączniki
-HASwitch pumpAlarm("pump_alarm");                   // bez zmian
-HASwitch service("service_mode");                   // uproszczona nazwa
-HASwitch sound("sound_switch");                     // uproszczona nazwa
+HASensor sensorDistance("water_level");              // było waterLevelSensor
+HASensor sensorLevel("water_level_percent");         // było sensorWaterLevel
+HASensor sensorVolume("water_volume");               // było sensorWaterVolume
 
+// Sensory statusu
+HASensor sensorPump("pump");                        // było sensorPumpStatus
+HASensor sensorWater("water");                      // było sensorWaterPresence
+
+// Sensory alarmowe
+HASensor sensorAlarm("water_alarm");                // było sensorWaterAlarm
+HASensor sensorReserve("water_reserve");            // było sensorWaterReserve
+
+// Przełączniki
+HASwitch switchPump("pump_alarm");                  // było pumpAlarm
+HASwitch switchService("service_mode");             // było serviceSwitch
+HASwitch switchSound("sound_switch");               // było soundSwitch
 // Status systemu
 struct {
     bool isPumpActive = false;
@@ -336,24 +338,24 @@ void updateAlarmStates(float currentDistance) {
     // Sprawdzenie alarmu braku wody z histerezą
     if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
-        sensorWaterAlarm.setValue("ON");
+        sensorAlarm.setValue("ON");                // było sensorWaterAlarm
         Serial.println("Alarm: Krytycznie niski poziom wody!");
     } 
     else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
-        sensorWaterAlarm.setValue("OFF");
+        sensorAlarm.setValue("OFF");               // było sensorWaterAlarm
         Serial.println("Alarm wody wyłączony");
     }
 
     // Sprawdzenie stanu rezerwy z histerezą
     if (currentDistance >= DISTANCE_RESERVE && !status.waterReserveActive) {
         status.waterReserveActive = true;
-        sensorWaterReserve.setValue("ON");
+        sensorReserve.setValue("ON");             // było sensorWaterReserve
         Serial.println("Uwaga: Poziom rezerwy!");
     } 
     else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
-        sensorWaterReserve.setValue("OFF");
+        sensorReserve.setValue("OFF");            // było sensorWaterReserve
         Serial.println("Poziom powyżej rezerwy");
     }
 }
