@@ -47,7 +47,6 @@ HADevice device("HydroSense");
 HAMqtt mqtt(client, device);
 // Sensory pomiarowe
 HASensor sensorWaterLevel("water_level_percent");       // poziom wody w %
-HASensor sensorWaterFillPercentage("water_fill_percentage");
 // Sensory statusu
 HASensor sensorPumpStatus("pump");                     // status pompy
 HASensor sensorWaterPresence("water");                 // obecność wody (czujnik)
@@ -386,7 +385,6 @@ void updateWaterLevel() {
     sensorWaterVolume.setValue(valueStr);
     
     dtostrf(fillPercentage, 1, 1, valueStr);
-    sensorWaterFillPercentage.setValue(valueStr);
     
     // Aktualizacja alarmów
     bool isAlarmState = (currentDistance >= DISTANCE_WHEN_EMPTY);
@@ -406,7 +404,7 @@ void updateWaterLevel() {
     }
     
     // Debug info
-    Serial.printf("Poziom wody: %.1f cm\n", currentDistance);
+    Serial.printf("Poziom wody: %f mm\n", currentDistance);
     Serial.printf("Objętość: %.1f L\n", volume);
     Serial.printf("Zapełnienie: %.1f %%\n", fillPercentage);
 }
@@ -486,11 +484,11 @@ void setup() {
     sensorWaterVolume.setName("Objętość wody");
     sensorWaterVolume.setIcon("mdi:water");
     sensorWaterVolume.setUnitOfMeasurement("L");
-    
-    sensorWaterFillPercentage.setName("Zapełnienie zbiornika");
-    sensorWaterFillPercentage.setIcon("mdi:water-percent");
-    sensorWaterFillPercentage.setUnitOfMeasurement("%");
-    
+
+    waterLevelSensor.setName("Odległość od lustra wody");  // Dodaj nazwę
+    waterLevelSensor.setIcon("mdi:ruler");                 // Dodaj ikonę
+    waterLevelSensor.setUnitOfMeasurement("mm");           // Dodaj jednostkę
+        
     // Połączenie MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
 }
