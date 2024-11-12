@@ -437,9 +437,9 @@ void setup() {
     sensorDistance.setIcon("mdi:ruler");
     sensorDistance.setUnitOfMeasurement("mm");
     
-    sensorWaterLevel.setName("Poziom wody");
-    sensorWaterLevel.setIcon("mdi:water-percent");
-    sensorWaterLevel.setUnitOfMeasurement("%");
+    sensorLevel.setName("Poziom wody");
+    sensorLevel.setIcon("mdi:water-percent");
+    sensorLevel.setUnitOfMeasurement("%");
     
     sensorVolume.setName("Objętość wody");
     sensorVolume.setIcon("mdi:water");
@@ -462,19 +462,19 @@ void setup() {
     sensorReserve.setValue("OFF");
     
     // Konfiguracja przełączników
-    service.setName("Serwis");
-    service.setIcon("mdi:tools");
-    service.onCommand(onServiceSwitchCommand);
-    service.setState(status.isServiceMode);
+    switchService.setName("Serwis");
+    switchService.setIcon("mdi:tools");
+    switchService.onCommand(onServiceSwitchCommand);
+    switchService.setState(status.isServiceMode);
     
-    sound.setName("Dźwięk");
-    sound.setIcon("mdi:volume-high");
-    sound.onCommand(onSoundSwitchCommand);
-    sound.setState(status.soundEnabled);
+    switchSound.setName("Dźwięk");
+    switchSound.setIcon("mdi:volume-high");
+    switchSound.onCommand(onSoundSwitchCommand);
+    switchSound.setState(status.soundEnabled);
     
-    pumpAlarm.setName("Alarm pompy");
-    pumpAlarm.setIcon("mdi:alert");
-    pumpAlarm.onCommand(onPumpAlarmCommand);
+    switchPump.setName("Alarm pompy");
+    switchPump.setIcon("mdi:alert");
+    switchPump.onCommand(onPumpAlarmCommand);
 
     // Połączenie MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
