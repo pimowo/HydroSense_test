@@ -128,7 +128,7 @@ void setupWiFi() {
     
     if (WiFi.status() != WL_CONNECTED) {
         if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {
-            ESP.wdtFeed();  // Dodaj to
+            ESP.wdtFeed();
             Serial.print(".");
             lastWiFiCheck = millis();
             if (WiFi.status() == WL_DISCONNECTED) {
@@ -165,13 +165,13 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
     buttonState.lastState = HIGH;
     
     // Aktualizuj stan przełącznika w HA
-    switchService.setState(state);   // było serviceSwitch
+    switchService.setState(state);
     
     if (status.isServiceMode && status.isPumpActive) {
         digitalWrite(PIN_PUMP, LOW);
         status.isPumpActive = false;
         status.pumpStartTime = 0;
-        sensorPump.setValue("OFF");  // było sensorPumpStatus
+        sensorPump.setValue("OFF");
     }
     Serial.printf("Tryb serwisowy: %s (przez HA)\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
@@ -186,7 +186,7 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     bool saved = EEPROM.commit();
     
     // Aktualizuj stan w HA
-    switchSound.setState(state);  // było soundSwitch
+    switchSound.setState(state);
     Serial.printf("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
@@ -240,7 +240,7 @@ int measureDistanceNonBlocking() {
     static int measurementIndex = 0;
     static unsigned long echoStartTime = 0;
 
-    ESP.wdtFeed();  // Dodaj to na początku funkcji
+    ESP.wdtFeed();
     
     if (!ultrasonicInProgress) {
         if (millis() - lastUltrasonicTrigger >= ULTRASONIC_TIMEOUT) {
@@ -412,9 +412,8 @@ void updateWaterLevel() {
     
     // Debug info tylko gdy wartości się zmieniły znacząco
     static float lastReportedDistance = 0;
-    if (abs(currentDistance - lastReportedDistance) > 5) {
-        Serial.printf("Poziom: %.1f mm, Obj: %.1f L\n", 
-                     currentDistance, volume);
+    if (abs(currentDistance - lastReportedDistance) > 1) {
+        Serial.printf("Poziom: %.1f mm, Obj: %.1f L\n", currentDistance, volume);
         lastReportedDistance = currentDistance;
     }
 }
@@ -436,7 +435,7 @@ void setup() {
                  savedState,
                  status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     
-    // Reszta konfiguracji pinów
+    // Konfiguracja pinów
     pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
     pinMode(PIN_ULTRASONIC_ECHO, INPUT);
     pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);
