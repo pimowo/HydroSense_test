@@ -14,8 +14,8 @@ const char* MQTT_PASSWORD = "hydrosense";
 #define PIN_ULTRASONIC_ECHO D7
 #define PIN_WATER_LEVEL D5
 #define PIN_PUMP D1
-#define PIN_BUZZER D3         // Pin dla buzzera
-#define PIN_BUTTON D3        // Pin dla przycisku
+#define PIN_BUZZER D2  // Buzzer
+#define PIN_BUTTON D3  // Przycisk kasowania alarmu
 
 // Stałe dla przycisku
 #define LONG_PRESS_TIME 1000  // 1 sekunda dla długiego naciśnięcia
@@ -118,7 +118,12 @@ void handleButton() {
             // Krótkie naciśnięcie - przełącz tryb serwisowy
             if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
                 status.isServiceMode = !status.isServiceMode;
-                serviceSwitch.setState(status.isServiceMode);
+                serviceSwitch.setState(status.isServiceMode); // Aktualizacja stanu w HA
+                if (status.isServiceMode) {
+                    Serial.println("Tryb serwisowy: WŁĄCZONY");
+                } else {
+                    Serial.println("Tryb serwisowy: WYŁĄCZONY");
+                }
                 
                 if (status.isServiceMode && status.isPumpActive) {
                     // Wyłącz pompę jeśli jest aktywna
@@ -138,6 +143,7 @@ void handleButton() {
             status.pumpSafetyLock = false;
             pumpAlarm.setState(false);
             buttonState.isLongPressHandled = true;
+            Serial.println("Alarm pompy skasowany");
         }
     }
     
@@ -167,7 +173,7 @@ int measureDistance() {
         if (distance >= 20 && distance <= 4000) {
             measurements[validMeasurements] = distance;
             validMeasurements++;
-            Serial.printf("Pomiar %d: %d mm\n", i+1, distance);
+            //Serial.printf("Pomiar %d: %d mm\n", i+1, distance);
         } else {
             Serial.printf("Pomiar %d: poza zakresem (%d mm)\n", i+1, distance);
         }
@@ -202,7 +208,7 @@ int measureDistance() {
     }
     
     int average = sum / (end - start);
-    Serial.printf("Średnia z %d pomiarów: %d mm\n", end-start, average);
+    //Serial.printf("Średnia z %d pomiarów: %d mm\n", end-start, average);
     
     return average;
 }
@@ -359,6 +365,7 @@ void setup() {
     serviceSwitch.setName("Serwis");
     serviceSwitch.setIcon("mdi:tools");
     serviceSwitch.onCommand(onServiceSwitchCommand);
+    serviceSwitch.setState(status.isServiceMode);
     
     soundSwitch.setName("Dźwięk");
     soundSwitch.setIcon("mdi:volume-high");
@@ -391,7 +398,7 @@ void loop() {
             // Dodaj sprawdzenie poziomów alarmowych
             checkWaterLevels(distance);
             
-            Serial.printf("Odległość: %d mm, Poziom: %d%%\n", distance, waterLevel);
+            //Serial.printf("Odległość: %d mm, Poziom: %d%%\n", distance, waterLevel);
         }
         lastMeasurement = millis();
     }
