@@ -28,6 +28,7 @@ const char* MQTT_PASSWORD = "hydrosense";
 // Konfiguracja zbiornika i pomiarów
 const int DISTANCE_WHEN_FULL = 65;  // pełny zbiornik - mm
 const int DISTANCE_WHEN_EMPTY = 510;  // pusty zbiornik - mm
+const int TANK_DIAMETER = 150;  // Średnica zbiornika
 const int PUMP_DELAY = 5;  // opóźnienie włączenia pompy - sekundy
 const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
 const int MEASUREMENTS_COUNT = 5;  // liczba pomiarów do uśrednienia
@@ -44,6 +45,8 @@ HASensor sensorWaterLevel("water_level_percent");       // poziom wody w %
 // Sensory statusu
 HASensor sensorPumpStatus("pump");                     // status pompy
 HASensor sensorWaterPresence("water");                 // obecność wody (czujnik)
+HASensor sensorWaterVolume("water_volume");
+HASensor sensorWaterFillPercentage("water_fill_percentage");
 // Sensory alarmowe
 HASensor sensorWaterAlarm("water_alarm");             // alarm niskiego poziomu
 HASensor sensorWaterReserve("water_reserve");         // stan rezerwy
@@ -125,9 +128,17 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
 // Obsługa przełącznika dźwięku
 void onSoundSwitchCommand(bool state, HASwitch* sender) {
     status.soundEnabled = state;
-    saveToEEPROM();
     
-    // Aktualizuj stan przełącznika w HA
+    // Zapisz do EEPROM
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.write(EEPROM_SOUND_STATE_ADDR, state ? 1 : 0);
+    bool saved = EEPROM.commit();
+    
+    Serial.printf("Zapisano stan dźwięku do EEPROM: %s (Status: %s)\n", 
+                 state ? "WŁĄCZONY" : "WYŁĄCZONY",
+                 saved ? "OK" : "BŁĄD");
+    
+    // Aktualizuj stan w HA
     soundSwitch.setState(state);
     Serial.printf("Zmieniono stan dźwięku na: %s\n", 
                  state ? "WŁĄCZONY" : "WYŁĄCZONY");
@@ -338,13 +349,106 @@ void updatePump() {
     }
 }
 
+// Funkcja obliczająca objętość w litrach
+float calculateVolume(float currentDistance) {
+    // Wysokość słupa wody
+    float waterHeight = DISTANCE_WHEN_EMPTY - currentDistance;
+    if (waterHeight < 0) waterHeight = 0;
+    if (waterHeight > (DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL)) {
+        waterHeight = DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL;
+    }
+    
+    // Promień zbiornika w metrach
+    float radius = (TANK_DIAMETER / 2.0) / 100.0; // konwersja cm na metry
+    
+    // Objętość cylindra V = π * r² * h
+    float volume = PI * radius * radius * (waterHeight / 100.0); // konwersja cm na metry
+    
+    // Konwersja m³ na litry (1 m³ = 1000 litrów)
+    return volume * 1000.0;
+}
+
+// Funkcja obliczająca procent zapełnienia
+float calculateFillPercentage(float currentDistance) {
+    float totalHeight = DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL;
+    float currentHeight = DISTANCE_WHEN_EMPTY - currentDistance;
+    
+    // Ograniczenie wartości do zakresu 0-100%
+    float percentage = (currentHeight / totalHeight) * 100.0;
+    if (percentage < 0) percentage = 0;
+    if (percentage > 100) percentage = 100;
+    
+    return percentage;
+}
+
+void updateWaterLevel() {
+    distance = measureDistance();
+    
+    // Obliczenie objętości
+    float waterHeight = DISTANCE_WHEN_EMPTY - distance;
+    if (waterHeight < 0) waterHeight = 0;
+    if (waterHeight > (DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL)) {
+        waterHeight = DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL;
+    }
+    float radius = (TANK_DIAMETER / 2.0) / 100.0; // konwersja cm na metry
+    float volume = PI * radius * radius * (waterHeight / 100.0) * 1000.0; // wynik w litrach
+    
+    // Obliczenie procentowego zapełnienia
+    float totalHeight = DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL;
+    float fillPercentage = (waterHeight / totalHeight) * 100.0;
+    if (fillPercentage < 0) fillPercentage = 0;
+    if (fillPercentage > 100) fillPercentage = 100;
+    
+    // Aktualizacja sensorów
+    char volumeStr[10];
+    char percentageStr[10];
+    dtostrf(volume, 1, 1, volumeStr);
+    dtostrf(fillPercentage, 1, 1, percentageStr);
+    
+    sensorWaterLevel.setValue(String(distance));
+    sensorWaterVolume.setValue(volumeStr);
+    sensorWaterFillPercentage.setValue(percentageStr);
+    
+    // Aktualizacja stanów alarmowych (istniejący kod)
+    if (distance >= DISTANCE_WHEN_EMPTY) {
+        status.waterAlarmActive = true;
+        waterAlarm.setState(true);
+    } else {
+        status.waterAlarmActive = false;
+        waterAlarm.setState(false);
+    }
+
+    if (distance >= DISTANCE_RESERVE) {
+        status.waterReserveActive = true;
+        waterReserve.setState(true);
+    } else {
+        status.waterReserveActive = false;
+        waterReserve.setState(false);
+    }
+    
+    // Debug info
+    Serial.printf("Poziom wody: %.1f cm\n", distance);
+    Serial.printf("Objętość: %.1f L\n", volume);
+    Serial.printf("Zapełnienie: %.1f %%\n", fillPercentage);
+}
+
 void setup() {
     Serial.begin(115200);
-
-    // Wczytaj stan z EEPROM na początku
-    loadFromEEPROM();
+    Serial.println("\nStarting HydroSense...");
     
-    // Konfiguracja pinów
+    // Najpierw inicjalizujemy EEPROM
+    EEPROM.begin(EEPROM_SIZE);
+    delay(100); // Krótkie opóźnienie dla stabilności
+    
+    // Wczytaj stan dźwięku
+    uint8_t savedState = EEPROM.read(EEPROM_SOUND_STATE_ADDR);
+    status.soundEnabled = (savedState == 1);
+    Serial.printf("Wczytano stan dźwięku z EEPROM (adres %d): %d -> %s\n", 
+                 EEPROM_SOUND_STATE_ADDR, 
+                 savedState,
+                 status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
+    
+    // Reszta konfiguracji pinów
     pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
     pinMode(PIN_ULTRASONIC_ECHO, INPUT);
     pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);
@@ -403,6 +507,14 @@ void setup() {
     pumpAlarm.setName("Alarm pompy");
     pumpAlarm.setIcon("mdi:alert");
     pumpAlarm.onCommand(onPumpAlarmCommand);
+
+    sensorWaterVolume.setName("Objętość wody");
+    sensorWaterVolume.setIcon("mdi:water");
+    sensorWaterVolume.setUnitOfMeasurement("L");
+    
+    sensorWaterFillPercentage.setName("Zapełnienie zbiornika");
+    sensorWaterFillPercentage.setIcon("mdi:water-percent");
+    sensorWaterFillPercentage.setUnitOfMeasurement("%");
     
     // Połączenie MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
@@ -429,6 +541,28 @@ void loop() {
             //Serial.printf("Odległość: %d mm, Poziom: %d%%\n", distance, waterLevel);
         }
         lastMeasurement = millis();
+    }
+
+        // Aktualizacja co 60 sekund
+    static unsigned long lastUpdate = 0;
+    if (millis() - lastUpdate > 60000) {
+        // Pomiar odległości (zakładam, że już masz funkcję measureDistance())
+        float currentDistance = measureDistance();
+        
+        // Obliczenie objętości i procentowego zapełnienia
+        float volume = calculateVolume(currentDistance);
+        float fillPercentage = calculateFillPercentage(currentDistance);
+        
+        // Aktualizacja wartości w HA
+        sensorVolume.setValue(volume);
+        sensorFillPercentage.setValue(fillPercentage);
+        
+        // Debug info
+        Serial.printf("Odległość: %.1f cm\n", currentDistance);
+        Serial.printf("Objętość: %.1f L\n", volume);
+        Serial.printf("Zapełnienie: %.1f %%\n", fillPercentage);
+        
+        lastUpdate = millis();
     }
     
     // Modyfikacja updatePump()
