@@ -53,22 +53,22 @@ WiFiClient client;
 HADevice device("HydroSense");
 HAMqtt mqtt(client, device);
 // Sensory pomiarowe
-HASensor sensorDistance("water_level");              // było waterLevelSensor
-HASensor sensorLevel("water_level_percent");         // było sensorWaterLevel
-HASensor sensorVolume("water_volume");               // było sensorWaterVolume
+HASensor sensorDistance("water_level");             
+HASensor sensorLevel("water_level_percent");        
+HASensor sensorVolume("water_volume");             
 
 // Sensory statusu
-HASensor sensorPump("pump");                        // było sensorPumpStatus
-HASensor sensorWater("water");                      // było sensorWaterPresence
+HASensor sensorPump("pump");                     
+HASensor sensorWater("water");                   
 
 // Sensory alarmowe
-HASensor sensorAlarm("water_alarm");                // było sensorWaterAlarm
-HASensor sensorReserve("water_reserve");            // było sensorWaterReserve
+HASensor sensorAlarm("water_alarm");           
+HASensor sensorReserve("water_reserve");          
 
 // Przełączniki
-HASwitch switchPump("pump_alarm");                  // było pumpAlarm
-HASwitch switchService("service_mode");             // było serviceSwitch
-HASwitch switchSound("sound_switch");               // było soundSwitch
+HASwitch switchPump("pump_alarm");              
+HASwitch switchService("service_mode");         
+HASwitch switchSound("sound_switch");              
 
 // Status systemu
 struct {
@@ -389,7 +389,6 @@ void updateAlarmStates(float currentDistance) {
 
 void updateWaterLevel() {
     currentDistance = measureDistanceNonBlocking();
-    //currentDistance = measureDistance();
     if (currentDistance < 0) return; // błąd pomiaru
     
     // Obliczenie objętości
