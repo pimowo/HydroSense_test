@@ -1,39 +1,40 @@
-#include <ESP8266WiFi.h>
-#include <ArduinoHA.h>
-#include <EEPROM.h>
+// Biblioteki
+#include <ESP8266WiFi.h> // Biblioteka do obsługi WiFi dla ESP8266
+#include <ArduinoHA.h> // Biblioteka do integracji z Home Assistant
+#include <EEPROM.h> // Biblioteka do obsługi pamięci EEPROM
 
 // Konfiguracja WiFi i MQTT
-const char* WIFI_SSID = "pimowo";
-const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";
-const char* MQTT_SERVER = "192.168.1.14";
-const char* MQTT_USER = "hydrosense";
-const char* MQTT_PASSWORD = "hydrosense";
+const char* WIFI_SSID = "pimowo"; // Nazwa sieci WiFi
+const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj"; // Hasło do sieci WiFi
+const char* MQTT_SERVER = "192.168.1.14"; // Adres IP serwera MQTT (Home Assistant)
+const char* MQTT_USER = "hydrosense"; // Użytkownik MQTT
+const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 
-// Piny
-#define PIN_ULTRASONIC_TRIG D6
-#define PIN_ULTRASONIC_ECHO D7
-#define PIN_WATER_LEVEL D5
-#define PIN_PUMP D1
-#define PIN_BUZZER D2  // Buzzer
-#define PIN_BUTTON D3  // Przycisk kasowania alarmu
+// Definicje pinów ESP8266
+#define PIN_ULTRASONIC_TRIG D6 // Pin TRIG czujnika ultradźwiękowego
+#define PIN_ULTRASONIC_ECHO D7 // Pin ECHO czujnika ultradźwiękowego
+#define PIN_WATER_LEVEL D5 // Pin czujnika poziomu wody w akwarium
+#define PIN_PUMP D1 // Pin sterowania pompą
+#define PIN_BUZZER D2 // Pin buzzera do alarmów dźwiękowych
+#define PIN_BUTTON D3 // Pin przycisku do kasowania alarmów
 
-// Zmienne dla nieblokującego pomiaru odległości
-unsigned long lastUltrasonicTrigger = 0;
-bool ultrasonicInProgress = false;
-const unsigned long ULTRASONIC_TIMEOUT = 50; // ms
-const unsigned long MEASUREMENT_INTERVAL = 1000; // ms
-const unsigned long MQTT_RETRY_INTERVAL = 5000; // ms
-const unsigned long WIFI_CHECK_INTERVAL = 5000; // ms
-const unsigned long WATCHDOG_TIMEOUT = 8000; // ms
+// Zmienne czasowe dla nieblokującego pomiaru odległości
+unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
+bool ultrasonicInProgress = false; // Flaga trwającego pomiaru
+const unsigned long ULTRASONIC_TIMEOUT = 50; // Timeout pomiaru w ms
+const unsigned long MEASUREMENT_INTERVAL = 1000;// Interwał między pomiarami w ms
+const unsigned long MQTT_RETRY_INTERVAL = 5000;// Czas między próbami połączenia MQTT w ms
+const unsigned long WIFI_CHECK_INTERVAL = 5000;// Czas między sprawdzeniami WiFi w ms
+const unsigned long WATCHDOG_TIMEOUT = 8000; // Timeout dla watchdoga w ms
 
-// Stałe dla przycisku
-#define LONG_PRESS_TIME 1000  // 1 sekunda dla długiego naciśnięcia
+// Konfiguracja przycisku
+#define LONG_PRESS_TIME 1000 // Czas długiego naciśnięcia w ms (1 sekunda)
 
-// EEPROM
-#define EEPROM_SIZE 512
+// Konfiguracja EEPROM
+#define EEPROM_SIZE 512 // Rozmiar używanej pamięci EEPROM w bajtach
 
-// Dodajemy adresy EEPROM
-#define EEPROM_SOUND_STATE_ADDR 0  // Adres w EEPROM dla stanu dźwięku
+// Adresy w pamięci EEPROM
+#define EEPROM_SOUND_STATE_ADDR 0 // Adres przechowywania stanu dźwięku (1 bajt)
 
 // Konfiguracja zbiornika i pomiarów
 const int DISTANCE_WHEN_FULL = 65;  // pełny zbiornik - mm
@@ -49,49 +50,50 @@ float currentDistance = 0;
 float volume = 0;            // Dodajemy też zmienną volume jako globalną
 
 // Obiekty do komunikacji
-WiFiClient client;
-HADevice device("HydroSense");
-HAMqtt mqtt(client, device);
+WiFiClient client; // Klient połączenia WiFi
+HADevice device("HydroSense"); // Definicja urządzenia dla Home Assistant
+HAMqtt mqtt(client, device); // Klient MQTT dla Home Assistant
+
 // Sensory pomiarowe
-HASensor sensorDistance("water_level");             
-HASensor sensorLevel("water_level_percent");        
-HASensor sensorVolume("water_volume");             
+HASensor sensorDistance("water_level"); // Odległość od lustra wody w mm
+HASensor sensorLevel("water_level_percent"); // Poziom wody w zbiorniku w procentach
+HASensor sensorVolume("water_volume"); // Objętość wody w litrach
 
 // Sensory statusu
-HASensor sensorPump("pump");                     
-HASensor sensorWater("water");                   
+HASensor sensorPump("pump"); // Status pracy pompy (ON/OFF)
+HASensor sensorWater("water"); // Status czujnika poziomu w akwarium (ON=niski/OFF=ok)
 
 // Sensory alarmowe
-HASensor sensorAlarm("water_alarm");           
-HASensor sensorReserve("water_reserve");          
+HASensor sensorAlarm("water_alarm"); // Alarm braku wody w zbiorniku dolewki
+HASensor sensorReserve("water_reserve"); // Alarm rezerwy w zbiorniku dolewki
 
 // Przełączniki
-HASwitch switchPump("pump_alarm");              
-HASwitch switchService("service_mode");         
-HASwitch switchSound("sound_switch");              
+HASwitch switchPump("pump_alarm"); // Przełącznik resetowania blokady pompy
+HASwitch switchService("service_mode"); // Przełącznik trybu serwisowego
+HASwitch switchSound("sound_switch"); // Przełącznik dźwięku alarmu            
 
 // Status systemu
 struct {
-    bool isPumpActive = false;
-    unsigned long pumpStartTime = 0;
-    bool isPumpDelayActive = false;
-    unsigned long pumpDelayStartTime = 0;
-    bool pumpSafetyLock = false;
-    bool waterAlarmActive = false;   
-    bool waterReserveActive = false;
-    bool soundEnabled = false;        // stan dźwięku
-    bool isServiceMode = false;      // stan trybu serwisowego
-    unsigned long lastSuccessfulMeasurement = 0;
-    unsigned long lastSuccessfulMQTTPublish = 0;
+bool isPumpActive = false; // Status pracy pompy
+    unsigned long pumpStartTime = 0; // Czas startu pompy
+    bool isPumpDelayActive = false; // Status opóźnienia przed startem pompy
+    unsigned long pumpDelayStartTime = 0; // Czas rozpoczęcia opóźnienia pompy
+    bool pumpSafetyLock = false; // Blokada bezpieczeństwa pompy
+    bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
+    bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
+    bool soundEnabled = false; // Status włączenia dźwięku alarmu
+    bool isServiceMode = false; // Status trybu serwisowego
+    unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
+    unsigned long lastSuccessfulMQTTPublish = 0; // Czas ostatniej udanej publikacji MQTT
 } status;
 
 // Struktura dla obsługi przycisku
 struct ButtonState {
-    bool currentState = HIGH;
-    bool lastState = HIGH;
-    unsigned long pressedTime = 0;
-    unsigned long releasedTime = 0;
-    bool isLongPressHandled = false;
+    bool currentState = HIGH; // Aktualny stan przycisku
+    bool lastState = HIGH; // Poprzedni stan przycisku
+    unsigned long pressedTime = 0; // Czas wciśnięcia przycisku
+    unsigned long releasedTime = 0; // Czas puszczenia przycisku
+    bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia
 } buttonState;
 
 // Funkcja zapisująca stan do EEPROM
@@ -114,24 +116,28 @@ void loadFromEEPROM() {
                  status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
+// Konfiguracja i zarządzanie połączeniem WiFi
 void setupWiFi() {
-    static unsigned long lastWiFiCheck = 0;
-    static bool wifiInitiated = false;
+    // Zmienne statyczne zachowujące wartość między wywołaniami
+    static unsigned long lastWiFiCheck = 0;  // Czas ostatniej próby połączenia
+    static bool wifiInitiated = false;  // Flaga pierwszej inicjalizacji WiFi
     
-    ESP.wdtFeed();
+    ESP.wdtFeed();  // Reset watchdoga
     
+    // Pierwsza inicjalizacja WiFi
     if (!wifiInitiated) {
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-        wifiInitiated = true;
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  // Rozpoczęcie połączenia z siecią
+        wifiInitiated = true;  // Ustawienie flagi inicjalizacji
         return;
     }
     
-    if (WiFi.status() != WL_CONNECTED) {
-        if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {
-            Serial.print(".");
-            lastWiFiCheck = millis();
-            if (WiFi.status() == WL_DISCONNECTED) {
-                WiFi.reconnect();
+    // Sprawdzenie stanu połączenia
+    if (WiFi.status() != WL_CONNECTED) {  // Jeśli nie połączono z siecią
+        if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {  // Sprawdź czy minął interwał
+            Serial.print(".");  // Wskaźnik aktywności
+            lastWiFiCheck = millis();  // Aktualizacja czasu ostatniej próby
+            if (WiFi.status() == WL_DISCONNECTED) {  // Jeśli sieć jest dostępna ale rozłączona
+                WiFi.reconnect();  // Próba ponownego połączenia
             }
         }
     }
@@ -421,16 +427,17 @@ void updateWaterLevel() {
     }
 }
 
+// Funkcja inicjalizacyjna - wykonywana jednorazowo przy starcie urządzenia
 void setup() {
-    ESP.wdtEnable(WATCHDOG_TIMEOUT);
-    Serial.begin(115200);
-    Serial.println("\nStarting HydroSense...");
+    ESP.wdtEnable(WATCHDOG_TIMEOUT);                // Aktywacja watchdoga
+    Serial.begin(115200);                          // Inicjalizacja portu szeregowego
+    Serial.println("\nStarting HydroSense...");    // Komunikat startowy
     
-    // Najpierw inicjalizujemy EEPROM
-    EEPROM.begin(EEPROM_SIZE);
-    delay(100); // Krótkie opóźnienie dla stabilności
+    // Inicjalizacja pamięci EEPROM
+    EEPROM.begin(EEPROM_SIZE);                     // Start EEPROM z określonym rozmiarem
+    delay(100);                                    // Opóźnienie stabilizacyjne
     
-    // Wczytaj stan dźwięku
+    // Odczyt zapisanego stanu dźwięku z EEPROM
     uint8_t savedState = EEPROM.read(EEPROM_SOUND_STATE_ADDR);
     status.soundEnabled = (savedState == 1);
     Serial.printf("Wczytano stan dźwięku z EEPROM (adres %d): %d -> %s\n", 
@@ -438,75 +445,75 @@ void setup() {
                  savedState,
                  status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     
-    // Konfiguracja pinów
-    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
-    pinMode(PIN_ULTRASONIC_ECHO, INPUT);
-    pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);
-    pinMode(PIN_BUTTON, INPUT_PULLUP);
-    pinMode(PIN_BUZZER, OUTPUT);
-    digitalWrite(PIN_BUZZER, LOW);
-    pinMode(PIN_PUMP, OUTPUT);
-    digitalWrite(PIN_PUMP, LOW);
+    // Konfiguracja kierunków pinów i stanów początkowych
+    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);          // Wyjście - trigger czujnika ultradźwiękowego
+    pinMode(PIN_ULTRASONIC_ECHO, INPUT);           // Wejście - echo czujnika ultradźwiękowego
+    pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);        // Wejście z podciąganiem - czujnik poziomu
+    pinMode(PIN_BUTTON, INPUT_PULLUP);             // Wejście z podciąganiem - przycisk
+    pinMode(PIN_BUZZER, OUTPUT);                   // Wyjście - buzzer
+    digitalWrite(PIN_BUZZER, LOW);                 // Wyłączenie buzzera
+    pinMode(PIN_PUMP, OUTPUT);                     // Wyjście - pompa
+    digitalWrite(PIN_PUMP, LOW);                   // Wyłączenie pompy
     
-    // Połączenie z WiFi
+    // Nawiązanie połączenia WiFi
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) {
+    while (WiFi.status() != WL_CONNECTED) {        // Oczekiwanie na połączenie
         delay(500);
         Serial.print(".");
     }
     Serial.println("\nPołączono z WiFi");
     
-    // Konfiguracja HA
-    device.setName("HydroSense");
-    device.setModel("HS ESP8266");
-    device.setManufacturer("PMW");
-    device.setSoftwareVersion("11.11.24");
+    // Konfiguracja urządzenia dla Home Assistant
+    device.setName("HydroSense");                  // Nazwa urządzenia
+    device.setModel("HS ESP8266");                 // Model urządzenia
+    device.setManufacturer("PMW");                 // Producent
+    device.setSoftwareVersion("11.11.24");         // Wersja oprogramowania
        
-    // Konfiguracja sensorów pomiarowych
+    // Konfiguracja sensorów pomiarowych w HA
     sensorDistance.setName("Odległość od lustra wody");
-    sensorDistance.setIcon("mdi:ruler");
-    sensorDistance.setUnitOfMeasurement("mm");
+    sensorDistance.setIcon("mdi:ruler");           // Ikona linijki
+    sensorDistance.setUnitOfMeasurement("mm");     // Jednostka - milimetry
     
     sensorLevel.setName("Poziom wody");
-    sensorLevel.setIcon("mdi:water-percent");
-    sensorLevel.setUnitOfMeasurement("%");
+    sensorLevel.setIcon("mdi:water-percent");      // Ikona poziomu wody
+    sensorLevel.setUnitOfMeasurement("%");         // Jednostka - procenty
     
     sensorVolume.setName("Objętość wody");
-    sensorVolume.setIcon("mdi:water");
-    sensorVolume.setUnitOfMeasurement("L");
+    sensorVolume.setIcon("mdi:water");             // Ikona wody
+    sensorVolume.setUnitOfMeasurement("L");        // Jednostka - litry
     
-    // Konfiguracja sensorów statusu
+    // Konfiguracja sensorów statusu w HA
     sensorPump.setName("Status pompy");
-    sensorPump.setIcon("mdi:water-pump");
+    sensorPump.setIcon("mdi:water-pump");          // Ikona pompy
     
     sensorWater.setName("Czujnik wody");
-    sensorWater.setIcon("mdi:water");
+    sensorWater.setIcon("mdi:water");              // Ikona wody
     
-    // Konfiguracja sensorów alarmowych
+    // Konfiguracja sensorów alarmowych w HA
     sensorAlarm.setName("Brak wody");
-    sensorAlarm.setIcon("mdi:water-alert");
-    sensorAlarm.setValue("OFF");
+    sensorAlarm.setIcon("mdi:water-alert");        // Ikona alarmu wody
+    sensorAlarm.setValue("OFF");                   // Stan początkowy - wyłączony
     
     sensorReserve.setName("Rezerwa wody");
-    sensorReserve.setIcon("mdi:alert-outline");
-    sensorReserve.setValue("OFF");
+    sensorReserve.setIcon("mdi:alert-outline");    // Ikona ostrzeżenia
+    sensorReserve.setValue("OFF");                 // Stan początkowy - wyłączony
     
-    // Konfiguracja przełączników
+    // Konfiguracja przełączników w HA
     switchService.setName("Serwis");
-    switchService.setIcon("mdi:tools");
-    switchService.onCommand(onServiceSwitchCommand);
-    switchService.setState(status.isServiceMode);
+    switchService.setIcon("mdi:tools");            // Ikona narzędzi
+    switchService.onCommand(onServiceSwitchCommand);// Funkcja obsługi zmiany stanu
+    switchService.setState(status.isServiceMode);   // Stan początkowy
     
     switchSound.setName("Dźwięk");
-    switchSound.setIcon("mdi:volume-high");
-    switchSound.onCommand(onSoundSwitchCommand);
-    switchSound.setState(status.soundEnabled);
+    switchSound.setIcon("mdi:volume-high");        // Ikona głośnika
+    switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
+    switchSound.setState(status.soundEnabled);      // Stan początkowy
     
     switchPump.setName("Alarm pompy");
-    switchPump.setIcon("mdi:alert");
-    switchPump.onCommand(onPumpAlarmCommand);
+    switchPump.setIcon("mdi:alert");               // Ikona alarmu
+    switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
 
-    // Połączenie MQTT
+    // Inicjalizacja połączenia MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
 }
 
