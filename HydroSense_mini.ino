@@ -128,7 +128,6 @@ void setupWiFi() {
     
     if (WiFi.status() != WL_CONNECTED) {
         if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {
-            ESP.wdtFeed();
             Serial.print(".");
             lastWiFiCheck = millis();
             if (WiFi.status() == WL_DISCONNECTED) {
@@ -299,6 +298,10 @@ void updatePump() {
         status.pumpStartTime = millis();
     }
     
+    if (millis() < status.pumpDelayStartTime) {
+        status.pumpDelayStartTime = millis();
+    }
+    
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
     sensorWater.setValue(waterPresent ? "ON" : "OFF");
     
@@ -410,9 +413,9 @@ void updateWaterLevel() {
     // Aktualizacja stanów alarmowych
     updateAlarmStates(currentDistance);
     
-    // Debug info tylko gdy wartości się zmieniły znacząco
+    // Debug info tylko gdy wartości się zmieniły (conajmniej 5mm)
     static float lastReportedDistance = 0;
-    if (abs(currentDistance - lastReportedDistance) > 1) {
+    if (abs(currentDistance - lastReportedDistance) > 5) {
         Serial.printf("Poziom: %.1f mm, Obj: %.1f L\n", currentDistance, volume);
         lastReportedDistance = currentDistance;
     }
