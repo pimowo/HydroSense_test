@@ -28,14 +28,14 @@ const char* MQTT_PASSWORD = "hydrosense";
 // Konfiguracja zbiornika i pomiarów
 const int DISTANCE_WHEN_FULL = 65;  // pełny zbiornik - mm
 const int DISTANCE_WHEN_EMPTY = 510;  // pusty zbiornik - mm
-const int TANK_DIAMETER = 150;  // Średnica zbiornika
+const int DISTANCE_RESERVE = 450;  // dystans dla rezerwy - mm
+const int HYSTERESIS = 10;  // histereza - mm
+const int TANK_DIAMETER = 150;  // Średnica zbiornika - mm
+const int MEASUREMENTS_COUNT = 5;  // liczba pomiarów do uśrednienia
 const int PUMP_DELAY = 5;  // opóźnienie włączenia pompy - sekundy
 const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
-const int MEASUREMENTS_COUNT = 5;  // liczba pomiarów do uśrednienia
-const int HYSTERESIS = 10;  // histereza - mm
-const int DISTANCE_RESERVE = 400;  // dystans dla rezerwy - mm
 
-float currentDistance = 0;
+float currentDistance = 0;  // zmienna dla aktualnego pomiaru odległości
 
 // Obiekty do komunikacji
 WiFiClient client;
@@ -49,7 +49,6 @@ HASensor sensorWaterFillPercentage("water_fill_percentage");
 HASensor sensorPumpStatus("pump");                     // status pompy
 HASensor sensorWaterPresence("water");                 // obecność wody (czujnik)
 HASensor sensorWaterVolume("water_volume");
-HASensor sensorWaterFillPercentage("water_fill_percentage");
 HASensor waterLevelSensor("water_level"); // istniejący sensor
 // Sensory alarmowe
 HASensor sensorWaterAlarm("water_alarm");             // alarm niskiego poziomu
@@ -405,12 +404,15 @@ void updateWaterLevel() {
     if (fillPercentage > 100) fillPercentage = 100;
     
     // Aktualizacja sensorów
+    char distanceStr[10];
     char volumeStr[10];
     char percentageStr[10];
+    
+    dtostrf(currentDistance, 1, 1, distanceStr);
     dtostrf(volume, 1, 1, volumeStr);
     dtostrf(fillPercentage, 1, 1, percentageStr);
     
-    waterLevelSensor.setValue(String(currentDistance));
+    waterLevelSensor.setValue(distanceStr);
     sensorWaterVolume.setValue(volumeStr);
     sensorWaterFillPercentage.setValue(percentageStr);
     
@@ -559,8 +561,8 @@ void loop() {
         float fillPercentage = calculateFillPercentage(currentDistance);
         
         // Aktualizacja wartości w HA
-        sensorVolume.setValue(volume);
-        sensorFillPercentage.setValue(fillPercentage);
+        sensorWaterVolume.setValue(volumeStr);
+        sensorWaterFillPercentage.setValue(percentageStr);
         
         // Debug info
         Serial.printf("Odległość: %.1f cm\n", currentDistance);
