@@ -374,8 +374,7 @@ void updateWaterLevel() {
     char valueStr[10];
     
     // Aktualizacja wszystkich sensorów
-    dtostrf(currentDistance, 1, 1, valueStr);
-    waterLevelSensor.setValue(valueStr);
+    waterLevelSensor.setValue(String((int)currentDistance).c_str());
     
     // Aktualizacja poziomu wody w procentach
     int waterLevel = calculateWaterLevel(currentDistance);
@@ -404,7 +403,7 @@ void updateWaterLevel() {
     }
     
     // Debug info
-    Serial.printf("Poziom wody: %f mm\n", currentDistance);
+    Serial.printf("Poziom wody: %.0f mm\n", currentDistance);
     Serial.printf("Objętość: %.1f L\n", volume);
     Serial.printf("Zapełnienie: %.1f %%\n", fillPercentage);
 }
@@ -485,7 +484,7 @@ void setup() {
     sensorWaterVolume.setIcon("mdi:water");
     sensorWaterVolume.setUnitOfMeasurement("L");
 
-    waterLevelSensor.setName("Odległość od lustra wody");  // Dodaj nazwę
+    waterLevelSensor.setName("Pomiar odległości");  // Dodaj nazwę
     waterLevelSensor.setIcon("mdi:ruler");                 // Dodaj ikonę
     waterLevelSensor.setUnitOfMeasurement("mm");           // Dodaj jednostkę
         
