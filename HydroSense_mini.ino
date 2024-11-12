@@ -143,151 +143,234 @@ void setupWiFi() {
     }
 }
 
+/**
+ * Funkcja nawiązująca połączenie z serwerem MQTT (Home Assistant)
+ * 
+ * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
+ */
 bool connectMQTT() {
+    // Próba nawiązania połączenia MQTT z podanymi parametrami
     if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        Serial.println("MQTT connection failed");
-        return false;
+        Serial.println("MQTT connection failed");   // Komunikat o błędzie
+        return false;                              // Zwróć false w przypadku niepowodzenia
     }
-    Serial.println("MQTT connected");
-    return true;
+    
+    Serial.println("MQTT connected");              // Komunikat o sukcesie
+    return true;                                   // Zwróć true po udanym połączeniu
 }
 
-// Funkcja obliczająca poziom wody w procentach
+/**
+ * Funkcja obliczająca poziom wody w zbiorniku dolewki w procentach
+ * 
+ * @param distance - zmierzona odległość od czujnika do lustra wody w mm
+ * @return int - poziom wody w procentach (0-100%)
+ * 
+ * Wzór: ((EMPTY - distance) / (EMPTY - FULL)) * 100
+ * - EMPTY (510mm) = 0% wody
+ * - FULL (65mm) = 100% wody
+ */
 int calculateWaterLevel(int distance) {
-    if (distance < DISTANCE_WHEN_FULL) distance = DISTANCE_WHEN_FULL;
-    if (distance > DISTANCE_WHEN_EMPTY) distance = DISTANCE_WHEN_EMPTY;
+    // Ograniczenie wartości do zakresu pomiarowego
+    if (distance < DISTANCE_WHEN_FULL) distance = DISTANCE_WHEN_FULL;      // Nie mniej niż przy pełnym
+    if (distance > DISTANCE_WHEN_EMPTY) distance = DISTANCE_WHEN_EMPTY;    // Nie więcej niż przy pustym
     
-    float percentage = (float)(DISTANCE_WHEN_EMPTY - distance) / 
-                      (float)(DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL) * 
-                      100.0;
+    // Obliczenie procentowe poziomu wody
+    float percentage = (float)(DISTANCE_WHEN_EMPTY - distance) /          // Różnica: pusty - aktualny
+                      (float)(DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL) * // Różnica: pusty - pełny
+                      100.0;                                              // Przeliczenie na procenty
     
-    return (int)percentage;
+    return (int)percentage;    // Zwrot wartości całkowitej
 }
 
-// Obsługa przełącznika trybu serwisowego
+/**
+ * Funkcja obsługująca przełączanie trybu serwisowego z poziomu Home Assistant
+ * 
+ * @param state - nowy stan przełącznika (true = włączony, false = wyłączony)
+ * @param sender - wskaźnik do obiektu przełącznika HA wywołującego funkcję
+ * 
+ * Działanie:
+ * - Aktualizuje flagę trybu serwisowego
+ * - Resetuje stan przycisku fizycznego
+ * - Aktualizuje stan w Home Assistant
+ * - Jeśli tryb serwisowy jest włączany podczas pracy pompy:
+ *   - Wyłącza pompę
+ *   - Resetuje liczniki czasu pracy
+ *   - Aktualizuje status w HA
+ */
 void onServiceSwitchCommand(bool state, HASwitch* sender) {
-    status.isServiceMode = state;
-    buttonState.lastState = HIGH;
+    status.isServiceMode = state;                  // Ustawienie flagi trybu serwisowego
+    buttonState.lastState = HIGH;                  // Reset stanu przycisku
     
-    // Aktualizuj stan przełącznika w HA
-    switchService.setState(state);
+    // Aktualizacja stanu w Home Assistant
+    switchService.setState(state);                 // Synchronizacja stanu przełącznika
     
+    // Jeśli włączono tryb serwisowy podczas pracy pompy
     if (status.isServiceMode && status.isPumpActive) {
-        digitalWrite(PIN_PUMP, LOW);
-        status.isPumpActive = false;
-        status.pumpStartTime = 0;
-        sensorPump.setValue("OFF");
+        digitalWrite(PIN_PUMP, LOW);               // Wyłączenie pompy
+        status.isPumpActive = false;               // Reset flagi aktywności
+        status.pumpStartTime = 0;                  // Reset czasu startu
+        sensorPump.setValue("OFF");                // Aktualizacja stanu w HA
     }
-    Serial.printf("Tryb serwisowy: %s (przez HA)\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
+    
+    // Log zmiany stanu
+    Serial.printf("Tryb serwisowy: %s (przez HA)\n", 
+                  state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
-// Obsługa przełącznika dźwięku
+/**
+ * Funkcja obsługująca przełączanie dźwięku alarmu z poziomu Home Assistant
+ * 
+ * @param state - nowy stan przełącznika (true = włączony, false = wyłączony)
+ * @param sender - wskaźnik do obiektu przełącznika HA wywołującego funkcję
+ * 
+ * Działanie:
+ * - Aktualizuje flagę stanu dźwięku
+ * - Zapisuje nowy stan do pamięci EEPROM (trwałej)
+ * - Aktualizuje stan w Home Assistant
+ */
 void onSoundSwitchCommand(bool state, HASwitch* sender) {
-    status.soundEnabled = state;
+    status.soundEnabled = state;                   // Aktualizacja flagi stanu dźwięku
     
-    // Zapisz do EEPROM
-    EEPROM.begin(EEPROM_SIZE);
-    EEPROM.write(EEPROM_SOUND_STATE_ADDR, state ? 1 : 0);
-    bool saved = EEPROM.commit();
+    // Zapis stanu do pamięci EEPROM
+    EEPROM.begin(EEPROM_SIZE);                    // Inicjalizacja EEPROM
+    EEPROM.write(EEPROM_SOUND_STATE_ADDR,         // Zapis stanu (1 = włączony, 0 = wyłączony)
+                 state ? 1 : 0);
+    bool saved = EEPROM.commit();                 // Zatwierdzenie zapisu do EEPROM
     
-    // Aktualizuj stan w HA
-    switchSound.setState(state);
-    Serial.printf("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
+    // Aktualizacja stanu w Home Assistant
+    switchSound.setState(state);                   // Synchronizacja stanu przełącznika
+    
+    // Log zmiany stanu
+    Serial.printf("Zmieniono stan dźwięku na: %s\n", 
+                  state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
-// Funkcja do obsługi przycisku
+/**
+ * Funkcja obsługująca fizyczny przycisk na urządzeniu
+ * 
+ * Obsługuje dwa tryby naciśnięcia:
+ * - Krótkie (< 1s): przełącza tryb serwisowy
+ * - Długie (≥ 1s): kasuje blokadę bezpieczeństwa pompy
+ */
 void handleButton() {
-    bool reading = digitalRead(PIN_BUTTON);
+    bool reading = digitalRead(PIN_BUTTON); // Odczyt stanu przycisku
     
-    // Jeśli stan się zmienił
+    // Obsługa zmiany stanu przycisku
     if (reading != buttonState.lastState) {
-        if (reading == LOW) {
-            buttonState.pressedTime = millis();
-            buttonState.isLongPressHandled = false;
-        } else {
-            buttonState.releasedTime = millis();
+        if (reading == LOW) {  // Przycisk naciśnięty
+            buttonState.pressedTime = millis();  // Zapamiętaj czas naciśnięcia
+            buttonState.isLongPressHandled = false;  // Reset flagi długiego naciśnięcia
+        } else {  // Przycisk zwolniony
+            buttonState.releasedTime = millis();  // Zapamiętaj czas zwolnienia
             
+            // Sprawdzenie czy to było krótkie naciśnięcie
             if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
-                // Przełącz tryb serwisowy na przeciwny do aktualnego
+                // Przełącz tryb serwisowy
                 status.isServiceMode = !status.isServiceMode;
-                // Aktualizuj stan w HA
-                switchService.setState(status.isServiceMode);
+                switchService.setState(status.isServiceMode);  // Aktualizacja w HA
                 
+                // Log zmiany stanu
                 Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
                             status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
                 
+                // Jeśli włączono tryb serwisowy podczas pracy pompy
                 if (status.isServiceMode && status.isPumpActive) {
-                    digitalWrite(PIN_PUMP, LOW);
-                    status.isPumpActive = false;
-                    status.pumpStartTime = 0;
-                    sensorPump.setValue("OFF");
+                    digitalWrite(PIN_PUMP, LOW);    // Wyłącz pompę
+                    status.isPumpActive = false;    // Reset flagi aktywności
+                    status.pumpStartTime = 0;       // Reset czasu startu
+                    sensorPump.setValue("OFF");     // Aktualizacja w HA
                 }
             }
         }
     }
     
-    // Sprawdzenie długiego naciśnięcia
+    // Obsługa długiego naciśnięcia (reset blokady pompy)
     if (reading == LOW && !buttonState.isLongPressHandled) {
         if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
-            status.pumpSafetyLock = false;
-            switchPump.setState(false);
-            buttonState.isLongPressHandled = true;
+            status.pumpSafetyLock = false;         // Zdjęcie blokady pompy
+            switchPump.setState(false);            // Aktualizacja stanu w HA
+            buttonState.isLongPressHandled = true; // Oznacz jako obsłużone
             Serial.println("Alarm pompy skasowany");
         }
     }
     
-    buttonState.lastState = reading;
-    yield(); // Daj czas na obsługę innych zadań
+    buttonState.lastState = reading;               // Zapamiętaj aktualny stan
+    yield();                                       // Oddaj sterowanie systemowi
 }
 
+/**
+ * Nieblokująca funkcja pomiaru odległości z czujnika ultradźwiękowego
+ * 
+ * Funkcja implementuje:
+ * - Średnią z kilku pomiarów dla zwiększenia dokładności
+ * - Nieblokującą obsługę czujnika HC-SR04
+ * - Walidację wyników pomiaru
+ * - Timeout dla zabezpieczenia przed zawieszeniem
+ * 
+ * @return int - zmierzona odległość w mm lub -1 jeśli pomiar w toku/błędny
+ * 
+ * Parametry pomiarowe:
+ * - Prędkość dźwięku: 343 m/s
+ * - Minimalny dystans: 20mm
+ * - Maksymalny dystans: 4000mm
+ * - Timeout: 23529µs (odpowiada max dystansowi ~4m)
+ */
 int measureDistanceNonBlocking() {
-    static int measurements[MEASUREMENTS_COUNT];
-    static int measurementIndex = 0;
-    static unsigned long echoStartTime = 0;
+    // Tablice do uśredniania pomiarów
+    static int measurements[MEASUREMENTS_COUNT];    // Bufor pomiarów
+    static int measurementIndex = 0;               // Indeks aktualnego pomiaru
+    static unsigned long echoStartTime = 0;        // Czas rozpoczęcia pomiaru
 
-    ESP.wdtFeed();
+    ESP.wdtFeed();                                // Reset watchdoga
     
+    // Rozpoczęcie nowego pomiaru
     if (!ultrasonicInProgress) {
         if (millis() - lastUltrasonicTrigger >= ULTRASONIC_TIMEOUT) {
+            // Generowanie impulsu trigger
             digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            delayMicroseconds(2);
+            delayMicroseconds(2);                  // Krótka pauza
             digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-            delayMicroseconds(10);
+            delayMicroseconds(10);                 // Impuls 10µs
             digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
             
-            echoStartTime = micros();
-            ultrasonicInProgress = true;
-            lastUltrasonicTrigger = millis();
+            echoStartTime = micros();             // Start pomiaru czasu
+            ultrasonicInProgress = true;           // Oznaczenie pomiaru w toku
+            lastUltrasonicTrigger = millis();     // Aktualizacja czasu triggera
         }
-        return -1;
+        return -1;                                // Pomiar rozpoczęty
     } else {
+        // Jeśli echo wciąż trwa
         if (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
-            return -1;
+            return -1;                            // Czekamy na koniec echa
         }
         
+        // Obliczenie czasu trwania echa
         unsigned long duration = micros() - echoStartTime;
-        if (duration > 23529) {
+        if (duration > 23529) {                   // Timeout - max ~4m
             ultrasonicInProgress = false;
-            return -1;
+            return -1;                            // Błąd pomiaru
         }
         
-        int distance = (duration * 343) / 2000;
-        if (distance >= 20 && distance <= 4000) {
+        // Obliczenie odległości
+        int distance = (duration * 343) / 2000;   // (czas * prędkość) / (2 * 1000)
+        if (distance >= 20 && distance <= 4000) { // Walidacja zakresu
             measurements[measurementIndex] = distance;
             measurementIndex++;
             
+            // Jeśli mamy komplet pomiarów
             if (measurementIndex >= MEASUREMENTS_COUNT) {
+                // Obliczenie średniej
                 int sum = 0;
                 for (int i = 0; i < MEASUREMENTS_COUNT; i++) {
                     sum += measurements[i];
                 }
-                measurementIndex = 0;
-                ultrasonicInProgress = false;
-                return sum / MEASUREMENTS_COUNT;
+                measurementIndex = 0;              // Reset indeksu
+                ultrasonicInProgress = false;      // Koniec pomiaru
+                return sum / MEASUREMENTS_COUNT;    // Zwróć średnią
             }
         }
-        ultrasonicInProgress = false;
-        return -1;
+        ultrasonicInProgress = false;             // Reset flagi pomiaru
+        return -1;                                // Pomiar niekompletny
     }
 }
 
