@@ -14,8 +14,8 @@ const char* MQTT_PASSWORD = "hydrosense";
 #define PIN_ULTRASONIC_ECHO D7
 #define PIN_WATER_LEVEL D5
 #define PIN_PUMP D1
-#define BUZZER_PIN D2
 #define PIN_BUZZER D3         // Pin dla buzzera
+#define PIN_BUTTON D3        // Pin dla przycisku
 
 // Stałe dla przycisku
 #define LONG_PRESS_TIME 1000  // 1 sekunda dla długiego naciśnięcia
@@ -312,8 +312,8 @@ void setup() {
     pinMode(PIN_ULTRASONIC_ECHO, INPUT);
     pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);
     pinMode(PIN_BUTTON, INPUT_PULLUP);
-    pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, LOW);
+    pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, LOW);
     pinMode(PIN_PUMP, OUTPUT);
     digitalWrite(PIN_PUMP, LOW);
     
@@ -356,7 +356,7 @@ void setup() {
     sensorWaterReserve.setIcon("mdi:alert-outline");
     sensorWaterReserve.setValue("OFF");    // Stan początkowy rezerwy wody
 
-    serviceSwitch.setName("Tryb serwisowy");
+    serviceSwitch.setName("Serwis");
     serviceSwitch.setIcon("mdi:tools");
     serviceSwitch.onCommand(onServiceSwitchCommand);
     
