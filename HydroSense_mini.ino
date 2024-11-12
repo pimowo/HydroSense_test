@@ -86,6 +86,7 @@ int calculateWaterLevel(int distance) {
 // Obsługa przełącznika trybu serwisowego
 void onServiceSwitchCommand(bool state, HASwitch* sender) {
     status.isServiceMode = state;
+    buttonState.lastState = HIGH;  // Reset stanu przycisku po zmianie w HA
     
     // Aktualizuj stan przełącznika w HA
     serviceSwitch.setState(state);
@@ -105,18 +106,20 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     
     // Zapisz stan do EEPROM
     EEPROM.write(EEPROM_SOUND_STATE_ADDR, state ? 1 : 0);
-    EEPROM.commit();
-    
+    bool saved = EEPROM.commit();
+    Serial.printf("Stan dźwięku: %s, Zapisano do EEPROM: %s\n", 
+                 state ? "WŁĄCZONY" : "WYŁĄCZONY",
+                 saved ? "TAK" : "NIE");
+                 
     // Aktualizuj stan przełącznika w HA
     soundSwitch.setState(state);
-    
-    Serial.printf("Stan dźwięku: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // Funkcja do obsługi przycisku
 void handleButton() {
     bool reading = digitalRead(PIN_BUTTON);
     
+    // Jeśli stan się zmienił
     if (reading != buttonState.lastState) {
         if (reading == LOW) {
             buttonState.pressedTime = millis();
@@ -125,7 +128,7 @@ void handleButton() {
             buttonState.releasedTime = millis();
             
             if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
-                // Przełącz tryb serwisowy
+                // Przełącz tryb serwisowy na przeciwny do aktualnego
                 status.isServiceMode = !status.isServiceMode;
                 // Aktualizuj stan w HA
                 serviceSwitch.setState(status.isServiceMode);
@@ -154,6 +157,7 @@ void handleButton() {
     }
     
     buttonState.lastState = reading;
+    yield(); // Daj czas na obsługę innych zadań
 }
 
 // Ulepszona funkcja pomiaru odległości z uśrednianiem
@@ -171,7 +175,7 @@ int measureDistance() {
         
         long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529);
         if (duration == 0) {
-            Serial.println("Błąd pomiaru - timeout");
+            //Serial.println("Błąd pomiaru - timeout");
             continue;
         }
         
@@ -322,7 +326,9 @@ void setup() {
     // Inicjalizacja EEPROM
     EEPROM.begin(512);
     // Odczyt stanu dźwięku z EEPROM
-    status.soundEnabled = EEPROM.read(0) == 1;
+    status.soundEnabled = EEPROM.read(EEPROM_SOUND_STATE_ADDR) == 1;
+    Serial.printf("Wczytano stan dźwięku z EEPROM: %s\n", 
+                 status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     
     // Konfiguracja pinów
     pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
@@ -370,7 +376,7 @@ void setup() {
     sensorWaterReserve.setIcon("mdi:alert-outline");
     sensorWaterReserve.setValue("OFF");    // Stan początkowy rezerwy wody
 
-    serviceSwitch.setName("Tryb serwisowy");
+    serviceSwitch.setName("Serwis");
     serviceSwitch.setIcon("mdi:tools");
     serviceSwitch.onCommand(onServiceSwitchCommand);
     serviceSwitch.setState(status.isServiceMode);
