@@ -86,47 +86,54 @@ int calculateWaterLevel(int distance) {
 // Obsługa przełącznika trybu serwisowego
 void onServiceSwitchCommand(bool state, HASwitch* sender) {
     status.isServiceMode = state;
+    
+    // Aktualizuj stan przełącznika w HA
+    serviceSwitch.setState(state);
+    
     if (status.isServiceMode && status.isPumpActive) {
-        // Wyłącz pompę jeśli jest aktywna
         digitalWrite(PIN_PUMP, LOW);
         status.isPumpActive = false;
         status.pumpStartTime = 0;
         sensorPumpStatus.setValue("OFF");
     }
+    Serial.printf("Tryb serwisowy: %s (przez HA)\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // Obsługa przełącznika dźwięku
 void onSoundSwitchCommand(bool state, HASwitch* sender) {
     status.soundEnabled = state;
-    EEPROM.write(0, state ? 1 : 0);
+    
+    // Zapisz stan do EEPROM
+    EEPROM.write(EEPROM_SOUND_STATE_ADDR, state ? 1 : 0);
     EEPROM.commit();
+    
+    // Aktualizuj stan przełącznika w HA
+    soundSwitch.setState(state);
+    
+    Serial.printf("Stan dźwięku: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // Funkcja do obsługi przycisku
 void handleButton() {
-    // Odczyt stanu przycisku
     bool reading = digitalRead(PIN_BUTTON);
     
-    // Jeśli stan się zmienił
     if (reading != buttonState.lastState) {
-        if (reading == LOW) { // Przycisk wciśnięty
+        if (reading == LOW) {
             buttonState.pressedTime = millis();
             buttonState.isLongPressHandled = false;
-        } else { // Przycisk zwolniony
+        } else {
             buttonState.releasedTime = millis();
             
-            // Krótkie naciśnięcie - przełącz tryb serwisowy
             if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
+                // Przełącz tryb serwisowy
                 status.isServiceMode = !status.isServiceMode;
-                serviceSwitch.setState(status.isServiceMode); // Aktualizacja stanu w HA
-                if (status.isServiceMode) {
-                    Serial.println("Tryb serwisowy: WŁĄCZONY");
-                } else {
-                    Serial.println("Tryb serwisowy: WYŁĄCZONY");
-                }
+                // Aktualizuj stan w HA
+                serviceSwitch.setState(status.isServiceMode);
+                
+                Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
+                            status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
                 
                 if (status.isServiceMode && status.isPumpActive) {
-                    // Wyłącz pompę jeśli jest aktywna
                     digitalWrite(PIN_PUMP, LOW);
                     status.isPumpActive = false;
                     status.pumpStartTime = 0;
@@ -139,7 +146,6 @@ void handleButton() {
     // Sprawdzenie długiego naciśnięcia
     if (reading == LOW && !buttonState.isLongPressHandled) {
         if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
-            // Kasowanie alarmu pompy
             status.pumpSafetyLock = false;
             pumpAlarm.setState(false);
             buttonState.isLongPressHandled = true;
@@ -312,6 +318,11 @@ void updatePump() {
 
 void setup() {
     Serial.begin(115200);
+
+    // Inicjalizacja EEPROM
+    EEPROM.begin(512);
+    // Odczyt stanu dźwięku z EEPROM
+    status.soundEnabled = EEPROM.read(0) == 1;
     
     // Konfiguracja pinów
     pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
@@ -323,9 +334,6 @@ void setup() {
     pinMode(PIN_PUMP, OUTPUT);
     digitalWrite(PIN_PUMP, LOW);
     
-    // Odczyt stanu dźwięku z EEPROM
-    status.soundEnabled = EEPROM.read(0) == 1;
-
     // Połączenie z WiFi
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {
@@ -362,7 +370,7 @@ void setup() {
     sensorWaterReserve.setIcon("mdi:alert-outline");
     sensorWaterReserve.setValue("OFF");    // Stan początkowy rezerwy wody
 
-    serviceSwitch.setName("Serwis");
+    serviceSwitch.setName("Tryb serwisowy");
     serviceSwitch.setIcon("mdi:tools");
     serviceSwitch.onCommand(onServiceSwitchCommand);
     serviceSwitch.setState(status.isServiceMode);
