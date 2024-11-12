@@ -20,8 +20,10 @@ const char* MQTT_PASSWORD = "hydrosense";
 // Stałe dla przycisku
 #define LONG_PRESS_TIME 1000  // 1 sekunda dla długiego naciśnięcia
 
+// EEPROM
+#define EEPROM_SIZE 512
 // Dodajemy adresy EEPROM
-#define EEPROM_SOUND_STATE_ADDR 0
+#define EEPROM_SOUND_STATE_ADDR 0  // Adres w EEPROM dla stanu dźwięku
 
 // Konfiguracja zbiornika i pomiarów
 const int DISTANCE_WHEN_FULL = 65;  // pełny zbiornik - mm
@@ -71,6 +73,26 @@ struct ButtonState {
     bool isLongPressHandled = false;
 } buttonState;
 
+// Funkcja zapisująca stan do EEPROM
+void saveToEEPROM() {
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.write(EEPROM_SOUND_STATE_ADDR, status.soundEnabled ? 1 : 0);
+    bool saved = EEPROM.commit();
+    EEPROM.end();
+    Serial.printf("Zapisano stan dźwięku do EEPROM: %s (Status: %s)\n", 
+                 status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY",
+                 saved ? "OK" : "BŁĄD");
+}
+
+// Funkcja odczytująca stan z EEPROM
+void loadFromEEPROM() {
+    EEPROM.begin(EEPROM_SIZE);
+    status.soundEnabled = EEPROM.read(EEPROM_SOUND_STATE_ADDR) == 1;
+    EEPROM.end();
+    Serial.printf("Wczytano stan dźwięku z EEPROM: %s\n", 
+                 status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
+}
+
 // Funkcja obliczająca poziom wody w procentach
 int calculateWaterLevel(int distance) {
     if (distance < DISTANCE_WHEN_FULL) distance = DISTANCE_WHEN_FULL;
@@ -103,16 +125,12 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
 // Obsługa przełącznika dźwięku
 void onSoundSwitchCommand(bool state, HASwitch* sender) {
     status.soundEnabled = state;
+    saveToEEPROM();
     
-    // Zapisz stan do EEPROM
-    EEPROM.write(EEPROM_SOUND_STATE_ADDR, state ? 1 : 0);
-    bool saved = EEPROM.commit();
-    Serial.printf("Stan dźwięku: %s, Zapisano do EEPROM: %s\n", 
-                 state ? "WŁĄCZONY" : "WYŁĄCZONY",
-                 saved ? "TAK" : "NIE");
-                 
     // Aktualizuj stan przełącznika w HA
     soundSwitch.setState(state);
+    Serial.printf("Zmieniono stan dźwięku na: %s\n", 
+                 state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // Funkcja do obsługi przycisku
@@ -323,12 +341,8 @@ void updatePump() {
 void setup() {
     Serial.begin(115200);
 
-    // Inicjalizacja EEPROM
-    EEPROM.begin(512);
-    // Odczyt stanu dźwięku z EEPROM
-    status.soundEnabled = EEPROM.read(EEPROM_SOUND_STATE_ADDR) == 1;
-    Serial.printf("Wczytano stan dźwięku z EEPROM: %s\n", 
-                 status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
+    // Wczytaj stan z EEPROM na początku
+    loadFromEEPROM();
     
     // Konfiguracja pinów
     pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
