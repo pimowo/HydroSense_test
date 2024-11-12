@@ -22,7 +22,7 @@ const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
 bool ultrasonicInProgress = false; // Flaga trwającego pomiaru
 const unsigned long ULTRASONIC_TIMEOUT = 50; // Timeout pomiaru w ms
-const unsigned long MEASUREMENT_INTERVAL = 1000;// Interwał między pomiarami w ms
+const unsigned long MEASUREMENT_INTERVAL = 60000;// Interwał między pomiarami w ms
 const unsigned long MQTT_RETRY_INTERVAL = 5000;// Czas między próbami połączenia MQTT w ms
 const unsigned long WIFI_CHECK_INTERVAL = 5000;// Czas między sprawdzeniami WiFi w ms
 const unsigned long WATCHDOG_TIMEOUT = 8000; // Timeout dla watchdoga w ms
@@ -635,17 +635,20 @@ void loop() {
     static unsigned long lastMqttRetry = 0;
     unsigned long currentMillis = millis();
     
-    // Sprawdzanie MQTT co 10 sekund
-    if (!mqtt.isConnected()) {
-        if (currentMillis - lastMqttRetry >= 10000) {  // Co 10 sekund
-            lastMqttRetry = currentMillis;
-            Serial.println("\n--- Status połączenia ---");
-            Serial.printf("WiFi SSID: %s\n", WiFi.SSID().c_str());
-            Serial.printf("IP ESP: %s\n", WiFi.localIP().toString().c_str());
-            Serial.println("Próba ponownego połączenia MQTT...");
+    // Sprawdzaj stan MQTT co 5 sekund
+    if (currentMillis - lastMqttCheck > 5000) {
+        lastMqttCheck = currentMillis;
+        
+        if (!mqtt.isConnected()) {
+            Serial.printf("\n[%lu] MQTT rozłączone!\n", currentMillis/1000);
+            Serial.printf("WiFi status: %d\n", WiFi.status());
             
             if (connectMQTT()) {
-                Serial.println("Połączono ponownie z MQTT!");
+                Serial.println("MQTT reconnect sukces!");
+                // Ponowna subskrypcja tematów
+                mqtt.subscribe(TOPIC_PUMP_SET, onPumpMessage);
+                mqtt.subscribe(TOPIC_AUTO_SET, onAutoMessage);
+                mqtt.subscribe(TOPIC_SOUND_SET, onSoundMessage);
             }
         }
     }
