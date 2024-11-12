@@ -44,18 +44,8 @@ const int MEASUREMENTS_COUNT = 5;  // liczba pomiarów do uśrednienia
 const int PUMP_DELAY = 5;  // opóźnienie włączenia pompy - sekundy
 const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
 
-// Konfiguracja zbiornika
-// const struct TankConfig {
-//     static const int DISTANCE_FULL = 65;    // mm
-//     static const int DISTANCE_EMPTY = 510;  // mm
-//     static const int DISTANCE_RESERVE = 450; // mm
-//     static const int DIAMETER = 150;        // mm
-//     static const int HYSTERESIS = 10;       // mm
-// } TANK;
-
 float currentDistance = 0;
 float volume = 0;            // Dodajemy też zmienną volume jako globalną
-float fillPercentage = 0;    // i fillPercentage
 
 // Obiekty do komunikacji
 WiFiClient client;
@@ -127,6 +117,8 @@ void setupWiFi() {
     static unsigned long lastWiFiCheck = 0;
     static bool wifiInitiated = false;
     
+    ESP.wdtFeed();  // Dodaj to
+    
     if (!wifiInitiated) {
         WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
         wifiInitiated = true;
@@ -135,6 +127,7 @@ void setupWiFi() {
     
     if (WiFi.status() != WL_CONNECTED) {
         if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {
+            ESP.wdtFeed();  // Dodaj to
             Serial.print(".");
             lastWiFiCheck = millis();
             if (WiFi.status() == WL_DISCONNECTED) {
@@ -142,6 +135,15 @@ void setupWiFi() {
             }
         }
     }
+}
+
+bool connectMQTT() {
+    if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+        Serial.println("MQTT connection failed");
+        return false;
+    }
+    Serial.println("MQTT connected");
+    return true;
 }
 
 // Funkcja obliczająca poziom wody w procentach
@@ -299,6 +301,8 @@ int measureDistanceNonBlocking() {
     static int measurements[MEASUREMENTS_COUNT];
     static int measurementIndex = 0;
     static unsigned long echoStartTime = 0;
+
+    ESP.wdtFeed();  // Dodaj to na początku funkcji
     
     if (!ultrasonicInProgress) {
         if (millis() - lastUltrasonicTrigger >= ULTRASONIC_TIMEOUT) {
@@ -581,10 +585,11 @@ void loop() {
     if (!mqtt.connected()) {
         if (millis() - lastMQTTRetry >= MQTT_RETRY_INTERVAL) {
             Serial.println("Reconnecting to MQTT...");
-            if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-                Serial.println("MQTT reconnected");
+            if (connectMQTT()) {
+                lastMQTTRetry = millis();
+            } else {
+                delay(1000);
             }
-            lastMQTTRetry = millis();
         }
         return;
     }
