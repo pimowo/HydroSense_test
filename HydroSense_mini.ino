@@ -35,7 +35,11 @@ const int MEASUREMENTS_COUNT = 5;  // liczba pomiarów do uśrednienia
 const int PUMP_DELAY = 5;  // opóźnienie włączenia pompy - sekundy
 const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
 
-float currentDistance = 0;  // zmienna dla aktualnego pomiaru odległości
+float currentDistance = 0;
+char volumeStr[10];          // Dodane jako zmienne globalne
+char percentageStr[10];      // żeby były dostępne w obu funkcjach
+float volume = 0;            // Dodajemy też zmienną volume jako globalną
+float fillPercentage = 0;    // i fillPercentage
 
 // Obiekty do komunikacji
 WiFiClient client;
@@ -394,20 +398,17 @@ void updateWaterLevel() {
     if (waterHeight > (DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL)) {
         waterHeight = DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL;
     }
-    float radius = (TANK_DIAMETER / 2.0) / 100.0; // konwersja cm na metry
-    float volume = PI * radius * radius * (waterHeight / 100.0) * 1000.0; // wynik w litrach
+    float radius = (TANK_DIAMETER / 2.0) / 1000.0; // konwersja mm na metry
+    volume = PI * radius * radius * (waterHeight / 1000.0) * 1000.0; // wynik w litrach
     
     // Obliczenie procentowego zapełnienia
     float totalHeight = DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL;
-    float fillPercentage = (waterHeight / totalHeight) * 100.0;
+    fillPercentage = (waterHeight / totalHeight) * 100.0;
     if (fillPercentage < 0) fillPercentage = 0;
     if (fillPercentage > 100) fillPercentage = 100;
     
-    // Aktualizacja sensorów
+    // Konwersja na stringi
     char distanceStr[10];
-    char volumeStr[10];
-    char percentageStr[10];
-    
     dtostrf(currentDistance, 1, 1, distanceStr);
     dtostrf(volume, 1, 1, volumeStr);
     dtostrf(fillPercentage, 1, 1, percentageStr);
