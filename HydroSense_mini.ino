@@ -234,69 +234,6 @@ void handleButton() {
     yield(); // Daj czas na obsługę innych zadań
 }
 
-// Ulepszona funkcja pomiaru odległości z uśrednianiem
-// int measureDistance() {
-//     int measurements[MEASUREMENTS_COUNT];
-//     int validMeasurements = 0;
-    
-//     // Wykonaj serie pomiarów
-//     for(int i = 0; i < MEASUREMENTS_COUNT; i++) {
-//         digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-//         delayMicroseconds(2);
-//         digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-//         delayMicroseconds(10);
-//         digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-        
-//         long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 23529);
-//         if (duration == 0) {
-//             //Serial.println("Błąd pomiaru - timeout");
-//             continue;
-//         }
-        
-//         int distance = (duration * 343) / 2000; // mm
-//         if (distance >= 20 && distance <= 4000) {
-//             measurements[validMeasurements] = distance;
-//             validMeasurements++;
-//             //Serial.printf("Pomiar %d: %d mm\n", i+1, distance);
-//         } else {
-//             Serial.printf("Pomiar %d: poza zakresem (%d mm)\n", i+1, distance);
-//         }
-        
-//         delay(50); // krótka przerwa między pomiarami
-//     }
-    
-//     // Jeśli nie ma wystarczającej liczby poprawnych pomiarów
-//     if (validMeasurements < 3) {
-//         Serial.println("Za mało poprawnych pomiarów");
-//         return -1;
-//     }
-    
-//     // Sortowanie pomiarów (aby usunąć skrajne wartości)
-//     for(int i = 0; i < validMeasurements-1; i++) {
-//         for(int j = 0; j < validMeasurements-i-1; j++) {
-//             if(measurements[j] > measurements[j+1]) {
-//                 int temp = measurements[j];
-//                 measurements[j] = measurements[j+1];
-//                 measurements[j+1] = temp;
-//             }
-//         }
-//     }
-    
-//     // Obliczenie średniej z pomiarów (pomijając skrajne wartości)
-//     long sum = 0;
-//     int start = validMeasurements > 3 ? 1 : 0;
-//     int end = validMeasurements > 3 ? validMeasurements-1 : validMeasurements;
-    
-//     for(int i = start; i < end; i++) {
-//         sum += measurements[i];
-//     }
-    
-//     int average = sum / (end - start);
-//     //Serial.printf("Średnia z %d pomiarów: %d mm\n", end-start, average);
-    
-//     return average;
-// }
-
 int measureDistanceNonBlocking() {
     static int measurements[MEASUREMENTS_COUNT];
     static int measurementIndex = 0;
@@ -356,6 +293,10 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 
 // Kontrola pompy
 void updatePump() {
+    if (millis() < status.pumpStartTime) {
+        status.pumpStartTime = millis(); 
+    }
+    
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
     sensorWater.setValue(waterPresent ? "ON" : "OFF");
     
@@ -424,24 +365,22 @@ void updateAlarmStates(float currentDistance) {
     // Sprawdzenie alarmu braku wody z histerezą
     if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
-        sensorAlarm.setValue("ON");                // było sensorWaterAlarm
+        sensorAlarm.setValue("ON");               
         Serial.println("Alarm: Krytycznie niski poziom wody!");
-    } 
-    else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
+    } else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
-        sensorAlarm.setValue("OFF");               // było sensorWaterAlarm
+        sensorAlarm.setValue("OFF");             
         Serial.println("Alarm wody wyłączony");
     }
 
     // Sprawdzenie stanu rezerwy z histerezą
     if (currentDistance >= DISTANCE_RESERVE && !status.waterReserveActive) {
         status.waterReserveActive = true;
-        sensorReserve.setValue("ON");             // było sensorWaterReserve
+        sensorReserve.setValue("ON");            
         Serial.println("Uwaga: Poziom rezerwy!");
-    } 
-    else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
+    } else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
-        sensorReserve.setValue("OFF");            // było sensorWaterReserve
+        sensorReserve.setValue("OFF");           
         Serial.println("Poziom powyżej rezerwy");
     }
 }
@@ -601,7 +540,7 @@ void loop() {
     if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
         int distance = measureDistanceNonBlocking();
         if (distance > 0) {
-            updateWaterLevel(distance);
+            updateWaterLevel();
             status.lastSuccessfulMeasurement = millis();
             lastMeasurement = millis();
         }
