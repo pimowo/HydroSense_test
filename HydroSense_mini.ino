@@ -374,9 +374,13 @@ void updateWaterLevel() {
     // Konwersja na stringi dla sensorów
     char valueStr[10];
     
-    // Aktualizacja wartości w sensorach
+    // Aktualizacja wszystkich sensorów
     dtostrf(currentDistance, 1, 1, valueStr);
     waterLevelSensor.setValue(valueStr);
+    
+    // Aktualizacja poziomu wody w procentach
+    int waterLevel = calculateWaterLevel(currentDistance);
+    sensorWaterLevel.setValue(String(waterLevel).c_str());
     
     dtostrf(volume, 1, 1, valueStr);
     sensorWaterVolume.setValue(valueStr);
@@ -499,21 +503,11 @@ void loop() {
 
     static unsigned long lastMeasurement = 0;
     if (millis() - lastMeasurement > 1000) {
-        int distance = measureDistance();
-        if (distance > 0) {
-            
-            int waterLevel = calculateWaterLevel(distance);
-            sensorWaterLevel.setValue(String(waterLevel).c_str());
-            
-            // Dodaj sprawdzenie poziomów alarmowych
-            checkWaterLevels(distance);
-            
-            //Serial.printf("Odległość: %d mm, Poziom: %d%%\n", distance, waterLevel);
-        }
+        updateWaterLevel();  // Wszystkie pomiary i aktualizacje w jednej funkcji
         lastMeasurement = millis();
     }
     
-    // Modyfikacja updatePump()
+    // Obsługa pompy
     updatePump();
     
     yield();
