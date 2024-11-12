@@ -149,14 +149,24 @@ void setupWiFi() {
  * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
  */
 bool connectMQTT() {
-    // Próba nawiązania połączenia MQTT z podanymi parametrami
+    Serial.println("\n--- Diagnostyka MQTT ---");
+    Serial.printf("WiFi SSID: %s\n", WiFi.SSID().c_str());
+    Serial.printf("WiFi siła: %d dBm\n", WiFi.RSSI());
+    Serial.printf("IP ESP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("Brama: %s\n", WiFi.gatewayIP().toString().c_str());
+    Serial.println("\nKonfiguracja MQTT:");
+    Serial.printf("- Serwer: %s\n", MQTT_SERVER);
+    Serial.printf("- Port: 1883\n");
+    Serial.printf("- Użytkownik: %s\n", MQTT_USER);
+    Serial.printf("- Hasło: %s\n", MQTT_PASSWORD);
+    
     if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        Serial.println("MQTT connection failed");   // Komunikat o błędzie
-        return false;                              // Zwróć false w przypadku niepowodzenia
+        Serial.println("\nBŁĄD POŁĄCZENIA MQTT!");
+        return false;
     }
     
-    Serial.println("MQTT connected");              // Komunikat o sukcesie
-    return true;                                   // Zwróć true po udanym połączeniu
+    Serial.println("MQTT połączono pomyślnie!");
+    return true;
 }
 
 /**
@@ -545,6 +555,14 @@ void setup() {
         Serial.print(".");
     }
     Serial.println("\nPołączono z WiFi");
+
+    // Próba połączenia MQTT
+    Serial.println("Rozpoczynam połączenie MQTT...");
+    if (connectMQTT()) {
+        Serial.println("Połączono z MQTT pomyślnie!");
+    } else {
+        Serial.println("Nie udało się połączyć z MQTT!");
+    }
     
     // Konfiguracja urządzenia dla Home Assistant
     device.setName("HydroSense");                  // Nazwa urządzenia
@@ -612,18 +630,24 @@ void loop() {
         setupWiFi();
         return;
     }
+       
+    // Sprawdzanie MQTT co 10 sekund
+    static unsigned long lastMqttRetry = 0;
+    unsigned long currentMillis = millis();
     
-    // Sprawdź MQTT
-    if (!mqtt.connected()) {
-        if (millis() - lastMQTTRetry >= MQTT_RETRY_INTERVAL) {
-            Serial.println("Reconnecting to MQTT...");
+    // Sprawdzanie MQTT co 10 sekund
+    if (!mqtt.isConnected()) {
+        if (currentMillis - lastMqttRetry >= 10000) {  // Co 10 sekund
+            lastMqttRetry = currentMillis;
+            Serial.println("\n--- Status połączenia ---");
+            Serial.printf("WiFi SSID: %s\n", WiFi.SSID().c_str());
+            Serial.printf("IP ESP: %s\n", WiFi.localIP().toString().c_str());
+            Serial.println("Próba ponownego połączenia MQTT...");
+            
             if (connectMQTT()) {
-                lastMQTTRetry = millis();
-            } else {
-                delay(1000);
+                Serial.println("Połączono ponownie z MQTT!");
             }
         }
-        return;
     }
     
     mqtt.loop();
