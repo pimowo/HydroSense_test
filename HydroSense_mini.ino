@@ -44,17 +44,20 @@ HAMqtt mqtt(client, device);
 // Sensory pomiarowe
 HASensor sensorDistance("distance");                    // odległość w mm
 HASensor sensorWaterLevel("water_level_percent");       // poziom wody w %
+HASensor sensorWaterFillPercentage("water_fill_percentage");
 // Sensory statusu
 HASensor sensorPumpStatus("pump");                     // status pompy
 HASensor sensorWaterPresence("water");                 // obecność wody (czujnik)
 HASensor sensorWaterVolume("water_volume");
 HASensor sensorWaterFillPercentage("water_fill_percentage");
+HASensor waterLevelSensor("water_level"); // istniejący sensor
 // Sensory alarmowe
 HASensor sensorWaterAlarm("water_alarm");             // alarm niskiego poziomu
 HASensor sensorWaterReserve("water_reserve");         // stan rezerwy
 HASwitch pumpAlarm("pump_alarm");                     // alarm przepracowania pompy
 HASwitch serviceSwitch("service_mode");     // przełącznik trybu serwisowego
 HASwitch soundSwitch("sound_switch");       // przełącznik dźwięku
+HABinarySensor waterLevelAlarm("water_level_alarm");
 
 // Status systemu
 struct {
@@ -384,10 +387,10 @@ float calculateFillPercentage(float currentDistance) {
 }
 
 void updateWaterLevel() {
-    distance = measureDistance();
+    currentDistance = measureDistance();
     
     // Obliczenie objętości
-    float waterHeight = DISTANCE_WHEN_EMPTY - distance;
+    float waterHeight = DISTANCE_WHEN_EMPTY - currentDistance;
     if (waterHeight < 0) waterHeight = 0;
     if (waterHeight > (DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL)) {
         waterHeight = DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL;
@@ -407,29 +410,29 @@ void updateWaterLevel() {
     dtostrf(volume, 1, 1, volumeStr);
     dtostrf(fillPercentage, 1, 1, percentageStr);
     
-    sensorWaterLevel.setValue(String(distance));
+    waterLevelSensor.setValue(String(currentDistance));
     sensorWaterVolume.setValue(volumeStr);
     sensorWaterFillPercentage.setValue(percentageStr);
     
-    // Aktualizacja stanów alarmowych (istniejący kod)
-    if (distance >= DISTANCE_WHEN_EMPTY) {
+    // Aktualizacja stanów alarmowych
+    if (currentDistance >= DISTANCE_WHEN_EMPTY) {
         status.waterAlarmActive = true;
-        waterAlarm.setState(true);
+        pumpAlarm.setState(true);
+        waterLevelAlarm.setState(true);
     } else {
         status.waterAlarmActive = false;
-        waterAlarm.setState(false);
+        pumpAlarm.setState(false);
+        waterLevelAlarm.setState(false);
     }
 
-    if (distance >= DISTANCE_RESERVE) {
+    if (currentDistance >= DISTANCE_RESERVE) {
         status.waterReserveActive = true;
-        waterReserve.setState(true);
     } else {
         status.waterReserveActive = false;
-        waterReserve.setState(false);
     }
     
     // Debug info
-    Serial.printf("Poziom wody: %.1f cm\n", distance);
+    Serial.printf("Poziom wody: %.1f cm\n", currentDistance);
     Serial.printf("Objętość: %.1f L\n", volume);
     Serial.printf("Zapełnienie: %.1f %%\n", fillPercentage);
 }
