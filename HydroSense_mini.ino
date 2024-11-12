@@ -35,6 +35,8 @@ const int MEASUREMENTS_COUNT = 5;  // liczba pomiarów do uśrednienia
 const int HYSTERESIS = 10;  // histereza - mm
 const int DISTANCE_RESERVE = 400;  // dystans dla rezerwy - mm
 
+float currentDistance = 0;
+
 // Obiekty do komunikacji
 WiFiClient client;
 HADevice device("HydroSense");
