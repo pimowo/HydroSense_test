@@ -124,16 +124,16 @@ int calculateWaterLevel(int distance) {
 // Obsługa przełącznika trybu serwisowego
 void onServiceSwitchCommand(bool state, HASwitch* sender) {
     status.isServiceMode = state;
-    buttonState.lastState = HIGH;  // Reset stanu przycisku po zmianie w HA
+    buttonState.lastState = HIGH;
     
     // Aktualizuj stan przełącznika w HA
-    serviceSwitch.setState(state);
+    switchService.setState(state);   // było serviceSwitch
     
     if (status.isServiceMode && status.isPumpActive) {
         digitalWrite(PIN_PUMP, LOW);
         status.isPumpActive = false;
         status.pumpStartTime = 0;
-        sensorPumpStatus.setValue("OFF");
+        sensorPump.setValue("OFF");  // było sensorPumpStatus
     }
     Serial.printf("Tryb serwisowy: %s (przez HA)\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
@@ -147,14 +147,9 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     EEPROM.write(EEPROM_SOUND_STATE_ADDR, state ? 1 : 0);
     bool saved = EEPROM.commit();
     
-    Serial.printf("Zapisano stan dźwięku do EEPROM: %s (Status: %s)\n", 
-                 state ? "WŁĄCZONY" : "WYŁĄCZONY",
-                 saved ? "OK" : "BŁĄD");
-    
     // Aktualizuj stan w HA
-    soundSwitch.setState(state);
-    Serial.printf("Zmieniono stan dźwięku na: %s\n", 
-                 state ? "WŁĄCZONY" : "WYŁĄCZONY");
+    switchSound.setState(state);  // było soundSwitch
+    Serial.printf("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // Funkcja do obsługi przycisku
@@ -173,7 +168,7 @@ void handleButton() {
                 // Przełącz tryb serwisowy na przeciwny do aktualnego
                 status.isServiceMode = !status.isServiceMode;
                 // Aktualizuj stan w HA
-                serviceSwitch.setState(status.isServiceMode);
+                switchService.setState(status.isServiceMode);
                 
                 Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
                             status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
@@ -182,7 +177,7 @@ void handleButton() {
                     digitalWrite(PIN_PUMP, LOW);
                     status.isPumpActive = false;
                     status.pumpStartTime = 0;
-                    sensorPumpStatus.setValue("OFF");
+                    sensorPump.setValue("OFF");
                 }
             }
         }
@@ -192,7 +187,7 @@ void handleButton() {
     if (reading == LOW && !buttonState.isLongPressHandled) {
         if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
             status.pumpSafetyLock = false;
-            pumpAlarm.setState(false);
+            switchPump.setState(false);
             buttonState.isLongPressHandled = true;
             Serial.println("Alarm pompy skasowany");
         }
@@ -274,7 +269,7 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 // Kontrola pompy
 void updatePump() {
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
-    sensorWaterPresence.setValue(waterPresent ? "ON" : "OFF");
+    sensorWater.setValue(waterPresent ? "ON" : "OFF");
     
     // Sprawdź czy nie jest aktywny tryb serwisowy
     if (status.isServiceMode) {
@@ -282,7 +277,7 @@ void updatePump() {
             digitalWrite(PIN_PUMP, LOW);
             status.isPumpActive = false;
             status.pumpStartTime = 0;
-            sensorPumpStatus.setValue("OFF");
+            sensorPump.setValue("OFF");
         }
         return;
     }
@@ -292,9 +287,9 @@ void updatePump() {
         digitalWrite(PIN_PUMP, LOW);
         status.isPumpActive = false;
         status.pumpStartTime = 0;
-        sensorPumpStatus.setValue("OFF");
+        sensorPump.setValue("OFF");
         status.pumpSafetyLock = true;
-        pumpAlarm.setState(true);
+        switchPump.setState(true);
         Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
         return;
     }
@@ -305,7 +300,7 @@ void updatePump() {
             digitalWrite(PIN_PUMP, LOW);
             status.isPumpActive = false;
             status.pumpStartTime = 0;
-            sensorPumpStatus.setValue("OFF");
+            sensorPump.setValue("OFF");
         }
         return;
     }
@@ -316,7 +311,7 @@ void updatePump() {
         status.isPumpActive = false;
         status.pumpStartTime = 0;
         status.isPumpDelayActive = false;
-        sensorPumpStatus.setValue("OFF");
+        sensorPump.setValue("OFF");
         return;
     }
     
@@ -332,7 +327,7 @@ void updatePump() {
             status.isPumpActive = true;
             status.pumpStartTime = millis();
             status.isPumpDelayActive = false;
-            sensorPumpStatus.setValue("ON");
+            sensorPump.setValue("ON");
         }
     }
 }
@@ -376,12 +371,12 @@ void updateWaterLevel() {
     volume = PI * (radius * radius) * waterHeight / 1000000.0; // mm³ na litry
     
     // Aktualizacja sensorów pomiarowych
-    waterLevelSensor.setValue(String((int)currentDistance).c_str());
-    sensorWaterLevel.setValue(String(calculateWaterLevel(currentDistance)).c_str());
+    sensorDistance.setValue(String((int)currentDistance).c_str());
+    sensorLevel.setValue(String(calculateWaterLevel(currentDistance)).c_str());
     
     char valueStr[10];
     dtostrf(volume, 1, 1, valueStr);
-    sensorWaterVolume.setValue(valueStr);
+    sensorVolume.setValue(valueStr);
     
     // Aktualizacja stanów alarmowych
     updateAlarmStates(currentDistance);
@@ -478,7 +473,7 @@ void setup() {
     pumpAlarm.setName("Alarm pompy");
     pumpAlarm.setIcon("mdi:alert");
     pumpAlarm.onCommand(onPumpAlarmCommand);
-     
+
     // Połączenie MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
 }
