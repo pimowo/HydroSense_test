@@ -35,9 +35,16 @@ const int MEASUREMENTS_COUNT = 5;  // liczba pomiarów do uśrednienia
 const int PUMP_DELAY = 5;  // opóźnienie włączenia pompy - sekundy
 const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
 
+// Konfiguracja zbiornika
+const struct TankConfig {
+    static const int DISTANCE_FULL = 65;    // mm
+    static const int DISTANCE_EMPTY = 510;  // mm
+    static const int DISTANCE_RESERVE = 450; // mm
+    static const int DIAMETER = 150;        // mm
+    static const int HYSTERESIS = 10;       // mm
+} TANK;
+
 float currentDistance = 0;
-char volumeStr[10];          // Dodane jako zmienne globalne
-char percentageStr[10];      // żeby były dostępne w obu funkcjach
 float volume = 0;            // Dodajemy też zmienną volume jako globalną
 float fillPercentage = 0;    // i fillPercentage
 
@@ -46,18 +53,19 @@ WiFiClient client;
 HADevice device("HydroSense");
 HAMqtt mqtt(client, device);
 // Sensory pomiarowe
-HASensor sensorWaterLevel("water_level_percent");       // poziom wody w %
+HASensor sensorDistance("water_level");              // zmieniona nazwa z waterLevelSensor
+HASensor sensorWaterLevel("water_level_percent");    // bez zmian
+HASensor sensorVolume("water_volume");               // uproszczona nazwa
 // Sensory statusu
-HASensor sensorPumpStatus("pump");                     // status pompy
-HASensor sensorWaterPresence("water");                 // obecność wody (czujnik)
-HASensor sensorWaterVolume("water_volume");
-HASensor waterLevelSensor("water_level"); // istniejący sensor
+HASensor sensorPump("pump");                        // uproszczona nazwa
+HASensor sensorWater("water");                      // uproszczona nazwa
 // Sensory alarmowe
-HASensor sensorWaterAlarm("water_alarm");             // alarm niskiego poziomu
-HASensor sensorWaterReserve("water_reserve");         // stan rezerwy
-HASwitch pumpAlarm("pump_alarm");                     // alarm przepracowania pompy
-HASwitch serviceSwitch("service_mode");     // przełącznik trybu serwisowego
-HASwitch soundSwitch("sound_switch");       // przełącznik dźwięku
+HASensor sensorAlarm("water_alarm");                // uproszczona nazwa
+HASensor sensorReserve("water_reserve");            // uproszczona nazwa
+// Przełączniki
+HASwitch pumpAlarm("pump_alarm");                   // bez zmian
+HASwitch service("service_mode");                   // uproszczona nazwa
+HASwitch sound("sound_switch");                     // uproszczona nazwa
 
 // Status systemu
 struct {
@@ -263,31 +271,6 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
     }
 }
 
-void checkWaterLevels(int distance) {
-    // Sprawdzenie alarmu wody
-    if (distance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
-        status.waterAlarmActive = true;
-        sensorWaterAlarm.setValue("ON");
-        Serial.println("Alarm: Krytycznie niski poziom wody!");
-    } else if (distance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
-        status.waterAlarmActive = false;
-        sensorWaterAlarm.setValue("OFF");
-        Serial.println("Alarm wody wyłączony");
-    }
-
-    // Sprawdzenie rezerwy
-    if (distance >= DISTANCE_RESERVE && !status.waterReserveActive) {
-        status.waterReserveActive = true;
-        sensorWaterReserve.setValue("ON");
-        Serial.println("Uwaga: Poziom rezerwy!");
-    } 
-    else if (distance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
-        status.waterReserveActive = false;
-        sensorWaterReserve.setValue("OFF");
-        Serial.println("Poziom powyżej rezerwy");
-    }
-}
-
 // Kontrola pompy
 void updatePump() {
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
@@ -354,6 +337,32 @@ void updatePump() {
     }
 }
 
+void updateAlarmStates(float currentDistance) {
+    // Sprawdzenie alarmu braku wody z histerezą
+    if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
+        status.waterAlarmActive = true;
+        sensorWaterAlarm.setValue("ON");
+        Serial.println("Alarm: Krytycznie niski poziom wody!");
+    } 
+    else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
+        status.waterAlarmActive = false;
+        sensorWaterAlarm.setValue("OFF");
+        Serial.println("Alarm wody wyłączony");
+    }
+
+    // Sprawdzenie stanu rezerwy z histerezą
+    if (currentDistance >= DISTANCE_RESERVE && !status.waterReserveActive) {
+        status.waterReserveActive = true;
+        sensorWaterReserve.setValue("ON");
+        Serial.println("Uwaga: Poziom rezerwy!");
+    } 
+    else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
+        status.waterReserveActive = false;
+        sensorWaterReserve.setValue("OFF");
+        Serial.println("Poziom powyżej rezerwy");
+    }
+}
+
 void updateWaterLevel() {
     currentDistance = measureDistance();
     if (currentDistance < 0) return; // błąd pomiaru
@@ -366,46 +375,24 @@ void updateWaterLevel() {
     float radius = TANK_DIAMETER / 2.0;
     volume = PI * (radius * radius) * waterHeight / 1000000.0; // mm³ na litry
     
-    // Obliczenie procentowego zapełnienia
-    fillPercentage = (waterHeight / (DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL)) * 100.0;
-    fillPercentage = constrain(fillPercentage, 0, 100);
-    
-    // Konwersja na stringi dla sensorów
-    char valueStr[10];
-    
-    // Aktualizacja wszystkich sensorów
+    // Aktualizacja sensorów pomiarowych
     waterLevelSensor.setValue(String((int)currentDistance).c_str());
+    sensorWaterLevel.setValue(String(calculateWaterLevel(currentDistance)).c_str());
     
-    // Aktualizacja poziomu wody w procentach
-    int waterLevel = calculateWaterLevel(currentDistance);
-    sensorWaterLevel.setValue(String(waterLevel).c_str());
-    
+    char valueStr[10];
     dtostrf(volume, 1, 1, valueStr);
     sensorWaterVolume.setValue(valueStr);
     
-    dtostrf(fillPercentage, 1, 1, valueStr);
-    
-    // Aktualizacja alarmów
-    bool isAlarmState = (currentDistance >= DISTANCE_WHEN_EMPTY);
-    status.waterAlarmActive = isAlarmState;
-    sensorWaterAlarm.setValue(isAlarmState ? "ON" : "OFF");
-
-    // Aktualizacja stanu rezerwy
-    status.waterReserveActive = (currentDistance >= DISTANCE_RESERVE);
-    sensorWaterReserve.setValue(status.waterReserveActive ? "ON" : "OFF");
+    // Aktualizacja stanów alarmowych
+    updateAlarmStates(currentDistance);
     
     // Debug info tylko gdy wartości się zmieniły znacząco
     static float lastReportedDistance = 0;
     if (abs(currentDistance - lastReportedDistance) > 5) {
-        Serial.printf("Poziom: %.1f mm, Obj: %.1f L, Zap: %.1f %%\n", 
-                     currentDistance, volume, fillPercentage);
+        Serial.printf("Poziom: %.1f mm, Obj: %.1f L\n", 
+                     currentDistance, volume);
         lastReportedDistance = currentDistance;
     }
-    
-    // Debug info
-    Serial.printf("Poziom wody: %.0f mm\n", currentDistance);
-    Serial.printf("Objętość: %.1f L\n", volume);
-    Serial.printf("Zapełnienie: %.1f %%\n", fillPercentage);
 }
 
 void setup() {
@@ -448,46 +435,50 @@ void setup() {
     device.setManufacturer("PMW");
     device.setSoftwareVersion("11.11.24");
        
+    // Konfiguracja sensorów pomiarowych
+    sensorDistance.setName("Odległość od lustra wody");
+    sensorDistance.setIcon("mdi:ruler");
+    sensorDistance.setUnitOfMeasurement("mm");
+    
     sensorWaterLevel.setName("Poziom wody");
     sensorWaterLevel.setIcon("mdi:water-percent");
     sensorWaterLevel.setUnitOfMeasurement("%");
-        
-    sensorPumpStatus.setName("Status pompy");
-    sensorPumpStatus.setIcon("mdi:water-pump");
     
-    sensorWaterPresence.setName("Czujnik wody");
-    sensorWaterPresence.setIcon("mdi:water");
-
-    sensorWaterAlarm.setName("Brak wody");
-    sensorWaterAlarm.setIcon("mdi:water-alert");
-    sensorWaterAlarm.setValue("OFF");  // Stan początkowy alarmu wody
+    sensorVolume.setName("Objętość wody");
+    sensorVolume.setIcon("mdi:water");
+    sensorVolume.setUnitOfMeasurement("L");
     
-    sensorWaterReserve.setName("Rezerwa wody");
-    sensorWaterReserve.setIcon("mdi:alert-outline");
-    sensorWaterReserve.setValue("OFF");    // Stan początkowy rezerwy wody
-
-    serviceSwitch.setName("Serwis");
-    serviceSwitch.setIcon("mdi:tools");
-    serviceSwitch.onCommand(onServiceSwitchCommand);
-    serviceSwitch.setState(status.isServiceMode);
+    // Konfiguracja sensorów statusu
+    sensorPump.setName("Status pompy");
+    sensorPump.setIcon("mdi:water-pump");
     
-    soundSwitch.setName("Dźwięk");
-    soundSwitch.setIcon("mdi:volume-high");
-    soundSwitch.onCommand(onSoundSwitchCommand);
-    soundSwitch.setState(status.soundEnabled);
-
+    sensorWater.setName("Czujnik wody");
+    sensorWater.setIcon("mdi:water");
+    
+    // Konfiguracja sensorów alarmowych
+    sensorAlarm.setName("Brak wody");
+    sensorAlarm.setIcon("mdi:water-alert");
+    sensorAlarm.setValue("OFF");
+    
+    sensorReserve.setName("Rezerwa wody");
+    sensorReserve.setIcon("mdi:alert-outline");
+    sensorReserve.setValue("OFF");
+    
+    // Konfiguracja przełączników
+    service.setName("Serwis");
+    service.setIcon("mdi:tools");
+    service.onCommand(onServiceSwitchCommand);
+    service.setState(status.isServiceMode);
+    
+    sound.setName("Dźwięk");
+    sound.setIcon("mdi:volume-high");
+    sound.onCommand(onSoundSwitchCommand);
+    sound.setState(status.soundEnabled);
+    
     pumpAlarm.setName("Alarm pompy");
     pumpAlarm.setIcon("mdi:alert");
     pumpAlarm.onCommand(onPumpAlarmCommand);
-
-    sensorWaterVolume.setName("Objętość wody");
-    sensorWaterVolume.setIcon("mdi:water");
-    sensorWaterVolume.setUnitOfMeasurement("L");
-
-    waterLevelSensor.setName("Pomiar odległości");  // Dodaj nazwę
-    waterLevelSensor.setIcon("mdi:ruler");                 // Dodaj ikonę
-    waterLevelSensor.setUnitOfMeasurement("mm");           // Dodaj jednostkę
-        
+     
     // Połączenie MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
 }
