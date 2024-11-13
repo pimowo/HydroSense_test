@@ -597,11 +597,15 @@ void setup() {
     sensorAlarm.setName("Brak wody");
     sensorAlarm.setIcon("mdi:water-alert");        // Ikona alarmu wody
     sensorAlarm.setValue("OFF");                   // Stan początkowy - wyłączony
-    
+    status.waterAlarmActive = false;
+    sensorAlarm.setValue("OFF");
+
     sensorReserve.setName("Rezerwa wody");
     sensorReserve.setIcon("mdi:alert-outline");    // Ikona ostrzeżenia
     sensorReserve.setValue("OFF");                 // Stan początkowy - wyłączony
-    
+    status.waterReserveActive = false;
+    sensorReserve.setValue("OFF");
+
     // Konfiguracja przełączników w HA
     switchService.setName("Serwis");
     switchService.setIcon("mdi:tools");            // Ikona narzędzi
@@ -622,6 +626,10 @@ void setup() {
    
     // Inicjalizacja połączenia MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
+
+    // Wymuszenie pierwszego sprawdzenia alarmów
+    float initialDistance = measureDistance();
+    updateAlarmStates(initialDistance);
 }
 
 void loop() {
