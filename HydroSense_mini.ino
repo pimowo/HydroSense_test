@@ -17,9 +17,8 @@ const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 #define PIN_ULTRASONIC_ECHO D7 // Pin ECHO czujnika ultradźwiękowego
 
 // Stałe czasowe dla czujnika ultradźwiękowego
-//#define ULTRASONIC_TIMEOUT 100         // Timeout między pomiarami [ms]
-//const int MEASUREMENTS_COUNT = 3;       // Zmniejszamy do 3 pomiarów
-//const unsigned long PING_INTERVAL = 50; // 50ms między pingami
+unsigned long lastUltrasonicTrigger = 0;
+bool ultrasonicInProgress = false;
 
 #define PIN_WATER_LEVEL D5 // Pin czujnika poziomu wody w akwarium
 #define PIN_PUMP D1 // Pin sterowania pompą
@@ -29,8 +28,8 @@ const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 // Zmienne czasowe dla nieblokującego pomiaru odległości
 unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
 bool ultrasonicInProgress = false; // Flaga trwającego pomiaru
-const unsigned long ULTRASONIC_TIMEOUT = 100; // Timeout pomiaru w ms
-const unsigned long MEASUREMENT_INTERVAL = 2000;// Interwał między pomiarami w ms
+const unsigned long ULTRASONIC_TIMEOUT = 50; // Timeout pomiaru w ms
+const unsigned long MEASUREMENT_INTERVAL = 10000;// Interwał między pomiarami w ms
 const unsigned long MQTT_RETRY_INTERVAL = 5000;// Czas między próbami połączenia MQTT w ms
 const unsigned long WIFI_CHECK_INTERVAL = 5000;// Czas między sprawdzeniami WiFi w ms
 const unsigned long WATCHDOG_TIMEOUT = 8000; // Timeout dla watchdoga w ms
@@ -334,71 +333,73 @@ void handleButton() {
  * - Timeout: 23529µs (odpowiada max dystansowi ~4m)
  */
 int measureDistanceNonBlocking() {
-    static int measurements[MEASUREMENTS_COUNT];   
-    static int measurementIndex = 0;
-    
-    // If measurement is in progress, wait for next cycle
-    if (ultrasonicInProgress) {
-        return -1;
-    }
-    
-    // Check if enough time has passed since last trigger
-    if (millis() - lastUltrasonicTrigger < ULTRASONIC_TIMEOUT) {
-        return -1;
-    }
-    
-    // Start new measurement
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    delayMicroseconds(5);
-    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    
-    // Wait for echo
-    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 30000); // 30ms timeout
-    lastUltrasonicTrigger = millis();
-    
-    if (duration == 0) {
-        Serial.println("Błąd pomiaru - timeout!");
-        return -1;
-    }
-    
-    // Calculate distance in mm
-    int distance = (duration * 343) / 2000; // Sound speed 343 m/s
-    
-    // Validate range (20mm - 4000mm)
-    if (distance >= 20 && distance <= 4000) {
-        measurements[measurementIndex] = distance;
-        measurementIndex++;
-        
-        // If we have enough measurements
-        if (measurementIndex >= MEASUREMENTS_COUNT) {
-            // Calculate median
-            int sortedMeasurements[MEASUREMENTS_COUNT];
-            memcpy(sortedMeasurements, measurements, sizeof(measurements));
+    static int measurements[MEASUREMENTS_COUNT];    
+    static int measurementIndex = 0;               
+    static unsigned long echoStartTime = 0;        
+
+    ESP.wdtFeed();
+
+    // Rozpoczęcie nowego pomiaru
+    if (!ultrasonicInProgress) {
+        if (millis() - lastUltrasonicTrigger >= ULTRASONIC_TIMEOUT) {
+            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+            delayMicroseconds(5);                  
+            digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+            delayMicroseconds(10);                 
+            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
             
-            // Simple bubble sort
-            for (int i = 0; i < MEASUREMENTS_COUNT - 1; i++) {
-                for (int j = 0; j < MEASUREMENTS_COUNT - i - 1; j++) {
-                    if (sortedMeasurements[j] > sortedMeasurements[j + 1]) {
-                        int temp = sortedMeasurements[j];
-                        sortedMeasurements[j] = sortedMeasurements[j + 1];
-                        sortedMeasurements[j + 1] = temp;
+            echoStartTime = micros();             
+            ultrasonicInProgress = true;           
+            lastUltrasonicTrigger = millis();
+            return -1;                            
+        }
+        return -1;
+    }
+
+    // Sprawdź stan ECHO
+    if (ultrasonicInProgress) {
+        int echoState = digitalRead(PIN_ULTRASONIC_ECHO);
+        
+        if (echoState == HIGH) {
+            if ((micros() - echoStartTime) > 30000) { // Timeout po 30ms
+                ultrasonicInProgress = false;
+                Serial.println("Echo timeout!");
+                return -1;
+            }
+            return -1; // Wciąż czekamy na echo
+        }
+        
+        unsigned long duration = micros() - echoStartTime;
+        ultrasonicInProgress = false;
+
+        // Oblicz odległość w mm
+        int distance = (duration * 343) / 2000;  // Prędkość dźwięku 343m/s
+        
+        // Sprawdź zakres (20mm - 4000mm)
+        if (distance >= 20 && distance <= 4000) {
+            measurements[measurementIndex] = distance;
+            measurementIndex++;
+
+            // Jeśli mamy komplet pomiarów
+            if (measurementIndex >= MEASUREMENTS_COUNT) {
+                // Sortuj pomiary (dla mediany)
+                for (int i = 0; i < MEASUREMENTS_COUNT - 1; i++) {
+                    for (int j = i + 1; j < MEASUREMENTS_COUNT; j++) {
+                        if (measurements[i] > measurements[j]) {
+                            int temp = measurements[i];
+                            measurements[i] = measurements[j];
+                            measurements[j] = temp;
+                        }
                     }
                 }
+
+                // Weź medianę (środkowy pomiar)
+                int medianDistance = measurements[MEASUREMENTS_COUNT / 2];
+                measurementIndex = 0;
+                return medianDistance;
             }
-            
-            // Take median value
-            int medianDistance = sortedMeasurements[MEASUREMENTS_COUNT / 2];
-            measurementIndex = 0;
-            
-            Serial.printf("Pomiar: %d mm\n", medianDistance);
-            return medianDistance;
         }
-    } else {
-        Serial.printf("Pomiar poza zakresem: %d mm\n", distance);
     }
-    
     return -1;
 }
 
@@ -636,13 +637,6 @@ void setup() {
 
     // Inicjalizacja połączenia MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
-
-        Serial.println("\nPierwszy pomiar kontrolny...");
-    for (int i = 0; i < 3; i++) {  // 3 próby
-        int distance = measureDistanceNonBlocking();
-        Serial.printf("Pomiar kontrolny %d: %d mm\n", i+1, distance);
-        delay(100);  // Krótka przerwa między pomiarami
-    }
 }
 
 void loop() {
@@ -655,15 +649,6 @@ void loop() {
 
     // Feed watchdog
     ESP.wdtFeed();
-    
-    // Debug co 5 sekund
-    if (currentMillis - lastDebugPrint >= 5000) {
-        lastDebugPrint = currentMillis;
-        Serial.println("\n--- Status ---");
-        Serial.printf("Uptime: %lu s\n", currentMillis / 1000);
-        Serial.printf("Czas do następnego pomiaru: %lu ms\n", 
-            (lastMeasurement + MEASUREMENT_INTERVAL) - currentMillis);
-    }
 
     // Sprawdź WiFi i MQTT - bez zmian
     if (WiFi.status() != WL_CONNECTED) {
@@ -707,29 +692,7 @@ void loop() {
         }
         return;
     }
-    
-    // Wykonaj pomiar
-    if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
-        Serial.println("\nRozpoczynam pomiary...");
-        int distance = measureDistanceNonBlocking();
-        
-        if (distance > 0) {
-            Serial.printf("Pomiar zakończony: %d mm\n", distance);
-            updateWaterLevel();
-            lastMeasurement = currentMillis;
-            status.lastSuccessfulMeasurement = currentMillis;
-        }
-    }
-    
-    // Debug co 5 sekund
-    if (currentMillis - lastDebugPrint >= 5000) {
-        lastDebugPrint = currentMillis;
-        Serial.println("\n--- Status ---");
-        Serial.printf("Uptime: %lu s\n", currentMillis / 1000);
-        Serial.printf("Czas do następnego pomiaru: %lu ms\n", 
-            (lastMeasurement + MEASUREMENT_INTERVAL) - currentMillis);
-    }
-    
+       
     // Sprawdź czy nie ma zbyt długiej przerwy w pomiarach
     if (currentMillis - status.lastSuccessfulMeasurement >= 60000) {
         if (!status.isServiceMode) {  // Zabezpieczenie przed wielokrotnym logowaniem
@@ -737,6 +700,31 @@ void loop() {
             status.isServiceMode = true;
             switchService.setState(true);
             serviceStartTime = 0;
+        }
+    }
+    
+    // Pomiar co MEASUREMENT_INTERVAL
+    static unsigned long lastMeasurement = 0;
+    if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
+        int distance = measureDistanceNonBlocking();
+        if (distance > 0) {
+            currentDistance = distance;
+            
+            // Obliczenie objętości
+            float waterHeight = DISTANCE_WHEN_EMPTY - currentDistance;    
+            waterHeight = constrain(waterHeight, 0, DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL);
+            float radius = TANK_DIAMETER / 2.0;
+            volume = PI * (radius * radius) * waterHeight / 1000000.0;
+            
+            // Aktualizacja sensorów HA
+            sensorDistance.setValue(String((int)currentDistance).c_str());
+            sensorLevel.setValue(String(calculateWaterLevel(currentDistance)).c_str());
+            
+            char valueStr[10];
+            dtostrf(volume, 1, 1, valueStr);
+            sensorVolume.setValue(valueStr);
+            
+            lastMeasurement = millis();
         }
     }
     
