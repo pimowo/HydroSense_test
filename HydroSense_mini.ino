@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h> // Biblioteka do obsługi WiFi dla ESP8266
 #include <ArduinoHA.h> // Biblioteka do integracji z Home Assistant
 #include <EEPROM.h> // Biblioteka do obsługi pamięci EEPROM
+#include <NewPing.h>
 
 // Konfiguracja WiFi i MQTT
 const char* WIFI_SSID = "pimowo"; // Nazwa sieci WiFi
@@ -13,6 +14,9 @@ const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 // Definicje pinów ESP8266
 #define PIN_ULTRASONIC_TRIG D6 // Pin TRIG czujnika ultradźwiękowego
 #define PIN_ULTRASONIC_ECHO D7 // Pin ECHO czujnika ultradźwiękowego
+#define MAX_DISTANCE 400  // Maksymalny zasięg w cm
+NewPing sonar(PIN_ULTRASONIC_TRIG, PIN_ULTRASONIC_ECHO, MAX_DISTANCE);
+
 #define PIN_WATER_LEVEL D5 // Pin czujnika poziomu wody w akwarium
 #define PIN_PUMP D1 // Pin sterowania pompą
 #define PIN_BUZZER D2 // Pin buzzera do alarmów dźwiękowych
@@ -328,92 +332,49 @@ void handleButton() {
 int measureDistanceNonBlocking() {
     static int measurements[MEASUREMENTS_COUNT];    
     static int measurementIndex = 0;               
-    static unsigned long echoStartTime = 0;        
-    static unsigned long pulseStartTime = 0;       // Nowe - do śledzenia początku pulsu
+    static unsigned long lastPingTime = 0;
+    
+    ESP.wdtFeed();
 
-    ESP.wdtFeed();                                
-
-    // Rozpoczęcie nowego pomiaru
-    if (!ultrasonicInProgress) {
-        if (millis() - lastUltrasonicTrigger >= ULTRASONIC_TIMEOUT) {
-            Serial.println("-> Rozpoczynam pomiar");
-            
-            // Reset pinu TRIG
-            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            delayMicroseconds(5);                  // Wydłużamy reset
-            
-            // Wysłanie impulsu
-            digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-            delayMicroseconds(10);                 
-            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            
-            echoStartTime = micros();             
-            pulseStartTime = 0;                    // Reset czasu pulsu
-            ultrasonicInProgress = true;           
-            lastUltrasonicTrigger = millis();     
-            
-            Serial.println("-> Wysłano trigger");
-            return -1;                            
-        }
+    // Czekaj minimum 30ms między pingami
+    if (millis() - lastPingTime < 30) {
         return -1;
-    } else {
-        // Sprawdzamy stan pinu ECHO
-        int echoState = digitalRead(PIN_ULTRASONIC_ECHO);
-        
-        // Rozpoczęcie pulsu ECHO
-        if (echoState == HIGH && pulseStartTime == 0) {
-            pulseStartTime = micros();
-            return -1;
-        }
-        
-        // Koniec pulsu ECHO
-        if (echoState == LOW && pulseStartTime > 0) {
-            unsigned long duration = micros() - pulseStartTime;
-            Serial.printf("-> Czas pulsu: %lu us\n", duration);
-            
-            if (duration > 23529) {                   
-                ultrasonicInProgress = false;
-                Serial.println("-> Timeout - pulse too long");
-                return -1;                
-            }
-            
-            // Obliczenie odległości
-            int distance = (duration * 343) / 2000;   
-            if (distance >= 20 && distance <= 4000) { 
-                measurements[measurementIndex] = distance;
-                Serial.printf("-> Pomiar %d/%d: %d mm\n", 
-                    measurementIndex + 1, MEASUREMENTS_COUNT, distance);
-                measurementIndex++;
-                
-                // Jeśli mamy komplet pomiarów
-                if (measurementIndex >= MEASUREMENTS_COUNT) {
-                    int sum = 0;
-                    for (int i = 0; i < MEASUREMENTS_COUNT; i++) {
-                        sum += measurements[i];
-                    }
-                    int avgDistance = sum / MEASUREMENTS_COUNT;
-                    Serial.printf("-> Średnia: %d mm\n", avgDistance);
-                    measurementIndex = 0;              
-                    ultrasonicInProgress = false;      
-                    return avgDistance;    
-                }
-            } else {
-                Serial.printf("-> Pomiar poza zakresem: %d mm\n", distance);
-            }
-            
-            ultrasonicInProgress = false;
-            return -1;
-        }
-        
-        // Timeout całego pomiaru
-        if (micros() - echoStartTime > 30000) {  // 30ms timeout
-            ultrasonicInProgress = false;
-            Serial.println("-> Timeout - no echo");
-            return -1;
-        }
-        
-        return -1;  // Wciąż czekamy
     }
+    
+    // Wykonaj pomiar
+    unsigned int distance = sonar.ping_cm();
+    lastPingTime = millis();
+    
+    Serial.printf("-> Raw ping: %u cm\n", distance);
+    
+    // Jeśli pomiar jest poprawny (nie 0)
+    if (distance > 0) {
+        // Konwersja na milimetry
+        distance *= 10;  // cm to mm
+        
+        measurements[measurementIndex] = distance;
+        Serial.printf("-> Pomiar %d/%d: %d mm\n", 
+            measurementIndex + 1, MEASUREMENTS_COUNT, distance);
+        measurementIndex++;
+        
+        // Jeśli mamy komplet pomiarów
+        if (measurementIndex >= MEASUREMENTS_COUNT) {
+            // Oblicz średnią
+            unsigned long sum = 0;
+            for (int i = 0; i < MEASUREMENTS_COUNT; i++) {
+                sum += measurements[i];
+            }
+            int avgDistance = sum / MEASUREMENTS_COUNT;
+            
+            Serial.printf("-> Średnia z %d pomiarów: %d mm\n", 
+                MEASUREMENTS_COUNT, avgDistance);
+            
+            measurementIndex = 0;  // Reset indeksu
+            return avgDistance;
+        }
+    }
+    
+    return -1;  // Pomiar niekompletny lub błędny
 }
 
 void onPumpAlarmCommand(bool state, HASwitch* sender) {
@@ -675,29 +636,8 @@ void loop() {
         lastDebugPrint = currentMillis;
         Serial.println("\n--- Status ---");
         Serial.printf("Uptime: %lu s\n", currentMillis / 1000);
-        Serial.printf("ultrasonicInProgress: %s\n", ultrasonicInProgress ? "TAK" : "NIE");
-        Serial.printf("Czas od ostatniego triggera: %lu ms\n", 
-            currentMillis - lastUltrasonicTrigger);
-        Serial.printf("MEASUREMENT_INTERVAL: %d ms\n", MEASUREMENT_INTERVAL);
         Serial.printf("Czas do następnego pomiaru: %lu ms\n", 
-            MEASUREMENT_INTERVAL - (currentMillis - lastMeasurement));
-    }
-    
-    // Sprawdzamy czy czas na nowy pomiar
-    if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
-        Serial.println("\nRozpoczynam nowy cykl pomiarów...");
-        
-        int distance = measureDistanceNonBlocking();
-        Serial.printf("Wynik pomiaru: %d mm\n", distance);
-        
-        if (distance > 0) {
-            Serial.println("Pomiar udany!");
-            updateWaterLevel();
-            lastMeasurement = currentMillis;
-            status.lastSuccessfulMeasurement = currentMillis;
-        } else {
-            Serial.println("Pomiar nieudany");
-        }
+            (lastMeasurement + MEASUREMENT_INTERVAL) - currentMillis);
     }
 
     // Sprawdź WiFi i MQTT - bez zmian
@@ -743,14 +683,18 @@ void loop() {
         return;
     }
     
-    // Aktualizacja pomiarów
+    // Wykonaj pomiar
     if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
+        Serial.println("\nRozpoczynam nowy cykl pomiarów...");
         int distance = measureDistanceNonBlocking();
+        
         if (distance > 0) {
+            Serial.printf("Pomiar udany: %d mm\n", distance);
             updateWaterLevel();
-            status.lastSuccessfulMeasurement = currentMillis;
             lastMeasurement = currentMillis;
-            Serial.printf("Pomiar poprawny: %d mm\n", distance);
+            status.lastSuccessfulMeasurement = currentMillis;
+        } else {
+            Serial.println("Pomiar w toku lub nieudany");
         }
     }
     
