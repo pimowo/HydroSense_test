@@ -358,7 +358,9 @@ int measureDistanceNonBlocking() {
         int echoState = digitalRead(PIN_ULTRASONIC_ECHO);
         
         if (echoState == HIGH) {
-            if ((micros() - echoStartTime) > 30000) { // Timeout po 30ms
+            // Zmniejszamy timeout - dla 1500mm wystarczy około 9ms
+            // (1500mm * 2 / 343m/s = ~8.75ms)
+            if ((micros() - echoStartTime) > 10000) { // dajemy 10ms na bezpieczeństwo
                 ultrasonicInProgress = false;
                 Serial.println("Echo timeout!");
                 return -1;
@@ -370,10 +372,10 @@ int measureDistanceNonBlocking() {
         ultrasonicInProgress = false;
 
         // Oblicz odległość w mm
-        int distance = (duration * 343) / 2000;  // Prędkość dźwięku 343m/s
+        int distance = (duration * 343) / 2000;
         
-        // Sprawdź zakres (20mm - 4000mm)
-        if (distance >= 20 && distance <= 4000) {
+        // Sprawdź zakres (20mm - 1500mm)
+        if (distance >= 20 && distance <= 1500) {  // Zmieniamy górny limit na 1500mm
             measurements[measurementIndex] = distance;
             measurementIndex++;
 
