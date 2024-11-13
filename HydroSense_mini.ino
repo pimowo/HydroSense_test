@@ -664,26 +664,8 @@ void loop() {
            
     // Pomiar co MEASUREMENT_INTERVAL
     if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
-        int distance = measureDistance();
-        if (distance > 0) {
-            currentDistance = distance;
-            
-            // Obliczenie objętości
-            float waterHeight = DISTANCE_WHEN_EMPTY - currentDistance;    
-            waterHeight = constrain(waterHeight, 0, DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL);
-            float radius = TANK_DIAMETER / 2.0;
-            volume = PI * (radius * radius) * waterHeight / 1000000.0;
-            
-            // Aktualizacja sensorów HA
-            sensorDistance.setValue(String((int)currentDistance).c_str());
-            sensorLevel.setValue(String(calculateWaterLevel(currentDistance)).c_str());
-            
-            char valueStr[10];
-            dtostrf(volume, 1, 1, valueStr);
-            sensorVolume.setValue(valueStr);
-            
-            lastMeasurement = millis();
-        }
+        updateWaterLevel();  // Ta funkcja zawiera wszystko co potrzebne
+        lastMeasurement = millis();
     }
 
     updatePump();
