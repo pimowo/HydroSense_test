@@ -22,17 +22,20 @@ const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 #define PIN_BUZZER D2 // Pin buzzera do alarmów dźwiękowych
 #define PIN_BUTTON D3 // Pin przycisku do kasowania alarmów
 
-// Zmienne czasowe dla nieblokującego pomiaru odległości
-bool ultrasonicInProgress = false; // Flaga trwającego pomiaru
-unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
+// Stałe czasowe (wszystkie wartości w milisekundach)
+//bool ultrasonicInProgress = false; // Flaga trwającego pomiaru
+//unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
 const unsigned long ULTRASONIC_TIMEOUT = 50; // Timeout pomiaru w ms
 const unsigned long MEASUREMENT_INTERVAL = 10000;// Interwał między pomiarami w ms
-const unsigned long MQTT_RETRY_INTERVAL = 5000;// Czas między próbami połączenia MQTT w ms
 const unsigned long WIFI_CHECK_INTERVAL = 5000;// Czas między sprawdzeniami WiFi w ms
 const unsigned long WATCHDOG_TIMEOUT = 8000; // Timeout dla watchdoga w ms
-
-// Konfiguracja przycisku
-#define LONG_PRESS_TIME 1000 // Czas długiego naciśnięcia w ms (1 sekunda)
+const unsigned long PUMP_MAX_WORK_TIME = 300000;    // Maksymalny czas pracy pompy (5 minut)
+const unsigned long PUMP_DELAY_TIME = 60000;        // Opóźnienie ponownego załączenia pompy (1 minuta)
+const unsigned long SENSOR_READ_INTERVAL = 5000;    // Częstotliwość odczytu czujnika (5 sekund)
+const unsigned long MQTT_RETRY_INTERVAL = 5000;     // Czas między próbami połączenia MQTT (5 sekund)
+const unsigned long WIFI_RETRY_INTERVAL = 10000;    // Czas między próbami połączenia WiFi (10 sekund)
+const unsigned long BUTTON_DEBOUNCE_TIME = 50;      // Czas debouncingu przycisku (50ms)
+const unsigned long LONG_PRESS_TIME = 1000;         // Czas długiego naciśnięcia przycisku (1 sekunda)
 
 // Konfiguracja EEPROM
 #define EEPROM_SIZE 512 // Rozmiar używanej pamięci EEPROM w bajtach
@@ -310,6 +313,7 @@ void handleButton() {
     // Obsługa długiego naciśnięcia (reset blokady pompy)
     if (reading == LOW && !buttonState.isLongPressHandled) {
         if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
+            ESP.wdtFeed();  // Reset przy długim naciśnięciu
             status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
             switchPump.setState(false, true);  // force update w HA
             buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
