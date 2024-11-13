@@ -329,76 +329,51 @@ void handleButton() {
  * - Maksymalny dystans: 4000mm
  * - Timeout: 23529µs (odpowiada max dystansowi ~4m)
  */
-int measureDistanceNonBlocking() {
-    static int measurements[MEASUREMENTS_COUNT];    
-    static int measurementIndex = 0;               
-    static unsigned long echoStartTime = 0;        
-
-    ESP.wdtFeed();
-
-    // Rozpoczęcie nowego pomiaru
+int measureDistance() {
+    static unsigned long echoStartTime = 0;
+    
+    // Jeśli nie rozpoczęto jeszcze pomiaru
     if (!ultrasonicInProgress) {
-        if (millis() - lastUltrasonicTrigger >= ULTRASONIC_TIMEOUT) {
+        // Sprawdź czy minął minimalny czas między pomiarami
+        if (millis() - lastUltrasonicTrigger >= 100) { // 100ms między pomiarami
+            // Wyślij impuls trigger
             digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            delayMicroseconds(5);                  
+            delayMicroseconds(5);
             digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-            delayMicroseconds(10);                 
+            delayMicroseconds(10);
             digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
             
-            echoStartTime = micros();             
-            ultrasonicInProgress = true;           
+            echoStartTime = micros();
+            ultrasonicInProgress = true;
             lastUltrasonicTrigger = millis();
-            return -1;                            
         }
         return -1;
     }
-
-    // Sprawdź stan ECHO
+    
+    // Jeśli pomiar jest w toku
     if (ultrasonicInProgress) {
-        int echoState = digitalRead(PIN_ULTRASONIC_ECHO);
-        
-        if (echoState == HIGH) {
-            // Zmniejszamy timeout - dla 1500mm wystarczy około 9ms
-            // (1500mm * 2 / 343m/s = ~8.75ms)
-            if ((micros() - echoStartTime) > 10000) { // dajemy 10ms na bezpieczeństwo
-                ultrasonicInProgress = false;
-                Serial.println("Echo timeout!");
-                return -1;
-            }
-            return -1; // Wciąż czekamy na echo
+        // Sprawdź timeout (10ms)
+        if ((micros() - echoStartTime) > 10000) {
+            ultrasonicInProgress = false;
+            Serial.println("Echo timeout!");
+            return -1;
         }
         
-        unsigned long duration = micros() - echoStartTime;
-        ultrasonicInProgress = false;
-
-        // Oblicz odległość w mm
-        int distance = (duration * 343) / 2000;
-        
-        // Sprawdź zakres (20mm - 1500mm)
-        if (distance >= 20 && distance <= 1500) {  // Zmieniamy górny limit na 1500mm
-            measurements[measurementIndex] = distance;
-            measurementIndex++;
-
-            // Jeśli mamy komplet pomiarów
-            if (measurementIndex >= MEASUREMENTS_COUNT) {
-                // Sortuj pomiary (dla mediany)
-                for (int i = 0; i < MEASUREMENTS_COUNT - 1; i++) {
-                    for (int j = i + 1; j < MEASUREMENTS_COUNT; j++) {
-                        if (measurements[i] > measurements[j]) {
-                            int temp = measurements[i];
-                            measurements[i] = measurements[j];
-                            measurements[j] = temp;
-                        }
-                    }
-                }
-
-                // Weź medianę (środkowy pomiar)
-                int medianDistance = measurements[MEASUREMENTS_COUNT / 2];
-                measurementIndex = 0;
-                return medianDistance;
+        // Jeśli otrzymano echo
+        if (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
+            unsigned long duration = micros() - echoStartTime;
+            ultrasonicInProgress = false;
+            
+            // Oblicz odległość (mm)
+            int distance = (duration * 343) / 2000;
+            
+            // Sprawdź czy wynik jest w zakresie 20-1500mm
+            if (distance >= 20 && distance <= 1500) {
+                return distance;
             }
         }
     }
+    
     return -1;
 }
 
@@ -508,7 +483,7 @@ void updateAlarmStates(float currentDistance) {
 }
 
 void updateWaterLevel() {
-    currentDistance = measureDistanceNonBlocking();
+    currentDistance = measureDistance();
     if (currentDistance < 0) return; // błąd pomiaru
     
     // Obliczenie objętości
@@ -704,7 +679,7 @@ void loop() {
     
     // Pomiar co MEASUREMENT_INTERVAL
     if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
-        int distance = measureDistanceNonBlocking();
+        int distance = measureDistance();
         if (distance > 0) {
             currentDistance = distance;
             
