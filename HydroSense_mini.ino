@@ -334,17 +334,11 @@ void handleButton() {
  * - Timeout: 23529µs (odpowiada max dystansowi ~4m)
  */
 int measureDistanceNonBlocking() {
-    static int measurements[MEASUREMENTS_COUNT];    
+    static int measurements[5];    // Używamy istniejącej stałej MEASUREMENTS_COUNT = 5
     static int measurementIndex = 0;               
     static unsigned long echoStartTime = 0;        
-    static unsigned long lastPingTime = 0;
 
     ESP.wdtFeed();
-
-    // Czekaj minimum 50ms między pomiarami
-    if (millis() - lastPingTime < 50) {
-        return -1;
-    }
 
     // Rozpoczęcie nowego pomiaru
     if (!ultrasonicInProgress) {
@@ -358,7 +352,6 @@ int measureDistanceNonBlocking() {
             echoStartTime = micros();             
             ultrasonicInProgress = true;           
             lastUltrasonicTrigger = millis();
-            lastPingTime = millis();     
             return -1;                            
         }
         return -1;
@@ -369,26 +362,24 @@ int measureDistanceNonBlocking() {
         int echoState = digitalRead(PIN_ULTRASONIC_ECHO);
         
         if (echoState == HIGH) {
+            if ((micros() - echoStartTime) > 30000) { // Timeout po 30ms
+                ultrasonicInProgress = false;
+                Serial.println("Echo timeout!");
+                return -1;
+            }
             return -1; // Wciąż czekamy na echo
         }
         
         unsigned long duration = micros() - echoStartTime;
         ultrasonicInProgress = false;
 
-        // Sprawdź timeout
-        if (duration > 23529) {  // Max 4m
-            Serial.println("Timeout pomiaru!");
-            return -1;
-        }
-
-        // Oblicz odległość (mm)
+        // Oblicz odległość w mm
         int distance = (duration * 343) / 2000;  // Prędkość dźwięku 343m/s
         
         // Sprawdź zakres (20mm - 4000mm)
         if (distance >= 20 && distance <= 4000) {
             measurements[measurementIndex] = distance;
-            Serial.printf("Pomiar %d/%d: %d mm\n", 
-                measurementIndex + 1, MEASUREMENTS_COUNT, distance);
+            Serial.printf("Pomiar %d: %d mm\n", measurementIndex + 1, distance);
             measurementIndex++;
 
             // Jeśli mamy komplet pomiarów
