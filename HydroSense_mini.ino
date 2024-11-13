@@ -1,6 +1,7 @@
 // Biblioteki
 #include <ESP8266WiFi.h> // Biblioteka do obsługi WiFi dla ESP8266
 #include <ArduinoHA.h> // Biblioteka do integracji z Home Assistant
+#include <PubSubClient.h>
 #include <EEPROM.h> // Biblioteka do obsługi pamięci EEPROM
 
 // Konfiguracja WiFi i MQTT
@@ -700,7 +701,6 @@ void loop() {
     }
     
     // Pomiar co MEASUREMENT_INTERVAL
-    static unsigned long lastMeasurement = 0;
     if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
         int distance = measureDistanceNonBlocking();
         if (distance > 0) {
