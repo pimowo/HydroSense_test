@@ -22,7 +22,7 @@ const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
 bool ultrasonicInProgress = false; // Flaga trwającego pomiaru
 const unsigned long ULTRASONIC_TIMEOUT = 50; // Timeout pomiaru w ms
-const unsigned long MEASUREMENT_INTERVAL = 60000;// Interwał między pomiarami w ms
+const unsigned long MEASUREMENT_INTERVAL = 10000;// Interwał między pomiarami w ms
 const unsigned long MQTT_RETRY_INTERVAL = 5000;// Czas między próbami połączenia MQTT w ms
 const unsigned long WIFI_CHECK_INTERVAL = 5000;// Czas między sprawdzeniami WiFi w ms
 const unsigned long WATCHDOG_TIMEOUT = 8000; // Timeout dla watchdoga w ms
@@ -630,6 +630,13 @@ void setup() {
 
     // Inicjalizacja połączenia MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
+
+        Serial.println("\nPierwszy pomiar kontrolny...");
+    for (int i = 0; i < 3; i++) {  // 3 próby
+        int distance = measureDistanceNonBlocking();
+        Serial.printf("Pomiar kontrolny %d: %d mm\n", i+1, distance);
+        delay(100);  // Krótka przerwa między pomiarami
+    }
 }
 
 void loop() {
@@ -643,17 +650,36 @@ void loop() {
     // Feed watchdog
     ESP.wdtFeed();
     
-        // Debug info co 5 sekund
+    // Debug co 5 sekund
     if (currentMillis - lastDebugPrint >= 5000) {
         lastDebugPrint = currentMillis;
         Serial.println("\n--- Status ---");
         Serial.printf("Uptime: %lu s\n", currentMillis / 1000);
-        Serial.printf("Last measurement: %lu ms ago\n", currentMillis - lastMeasurement);
-        Serial.printf("Service mode: %s\n", status.isServiceMode ? "YES" : "NO");
-        Serial.printf("Time since last successful: %lu ms\n", 
-            currentMillis - status.lastSuccessfulMeasurement);
+        Serial.printf("ultrasonicInProgress: %s\n", ultrasonicInProgress ? "TAK" : "NIE");
+        Serial.printf("Czas od ostatniego triggera: %lu ms\n", 
+            currentMillis - lastUltrasonicTrigger);
+        Serial.printf("MEASUREMENT_INTERVAL: %d ms\n", MEASUREMENT_INTERVAL);
+        Serial.printf("Czas do następnego pomiaru: %lu ms\n", 
+            MEASUREMENT_INTERVAL - (currentMillis - lastMeasurement));
     }
     
+    // Sprawdzamy czy czas na nowy pomiar
+    if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
+        Serial.println("\nRozpoczynam nowy cykl pomiarów...");
+        
+        int distance = measureDistanceNonBlocking();
+        Serial.printf("Wynik pomiaru: %d mm\n", distance);
+        
+        if (distance > 0) {
+            Serial.println("Pomiar udany!");
+            updateWaterLevel();
+            lastMeasurement = currentMillis;
+            status.lastSuccessfulMeasurement = currentMillis;
+        } else {
+            Serial.println("Pomiar nieudany");
+        }
+    }
+
     // Sprawdź WiFi i MQTT - bez zmian
     if (WiFi.status() != WL_CONNECTED) {
         setupWiFi();
