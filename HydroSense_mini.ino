@@ -174,27 +174,22 @@ bool connectMQTT() {
     return true;
 }
 
-/**
- * Funkcja obliczająca poziom wody w zbiorniku dolewki w procentach
- * 
- * @param distance - zmierzona odległość od czujnika do lustra wody w mm
- * @return int - poziom wody w procentach (0-100%)
- * 
- * Wzór: ((EMPTY - distance) / (EMPTY - FULL)) * 100
- * - EMPTY (510mm) = 0% wody
- * - FULL (65mm) = 100% wody
- */
+// Funkcja obliczająca poziom wody w zbiorniku dolewki w procentach
+//  
+// @param distance - zmierzona odległość od czujnika do lustra wody w mm
+// @return int - poziom wody w procentach (0-100%)
+// Wzór: ((EMPTY - distance) / (EMPTY - FULL)) * 100
 int calculateWaterLevel(int distance) {
     // Ograniczenie wartości do zakresu pomiarowego
-    if (distance < DISTANCE_WHEN_FULL) distance = DISTANCE_WHEN_FULL;      // Nie mniej niż przy pełnym
-    if (distance > DISTANCE_WHEN_EMPTY) distance = DISTANCE_WHEN_EMPTY;    // Nie więcej niż przy pustym
+    if (distance < DISTANCE_WHEN_FULL) distance = DISTANCE_WHEN_FULL;  // Nie mniej niż przy pełnym
+    if (distance > DISTANCE_WHEN_EMPTY) distance = DISTANCE_WHEN_EMPTY;  // Nie więcej niż przy pustym
     
     // Obliczenie procentowe poziomu wody
-    float percentage = (float)(DISTANCE_WHEN_EMPTY - distance) /          // Różnica: pusty - aktualny
-                      (float)(DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL) * // Różnica: pusty - pełny
-                      100.0;                                              // Przeliczenie na procenty
+    float percentage = (float)(DISTANCE_WHEN_EMPTY - distance) /  // Różnica: pusty - aktualny
+                      (float)(DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL) *  // Różnica: pusty - pełny
+                      100.0;  // Przeliczenie na procenty
     
-    return (int)percentage;    // Zwrot wartości całkowitej
+    return (int)percentage;  // Zwrot wartości całkowitej
 }
 
 /**
@@ -204,30 +199,43 @@ int calculateWaterLevel(int distance) {
  * @param sender - wskaźnik do obiektu przełącznika HA wywołującego funkcję
  * 
  * Działanie:
+ * Przy włączaniu (state = true):
  * - Aktualizuje flagę trybu serwisowego
  * - Resetuje stan przycisku fizycznego
  * - Aktualizuje stan w Home Assistant
- * - Jeśli tryb serwisowy jest włączany podczas pracy pompy:
+ * - Jeśli pompa pracowała:
  *   - Wyłącza pompę
  *   - Resetuje liczniki czasu pracy
  *   - Aktualizuje status w HA
+ * 
+ * Przy wyłączaniu (state = false):
+ * - Wyłącza tryb serwisowy
+ * - Aktualizuje stan w Home Assistant
+ * - Umożliwia normalną pracę pompy według czujnika poziomu
+ * - Resetuje stan opóźnienia pompy
  */
 void onServiceSwitchCommand(bool state, HASwitch* sender) {
-    status.isServiceMode = state;                  // Ustawienie flagi trybu serwisowego
-    buttonState.lastState = HIGH;                  // Reset stanu przycisku
+    status.isServiceMode = state;  // Ustawienie flagi trybu serwisowego
+    buttonState.lastState = HIGH;  // Reset stanu przycisku
     
     // Aktualizacja stanu w Home Assistant
-    switchService.setState(state);                 // Synchronizacja stanu przełącznika
+    switchService.setState(state);  // Synchronizacja stanu przełącznika
     
-    // Jeśli włączono tryb serwisowy podczas pracy pompy
-    if (status.isServiceMode && status.isPumpActive) {
-        digitalWrite(PIN_PUMP, LOW);               // Wyłączenie pompy
-        status.isPumpActive = false;               // Reset flagi aktywności
-        status.pumpStartTime = 0;                  // Reset czasu startu
-        sensorPump.setValue("OFF");                // Aktualizacja stanu w HA
+    if (state) {  // Włączanie trybu serwisowego
+        if (status.isPumpActive) {
+            digitalWrite(PIN_PUMP, LOW);  // Wyłączenie pompy
+            status.isPumpActive = false;  // Reset flagi aktywności
+            status.pumpStartTime = 0;  // Reset czasu startu
+            sensorPump.setValue("OFF");  // Aktualizacja stanu w HA
+        }
+    } else {  // Wyłączanie trybu serwisowego
+        // Reset stanu opóźnienia pompy aby umożliwić normalne uruchomienie
+        status.isPumpDelayActive = false;
+        status.pumpDelayStartTime = 0;
+        // Normalny tryb pracy - pompa uruchomi się automatycznie 
+        // jeśli czujnik poziomu wykryje wodę
     }
     
-    // Log zmiany stanu
     Serial.printf("Tryb serwisowy: %s (przez HA)\n", 
                   state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
@@ -290,10 +298,10 @@ void handleButton() {
                 
                 // Jeśli włączono tryb serwisowy podczas pracy pompy
                 if (status.isServiceMode && status.isPumpActive) {
-                    digitalWrite(PIN_PUMP, LOW);    // Wyłącz pompę
-                    status.isPumpActive = false;    // Reset flagi aktywności
-                    status.pumpStartTime = 0;       // Reset czasu startu
-                    sensorPump.setValue("OFF");     // Aktualizacja w HA
+                    digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+                    status.isPumpActive = false;  // Reset flagi aktywności
+                    status.pumpStartTime = 0;  // Reset czasu startu
+                    sensorPump.setValue("OFF");  // Aktualizacja w HA
                 }
             }
         }
@@ -302,9 +310,9 @@ void handleButton() {
     // Obsługa długiego naciśnięcia (reset blokady pompy)
     if (reading == LOW && !buttonState.isLongPressHandled) {
         if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
-            status.pumpSafetyLock = false;         // Zdjęcie blokady pompy
-            switchPump.setState(false, true);      // force update w HA
-            buttonState.isLongPressHandled = true; // Oznacz jako obsłużone
+            status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
+            switchPump.setState(false, true);  // force update w HA
+            buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
             Serial.println("Alarm pompy skasowany");
         }
     }
@@ -558,13 +566,13 @@ void updateWaterLevel() {
 
 // Funkcja inicjalizacyjna - wykonywana jednorazowo przy starcie urządzenia
 void setup() {
-    ESP.wdtEnable(WATCHDOG_TIMEOUT);                // Aktywacja watchdoga
-    Serial.begin(115200);                          // Inicjalizacja portu szeregowego
-    Serial.println("\nStarting HydroSense...");    // Komunikat startowy
+    ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
+    Serial.begin(115200);  // Inicjalizacja portu szeregowego
+    Serial.println("\nStarting HydroSense...");  // Komunikat startowy
     
     // Inicjalizacja pamięci EEPROM
-    EEPROM.begin(EEPROM_SIZE);                     // Start EEPROM z określonym rozmiarem
-    delay(100);                                    // Opóźnienie stabilizacyjne
+    EEPROM.begin(EEPROM_SIZE);  // Start EEPROM z określonym rozmiarem
+    delay(100);  // Opóźnienie stabilizacyjne
     
     // Odczyt zapisanego stanu dźwięku z EEPROM
     uint8_t savedState = EEPROM.read(EEPROM_SOUND_STATE_ADDR);
