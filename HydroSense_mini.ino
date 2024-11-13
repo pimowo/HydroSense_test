@@ -105,13 +105,13 @@ bool isPumpActive = false; // Status pracy pompy
     bool soundEnabled = false; // Status włączenia dźwięku alarmu
     bool isServiceMode = false; // Status trybu serwisowego
     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
-    unsigned long lastSuccessfulMQTTPublish = 0; // Czas ostatniej udanej publikacji MQTT
+    //unsigned long lastSuccessfulMQTTPublish = 0; // Czas ostatniej udanej publikacji MQTT
 } status;
 
 // Struktura dla obsługi przycisku
 struct ButtonState {
-    bool currentState = HIGH; // Aktualny stan przycisku
-    bool lastState = HIGH; // Poprzedni stan przycisku
+    //bool currentState = HIGH; // Aktualny stan przycisku
+    //bool lastState = HIGH; // Poprzedni stan przycisku
     unsigned long pressedTime = 0; // Czas wciśnięcia przycisku
     unsigned long releasedTime = 0; // Czas puszczenia przycisku
     bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia
