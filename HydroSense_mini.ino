@@ -29,8 +29,8 @@ const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 // Zmienne czasowe dla nieblokującego pomiaru odległości
 unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
 bool ultrasonicInProgress = false; // Flaga trwającego pomiaru
-const unsigned long ULTRASONIC_TIMEOUT = 50; // Timeout pomiaru w ms
-const unsigned long MEASUREMENT_INTERVAL = 10000;// Interwał między pomiarami w ms
+const unsigned long ULTRASONIC_TIMEOUT = 100; // Timeout pomiaru w ms
+const unsigned long MEASUREMENT_INTERVAL = 2000;// Interwał między pomiarami w ms
 const unsigned long MQTT_RETRY_INTERVAL = 5000;// Czas między próbami połączenia MQTT w ms
 const unsigned long WIFI_CHECK_INTERVAL = 5000;// Czas między sprawdzeniami WiFi w ms
 const unsigned long WATCHDOG_TIMEOUT = 8000; // Timeout dla watchdoga w ms
@@ -50,7 +50,7 @@ const int DISTANCE_WHEN_EMPTY = 510;  // pusty zbiornik - mm
 const int DISTANCE_RESERVE = 450;  // dystans dla rezerwy - mm
 const int HYSTERESIS = 10;  // histereza - mm
 const int TANK_DIAMETER = 150;  // Średnica zbiornika - mm
-const int MEASUREMENTS_COUNT = 5;  // liczba pomiarów do uśrednienia
+const int MEASUREMENTS_COUNT = 3;  // liczba pomiarów do uśrednienia
 const int PUMP_DELAY = 5;  // opóźnienie włączenia pompy - sekundy
 const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
 
@@ -334,80 +334,71 @@ void handleButton() {
  * - Timeout: 23529µs (odpowiada max dystansowi ~4m)
  */
 int measureDistanceNonBlocking() {
-    static int measurements[5];    // Używamy istniejącej stałej MEASUREMENTS_COUNT = 5
-    static int measurementIndex = 0;               
-    static unsigned long echoStartTime = 0;        
-
-    ESP.wdtFeed();
-
-    // Rozpoczęcie nowego pomiaru
-    if (!ultrasonicInProgress) {
-        if (millis() - lastUltrasonicTrigger >= ULTRASONIC_TIMEOUT) {
-            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            delayMicroseconds(5);                  
-            digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-            delayMicroseconds(10);                 
-            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            
-            echoStartTime = micros();             
-            ultrasonicInProgress = true;           
-            lastUltrasonicTrigger = millis();
-            return -1;                            
-        }
+    static int measurements[MEASUREMENTS_COUNT];   
+    static int measurementIndex = 0;
+    
+    // If measurement is in progress, wait for next cycle
+    if (ultrasonicInProgress) {
         return -1;
     }
-
-    // Sprawdź stan ECHO
-    if (ultrasonicInProgress) {
-        int echoState = digitalRead(PIN_ULTRASONIC_ECHO);
+    
+    // Check if enough time has passed since last trigger
+    if (millis() - lastUltrasonicTrigger < ULTRASONIC_TIMEOUT) {
+        return -1;
+    }
+    
+    // Start new measurement
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    delayMicroseconds(5);
+    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    
+    // Wait for echo
+    unsigned long duration = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, 30000); // 30ms timeout
+    lastUltrasonicTrigger = millis();
+    
+    if (duration == 0) {
+        Serial.println("Błąd pomiaru - timeout!");
+        return -1;
+    }
+    
+    // Calculate distance in mm
+    int distance = (duration * 343) / 2000; // Sound speed 343 m/s
+    
+    // Validate range (20mm - 4000mm)
+    if (distance >= 20 && distance <= 4000) {
+        measurements[measurementIndex] = distance;
+        measurementIndex++;
         
-        if (echoState == HIGH) {
-            if ((micros() - echoStartTime) > 30000) { // Timeout po 30ms
-                ultrasonicInProgress = false;
-                Serial.println("Echo timeout!");
-                return -1;
-            }
-            return -1; // Wciąż czekamy na echo
-        }
-        
-        unsigned long duration = micros() - echoStartTime;
-        ultrasonicInProgress = false;
-
-        // Oblicz odległość w mm
-        int distance = (duration * 343) / 2000;  // Prędkość dźwięku 343m/s
-        
-        // Sprawdź zakres (20mm - 4000mm)
-        if (distance >= 20 && distance <= 4000) {
-            measurements[measurementIndex] = distance;
-            Serial.printf("Pomiar %d: %d mm\n", measurementIndex + 1, distance);
-            measurementIndex++;
-
-            // Jeśli mamy komplet pomiarów
-            if (measurementIndex >= MEASUREMENTS_COUNT) {
-                // Sortuj pomiary (dla mediany)
-                for (int i = 0; i < MEASUREMENTS_COUNT - 1; i++) {
-                    for (int j = i + 1; j < MEASUREMENTS_COUNT; j++) {
-                        if (measurements[i] > measurements[j]) {
-                            int temp = measurements[i];
-                            measurements[i] = measurements[j];
-                            measurements[j] = temp;
-                        }
+        // If we have enough measurements
+        if (measurementIndex >= MEASUREMENTS_COUNT) {
+            // Calculate median
+            int sortedMeasurements[MEASUREMENTS_COUNT];
+            memcpy(sortedMeasurements, measurements, sizeof(measurements));
+            
+            // Simple bubble sort
+            for (int i = 0; i < MEASUREMENTS_COUNT - 1; i++) {
+                for (int j = 0; j < MEASUREMENTS_COUNT - i - 1; j++) {
+                    if (sortedMeasurements[j] > sortedMeasurements[j + 1]) {
+                        int temp = sortedMeasurements[j];
+                        sortedMeasurements[j] = sortedMeasurements[j + 1];
+                        sortedMeasurements[j + 1] = temp;
                     }
                 }
-
-                // Weź medianę (środkowy pomiar)
-                int medianDistance = measurements[MEASUREMENTS_COUNT / 2];
-                Serial.printf("Mediana z %d pomiarów: %d mm\n", 
-                    MEASUREMENTS_COUNT, medianDistance);
-                
-                measurementIndex = 0;
-                return medianDistance;
             }
-        } else {
-            Serial.printf("Pomiar poza zakresem: %d mm\n", distance);
+            
+            // Take median value
+            int medianDistance = sortedMeasurements[MEASUREMENTS_COUNT / 2];
+            measurementIndex = 0;
+            
+            Serial.printf("Pomiar: %d mm\n", medianDistance);
+            return medianDistance;
         }
+    } else {
+        Serial.printf("Pomiar poza zakresem: %d mm\n", distance);
     }
-
+    
     return -1;
 }
 
