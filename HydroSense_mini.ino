@@ -326,61 +326,75 @@ void handleButton() {
  * - Timeout: 23529µs (odpowiada max dystansowi ~4m)
  */
 int measureDistanceNonBlocking() {
-    // Tablice do uśredniania pomiarów
-    static int measurements[MEASUREMENTS_COUNT];    // Bufor pomiarów
-    static int measurementIndex = 0;               // Indeks aktualnego pomiaru
-    static unsigned long echoStartTime = 0;        // Czas rozpoczęcia pomiaru
+    static int measurements[MEASUREMENTS_COUNT];    
+    static int measurementIndex = 0;               
+    static unsigned long echoStartTime = 0;        
+    static unsigned long lastDebugPrint = 0;       // Do logowania
 
-    ESP.wdtFeed();                                // Reset watchdoga
+    ESP.wdtFeed();                                
     
+    // Debugowanie co 5 sekund
+    if (millis() - lastDebugPrint >= 5000) {
+        lastDebugPrint = millis();
+        Serial.printf("Status pomiarów: Index=%d, InProgress=%d\n", 
+            measurementIndex, ultrasonicInProgress);
+    }
+
     // Rozpoczęcie nowego pomiaru
     if (!ultrasonicInProgress) {
         if (millis() - lastUltrasonicTrigger >= ULTRASONIC_TIMEOUT) {
-            // Generowanie impulsu trigger
+            Serial.println("Rozpoczynam nowy pomiar");
             digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            delayMicroseconds(2);                  // Krótka pauza
+            delayMicroseconds(2);                  
             digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-            delayMicroseconds(10);                 // Impuls 10µs
+            delayMicroseconds(10);                 
             digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
             
-            echoStartTime = micros();             // Start pomiaru czasu
-            ultrasonicInProgress = true;           // Oznaczenie pomiaru w toku
-            lastUltrasonicTrigger = millis();     // Aktualizacja czasu triggera
+            echoStartTime = micros();             
+            ultrasonicInProgress = true;           
+            lastUltrasonicTrigger = millis();     
         }
-        return -1;                                // Pomiar rozpoczęty
+        return -1;                                
     } else {
         // Jeśli echo wciąż trwa
         if (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
-            return -1;                            // Czekamy na koniec echa
+            return -1;                            
         }
         
         // Obliczenie czasu trwania echa
         unsigned long duration = micros() - echoStartTime;
-        if (duration > 23529) {                   // Timeout - max ~4m
+        if (duration > 23529) {                   
             ultrasonicInProgress = false;
-            return -1;                            // Błąd pomiaru
+            Serial.println("Timeout pomiaru!");
+            return -1;                            
         }
         
         // Obliczenie odległości
-        int distance = (duration * 343) / 2000;   // (czas * prędkość) / (2 * 1000)
-        if (distance >= 20 && distance <= 4000) { // Walidacja zakresu
+        int distance = (duration * 343) / 2000;   
+        if (distance >= 20 && distance <= 4000) { 
             measurements[measurementIndex] = distance;
+            Serial.printf("Pomiar %d/%d: %d mm\n", 
+                measurementIndex + 1, MEASUREMENTS_COUNT, distance);
             measurementIndex++;
             
             // Jeśli mamy komplet pomiarów
             if (measurementIndex >= MEASUREMENTS_COUNT) {
-                // Obliczenie średniej
                 int sum = 0;
                 for (int i = 0; i < MEASUREMENTS_COUNT; i++) {
                     sum += measurements[i];
                 }
-                measurementIndex = 0;              // Reset indeksu
-                ultrasonicInProgress = false;      // Koniec pomiaru
-                return sum / MEASUREMENTS_COUNT;    // Zwróć średnią
+                int avgDistance = sum / MEASUREMENTS_COUNT;
+                Serial.printf("Średnia z %d pomiarów: %d mm\n", 
+                    MEASUREMENTS_COUNT, avgDistance);
+                measurementIndex = 0;              
+                ultrasonicInProgress = false;      
+                return avgDistance;    
             }
+        } else {
+            Serial.printf("Pomiar poza zakresem: %d mm\n", distance);
         }
-        ultrasonicInProgress = false;             // Reset flagi pomiaru
-        return -1;                                // Pomiar niekompletny
+        ultrasonicInProgress = false;             
+        return -1;                                
     }
 }
 
@@ -619,36 +633,39 @@ void setup() {
 }
 
 void loop() {
+    unsigned long currentMillis = millis();
     static unsigned long lastMQTTRetry = 0;
     static unsigned long lastMeasurement = 0;
-    
+    static unsigned long serviceStartTime = 0;
+    static unsigned long lastServicePrint = 0;  // do logowania trybu serwisowego
+    static unsigned long lastDebugPrint = 0;  // Nowe - do debugowania
+
     // Feed watchdog
     ESP.wdtFeed();
     
-    // Sprawdź WiFi
+        // Debug info co 5 sekund
+    if (currentMillis - lastDebugPrint >= 5000) {
+        lastDebugPrint = currentMillis;
+        Serial.println("\n--- Status ---");
+        Serial.printf("Uptime: %lu s\n", currentMillis / 1000);
+        Serial.printf("Last measurement: %lu ms ago\n", currentMillis - lastMeasurement);
+        Serial.printf("Service mode: %s\n", status.isServiceMode ? "YES" : "NO");
+        Serial.printf("Time since last successful: %lu ms\n", 
+            currentMillis - status.lastSuccessfulMeasurement);
+    }
+    
+    // Sprawdź WiFi i MQTT - bez zmian
     if (WiFi.status() != WL_CONNECTED) {
         setupWiFi();
         return;
     }
-       
-    // Sprawdzanie MQTT co 10 sekund
-    static unsigned long lastMqttRetry = 0;
-    unsigned long currentMillis = millis();
-    
-    // Sprawdzaj stan MQTT co 5 sekund
-    if (currentMillis - lastMqttCheck > 5000) {
-        lastMqttCheck = currentMillis;
-        
-        if (!mqtt.isConnected()) {
-            Serial.printf("\n[%lu] MQTT rozłączone!\n", currentMillis/1000);
-            Serial.printf("WiFi status: %d\n", WiFi.status());
-            
-            if (connectMQTT()) {
-                Serial.println("MQTT reconnect sukces!");
-                // Ponowna subskrypcja tematów
-                mqtt.subscribe(TOPIC_PUMP_SET, onPumpMessage);
-                mqtt.subscribe(TOPIC_AUTO_SET, onAutoMessage);
-                mqtt.subscribe(TOPIC_SOUND_SET, onSoundMessage);
+         
+    if (!mqtt.isConnected()) {
+        if (currentMillis - lastMQTTRetry >= 10000) {
+            lastMQTTRetry = currentMillis;
+            Serial.println("\nBrak połączenia MQTT - próba reconnect...");
+            if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+                Serial.println("MQTT połączono ponownie!");
             }
         }
     }
@@ -656,21 +673,49 @@ void loop() {
     mqtt.loop();
     handleButton();
     
+    // Obsługa trybu serwisowego
+    if (status.isServiceMode) {
+        if (serviceStartTime == 0) {
+            serviceStartTime = currentMillis;
+            Serial.println("Włączono tryb serwisowy - brak pomiarów przez 60 sekund");
+        }
+        
+        // Wyświetl status co 10 sekund
+        if (currentMillis - lastServicePrint >= 10000) {
+            lastServicePrint = currentMillis;
+            Serial.printf("Tryb serwisowy: pozostało %d sekund\n", 
+                (60000 - (currentMillis - serviceStartTime)) / 1000);
+        }
+        
+        if (currentMillis - serviceStartTime >= 60000) {
+            status.isServiceMode = false;
+            serviceStartTime = 0;
+            switchService.setState(false);
+            Serial.println("Zakończono tryb serwisowy");
+            lastMeasurement = 0;  // Wymusi natychmiastowy pomiar po wyjściu z trybu serwisowego
+        }
+        return;
+    }
+    
     // Aktualizacja pomiarów
-    if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
+    if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
         int distance = measureDistanceNonBlocking();
         if (distance > 0) {
             updateWaterLevel();
-            status.lastSuccessfulMeasurement = millis();
-            lastMeasurement = millis();
+            status.lastSuccessfulMeasurement = currentMillis;
+            lastMeasurement = currentMillis;
+            Serial.printf("Pomiar poprawny: %d mm\n", distance);
         }
     }
     
     // Sprawdź czy nie ma zbyt długiej przerwy w pomiarach
-    if (millis() - status.lastSuccessfulMeasurement > 60000) {
-        status.isServiceMode = true;
-        switchService.setState(true);
-        Serial.println("Włączono tryb serwisowy - brak pomiarów przez 60 sekund");
+    if (currentMillis - status.lastSuccessfulMeasurement >= 60000) {
+        if (!status.isServiceMode) {  // Zabezpieczenie przed wielokrotnym logowaniem
+            Serial.println("UWAGA: Brak poprawnych pomiarów przez 60 sekund!");
+            status.isServiceMode = true;
+            switchService.setState(true);
+            serviceStartTime = 0;
+        }
     }
     
     updatePump();
