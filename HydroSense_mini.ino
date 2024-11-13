@@ -574,7 +574,7 @@ void setup() {
     device.setSoftwareVersion("13.11.24");         // Wersja oprogramowania
        
     // Konfiguracja sensorów pomiarowych w HA
-    sensorDistance.setName("Odległość od lustra wody");
+    sensorDistance.setName("Pomiar odległości");
     sensorDistance.setIcon("mdi:ruler");           // Ikona linijki
     sensorDistance.setUnitOfMeasurement("mm");     // Jednostka - milimetry
     
