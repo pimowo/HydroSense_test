@@ -330,50 +330,51 @@ void handleButton() {
  * - Timeout: 23529µs (odpowiada max dystansowi ~4m)
  */
 int measureDistance() {
-    static unsigned long echoStartTime = 0;
-    
-    // Jeśli nie rozpoczęto jeszcze pomiaru
-    if (!ultrasonicInProgress) {
-        // Sprawdź czy minął minimalny czas między pomiarami
-        if (millis() - lastUltrasonicTrigger >= 100) { // 100ms między pomiarami
-            // Wyślij impuls trigger
-            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            delayMicroseconds(5);
-            digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-            delayMicroseconds(10);
-            digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            
-            echoStartTime = micros();
-            ultrasonicInProgress = true;
-            lastUltrasonicTrigger = millis();
-        }
-        return -1;
-    }
-    
-    // Jeśli pomiar jest w toku
-    if (ultrasonicInProgress) {
-        // Sprawdź timeout (10ms)
-        if ((micros() - echoStartTime) > 10000) {
-            ultrasonicInProgress = false;
-            Serial.println("Echo timeout!");
+    // Wyślij impuls trigger
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    delayMicroseconds(5);
+    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+
+    // Czekaj na początek echa (maksymalnie 100ms)
+    unsigned long startWaiting = millis();
+    while (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
+        if (millis() - startWaiting > 100) {
+            Serial.println("Timeout - brak początku echa");
             return -1;
         }
-        
-        // Jeśli otrzymano echo
-        if (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
-            unsigned long duration = micros() - echoStartTime;
-            ultrasonicInProgress = false;
-            
-            // Oblicz odległość (mm)
-            int distance = (duration * 343) / 2000;
-            
-            // Sprawdź czy wynik jest w zakresie 20-1500mm
-            if (distance >= 20 && distance <= 1500) {
-                return distance;
-            }
+    }
+
+    // Zapisz czas początku echa
+    unsigned long echoStartTime = micros();
+
+    // Czekaj na koniec echa (maksymalnie 20ms)
+    while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
+        if (micros() - echoStartTime > 20000) {
+            Serial.println("Timeout - zbyt długie echo");
+            return -1;
         }
     }
-    
+
+    // Oblicz czas trwania echa
+    unsigned long duration = micros() - echoStartTime;
+
+    // Oblicz odległość (mm)
+    int distance = (duration * 343) / 2000;
+
+    // Debug info
+    Serial.print("Czas echa: ");
+    Serial.print(duration);
+    Serial.print(" us, Odległość: ");
+    Serial.print(distance);
+    Serial.println(" mm");
+
+    // Sprawdź czy wynik jest w zakresie 20-1500mm
+    if (distance >= 20 && distance <= 1500) {
+        return distance;
+    }
+
     return -1;
 }
 
