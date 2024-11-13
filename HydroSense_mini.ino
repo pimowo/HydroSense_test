@@ -16,18 +16,14 @@ const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 #define PIN_ULTRASONIC_TRIG D6 // Pin TRIG czujnika ultradźwiękowego
 #define PIN_ULTRASONIC_ECHO D7 // Pin ECHO czujnika ultradźwiękowego
 
-// Stałe czasowe dla czujnika ultradźwiękowego
-unsigned long lastUltrasonicTrigger = 0;
-bool ultrasonicInProgress = false;
-
 #define PIN_WATER_LEVEL D5 // Pin czujnika poziomu wody w akwarium
 #define PIN_PUMP D1 // Pin sterowania pompą
 #define PIN_BUZZER D2 // Pin buzzera do alarmów dźwiękowych
 #define PIN_BUTTON D3 // Pin przycisku do kasowania alarmów
 
 // Zmienne czasowe dla nieblokującego pomiaru odległości
-unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
 bool ultrasonicInProgress = false; // Flaga trwającego pomiaru
+unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
 const unsigned long ULTRASONIC_TIMEOUT = 50; // Timeout pomiaru w ms
 const unsigned long MEASUREMENT_INTERVAL = 10000;// Interwał między pomiarami w ms
 const unsigned long MQTT_RETRY_INTERVAL = 5000;// Czas między próbami połączenia MQTT w ms
@@ -727,7 +723,7 @@ void loop() {
             lastMeasurement = millis();
         }
     }
-    
+
     updatePump();
     yield();
 }
