@@ -313,81 +313,86 @@ void handleButton() {
     yield();  // Oddaj sterowanie systemowi
 }
 
-/**
- * Nieblokująca funkcja pomiaru odległości z czujnika ultradźwiękowego
- * 
- * Funkcja implementuje:
- * - Średnią z kilku pomiarów dla zwiększenia dokładności
- * - Nieblokującą obsługę czujnika HC-SR04
- * - Walidację wyników pomiaru
- * - Timeout dla zabezpieczenia przed zawieszeniem
- * 
- * @return int - zmierzona odległość w mm lub -1 jeśli pomiar w toku/błędny
- * 
- * Parametry pomiarowe:
- * - Prędkość dźwięku: 343 m/s
- * - Minimalny dystans: 20mm
- * - Maksymalny dystans: 4000mm
- * - Timeout: 23529µs (odpowiada max dystansowi ~4m)
- */
+// Funkcja wykonuje pomiar odległości za pomocą czujnika ultradźwiękowego HC-SR04
+// Zwraca:
+// - zmierzoną odległość w milimetrach
+// - (-1) w przypadku błędu lub przekroczenia czasu odpowiedzi
 int measureDistance() {
-    // Wyślij impuls trigger
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-    delayMicroseconds(5);
-    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+    // 1. Generowanie impulsu wyzwalającego (trigger)
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że pin jest w stanie niskim
+    delayMicroseconds(5);  // Krótka pauza dla stabilizacji
+    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);  // Wysłanie impulsu 10µs
+    delayMicroseconds(10);  // Czekaj 10µs
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Zakończ impuls
 
-    // Czekaj na początek echa (maksymalnie 100ms)
+    // 2. Oczekiwanie na początek sygnału echo
+    // Timeout 100ms chroni przed zawieszeniem jeśli czujnik nie odpowiada
     unsigned long startWaiting = millis();
     while (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
         if (millis() - startWaiting > 100) {
             Serial.println("Timeout - brak początku echa");
-            return -1;
+            return -1;  // Błąd - brak odpowiedzi od czujnika
         }
     }
 
-    // Zapisz czas początku echa
+    // 3. Pomiar czasu początku echa (w mikrosekundach)
+    // micros() zapewnia dokładniejszy pomiar niż millis()
     unsigned long echoStartTime = micros();
 
-    // Czekaj na koniec echa (maksymalnie 20ms)
+    // 4. Oczekiwanie na koniec sygnału echo
+    // Timeout 20ms - teoretyczny max dla 3.4m to około 20ms
     while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
         if (micros() - echoStartTime > 20000) {
             Serial.println("Timeout - zbyt długie echo");
-            return -1;
+            return -1;  // Błąd - echo trwa zbyt długo
         }
     }
 
-    // Oblicz czas trwania echa
+    // 5. Obliczenie czasu trwania echa (w mikrosekundach)
     unsigned long duration = micros() - echoStartTime;
 
-    // Oblicz odległość (mm)
+    // 6. Konwersja czasu na odległość
+    // Wzór: distance = (czas * prędkość dźwięku) / 2
+    // - czas w mikrosekundach
+    // - prędkość dźwięku = 343 m/s = 0.343 mm/µs
+    // - dzielimy przez 2 bo dźwięk pokonuje drogę w obie strony
     int distance = (duration * 343) / 2000;
 
-    // Debug info
+    // 7. Wyświetl informacje debugowe
     Serial.print("Czas echa: ");
     Serial.print(duration);
     Serial.print(" us, Odległość: ");
     Serial.print(distance);
     Serial.println(" mm");
 
-    // Sprawdź czy wynik jest w zakresie 20-1500mm
+    // 8. Walidacja wyniku
+    // - min 20mm - minimalna dokładna odległość dla HC-SR04
+    // - max 1500mm - maksymalna użyteczna odległość dla zbiornika
     if (distance >= 20 && distance <= 1500) {
         return distance;
     }
 
-    return -1;
+    return -1;  // Wynik poza zakresem pomiarowym
 }
 
+// Funkcja obsługuje zdarzenie resetu alarmu pompy
+// Jest wywoływana gdy użytkownik zmieni stan przełącznika alarmu w interfejsie HA
+// 
+// Parametry:
+// - state: stan przełącznika (true = alarm aktywny, false = reset alarmu)
+// - sender: wskaźnik do obiektu przełącznika w HA (niewykorzystywany)
 void onPumpAlarmCommand(bool state, HASwitch* sender) {
+    // Reset blokady bezpieczeństwa pompy następuje tylko gdy przełącznik 
+    // zostanie ustawiony na false (wyłączony)
     if (!state) {
-        status.pumpSafetyLock = false;
+        status.pumpSafetyLock = false;  // Wyłącz blokadę bezpieczeństwa pompy
     }
 }
 
-// Kontrola pompy
+// Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
 void updatePump() {
-    // Zabezpieczenie przed przepełnieniem millis()
+    // Zabezpieczenie przed przepełnieniem licznika millis() (po około 50 dniach)
+    // Jeśli millis() się przepełni, aktualizujemy czasy startowe
     if (millis() < status.pumpStartTime) {
         status.pumpStartTime = millis();
     }
@@ -396,94 +401,124 @@ void updatePump() {
         status.pumpDelayStartTime = millis();
     }
     
+    // Odczyt stanu czujnika poziomu wody w akwarium
+    // LOW = brak wody - należy uzupełnić
+    // HIGH = woda obecna - stan normalny
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
     sensorWater.setValue(waterPresent ? "ON" : "OFF");
     
-    // Sprawdź czy nie jest aktywny tryb serwisowy
+    // --- ZABEZPIECZENIE 1: Tryb serwisowy ---
+    // Jeśli aktywny jest tryb serwisowy, wyłącz pompę i zakończ
     if (status.isServiceMode) {
         if (status.isPumpActive) {
-            digitalWrite(PIN_PUMP, LOW);
-            status.isPumpActive = false;
-            status.pumpStartTime = 0;
-            sensorPump.setValue("OFF");
+            digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+            status.isPumpActive = false;  // Oznacz jako nieaktywną
+            status.pumpStartTime = 0;  // Zeruj czas startu
+            sensorPump.setValue("OFF");  // Aktualizuj status w HA
         }
         return;
     }
 
-    // Sprawdź czy pompa nie pracuje za długo
+    // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
+    // Sprawdź czy pompa nie przekroczyła maksymalnego czasu pracy
     if (status.isPumpActive && (millis() - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
-        digitalWrite(PIN_PUMP, LOW);
-        status.isPumpActive = false;
-        status.pumpStartTime = 0;
-        sensorPump.setValue("OFF");
-        status.pumpSafetyLock = true;
-        switchPump.setState(true);
+        digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+        status.isPumpActive = false;  // Oznacz jako nieaktywną
+        status.pumpStartTime = 0;  // Zeruj czas startu
+        sensorPump.setValue("OFF");  // Aktualizuj status w HA
+        status.pumpSafetyLock = true;  // Aktywuj blokadę bezpieczeństwa
+        switchPump.setState(true);  // Aktywuj przełącznik alarmu w HA
         Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
         return;
     }
     
-    // Sprawdź blokady bezpieczeństwa
+    // --- ZABEZPIECZENIE 3: Blokady bezpieczeństwa ---
+    // Sprawdź czy nie jest aktywna blokada bezpieczeństwa lub alarm braku wody
     if (status.pumpSafetyLock || status.waterAlarmActive) {
         if (status.isPumpActive) {
-            digitalWrite(PIN_PUMP, LOW);
-            status.isPumpActive = false;
-            status.pumpStartTime = 0;
-            sensorPump.setValue("OFF");
+            digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+            status.isPumpActive = false;  // Oznacz jako nieaktywną
+            status.pumpStartTime = 0;  // Zeruj czas startu
+            sensorPump.setValue("OFF");  // Aktualizuj status w HA
         }
         return;
     }
     
-    // Reszta istniejącej logiki pozostaje bez zmian
+     // --- ZABEZPIECZENIE 4: Ochrona przed przepełnieniem ---
+    // Jeśli woda osiągnęła poziom, a pompa pracuje, 
+    // wyłącz ją aby zapobiec przelaniu
     if (!waterPresent && status.isPumpActive) {
-        digitalWrite(PIN_PUMP, LOW);
-        status.isPumpActive = false;
-        status.pumpStartTime = 0;
-        status.isPumpDelayActive = false;
-        sensorPump.setValue("OFF");
+        digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+        status.isPumpActive = false;  // Oznacz jako nieaktywną
+        status.pumpStartTime = 0;  // Zeruj czas startu
+        status.isPumpDelayActive = false;  // Wyłącz opóźnienie
+        sensorPump.setValue("OFF");  // Aktualizuj status w HA
         return;
     }
     
+    // --- LOGIKA WŁĄCZANIA POMPY ---
+    // Jeśli brakuje wody w akwarium (czujnik niezanurzony - LOW) 
+    // i pompa nie pracuje oraz nie trwa odliczanie opóźnienia,
+    // rozpocznij procedurę opóźnionego startu pompy
     if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
-        status.isPumpDelayActive = true;
-        status.pumpDelayStartTime = millis();
+        status.isPumpDelayActive = true;  // Aktywuj opóźnienie
+        status.pumpDelayStartTime = millis();  // Zapisz czas rozpoczęcia opóźnienia
         return;
     }
     
+    // Po upływie opóźnienia, włącz pompę
     if (status.isPumpDelayActive && !status.isPumpActive) {
         if (millis() - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
-            digitalWrite(PIN_PUMP, HIGH);
-            status.isPumpActive = true;
-            status.pumpStartTime = millis();
-            status.isPumpDelayActive = false;
-            sensorPump.setValue("ON");
+            digitalWrite(PIN_PUMP, HIGH);  // Włącz pompę
+            status.isPumpActive = true;  // Oznacz jako aktywną
+            status.pumpStartTime = millis();  // Zapisz czas startu
+            status.isPumpDelayActive = false;  // Wyłącz opóźnienie
+            sensorPump.setValue("ON");  // Aktualizuj status w HA
         }
     }
 }
 
 void updateAlarmStates(float currentDistance) {
-    // Alarm braku wody
+    // --- Obsługa alarmu krytycznie niskiego poziomu wody ---
+    // Włącz alarm jeśli:
+    // - odległość jest większa lub równa max (zbiornik pusty)
+    // - alarm nie jest jeszcze aktywny
     if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
         sensorAlarm.setValue("ON");               
         Serial.println("Alarm: Krytycznie niski poziom wody!");
-    } else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
+    } 
+    // Wyłącz alarm jeśli:
+    // - odległość spadła poniżej progu wyłączenia (z histerezą)
+    // - alarm jest aktywny
+    else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
         sensorAlarm.setValue("OFF");             
         Serial.printf("Alarm wody wyłączony (odległość: %.1f mm)\n", currentDistance);
     }
 
-    // Stan rezerwy
+    // --- Obsługa ostrzeżenia o rezerwie wody ---
+    // Włącz ostrzeżenie o rezerwie jeśli:
+    // - odległość osiągnęła próg rezerwy
+    // - ostrzeżenie nie jest jeszcze aktywne
     if (currentDistance >= DISTANCE_RESERVE && !status.waterReserveActive) {
         status.waterReserveActive = true;
         sensorReserve.setValue("ON");            
         Serial.println("Uwaga: Poziom rezerwy!");
-    } else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
+    } 
+    // Wyłącz ostrzeżenie o rezerwie jeśli:
+    // - odległość spadła poniżej progu rezerwy (z histerezą)
+    // - ostrzeżenie jest aktywne
+    else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
         sensorReserve.setValue("OFF");           
         Serial.printf("Poziom powyżej rezerwy (odległość: %.1f mm)\n", currentDistance);
     }
 
-    // Debug info
+    // Wyświetl aktualne wartości dla celów diagnostycznych
+    // - aktualną odległość w mm
+    // - stan alarmu wody (ON/OFF)
+    // - stan rezerwy (ON/OFF)
     Serial.printf("Odległość: %.1f mm, Alarm wody: %s, Rezerwa: %s\n", 
                  currentDistance,
                  status.waterAlarmActive ? "ON" : "OFF",
