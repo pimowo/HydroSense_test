@@ -571,7 +571,7 @@ void setup() {
     device.setName("HydroSense");                  // Nazwa urządzenia
     device.setModel("HS ESP8266");                 // Model urządzenia
     device.setManufacturer("PMW");                 // Producent
-    device.setSoftwareVersion("11.11.24");         // Wersja oprogramowania
+    device.setSoftwareVersion("13.11.24");         // Wersja oprogramowania
        
     // Konfiguracja sensorów pomiarowych w HA
     sensorDistance.setName("Odległość od lustra wody");
