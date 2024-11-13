@@ -329,72 +329,90 @@ int measureDistanceNonBlocking() {
     static int measurements[MEASUREMENTS_COUNT];    
     static int measurementIndex = 0;               
     static unsigned long echoStartTime = 0;        
-    static unsigned long lastDebugPrint = 0;       // Do logowania
+    static unsigned long pulseStartTime = 0;       // Nowe - do śledzenia początku pulsu
 
     ESP.wdtFeed();                                
-    
-    // Debugowanie co 5 sekund
-    if (millis() - lastDebugPrint >= 5000) {
-        lastDebugPrint = millis();
-        Serial.printf("Status pomiarów: Index=%d, InProgress=%d\n", 
-            measurementIndex, ultrasonicInProgress);
-    }
 
     // Rozpoczęcie nowego pomiaru
     if (!ultrasonicInProgress) {
         if (millis() - lastUltrasonicTrigger >= ULTRASONIC_TIMEOUT) {
-            Serial.println("Rozpoczynam nowy pomiar");
+            Serial.println("-> Rozpoczynam pomiar");
+            
+            // Reset pinu TRIG
             digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-            delayMicroseconds(2);                  
+            delayMicroseconds(5);                  // Wydłużamy reset
+            
+            // Wysłanie impulsu
             digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
             delayMicroseconds(10);                 
             digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
             
             echoStartTime = micros();             
+            pulseStartTime = 0;                    // Reset czasu pulsu
             ultrasonicInProgress = true;           
             lastUltrasonicTrigger = millis();     
-        }
-        return -1;                                
-    } else {
-        // Jeśli echo wciąż trwa
-        if (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
-            return -1;                            
-        }
-        
-        // Obliczenie czasu trwania echa
-        unsigned long duration = micros() - echoStartTime;
-        if (duration > 23529) {                   
-            ultrasonicInProgress = false;
-            Serial.println("Timeout pomiaru!");
-            return -1;                            
-        }
-        
-        // Obliczenie odległości
-        int distance = (duration * 343) / 2000;   
-        if (distance >= 20 && distance <= 4000) { 
-            measurements[measurementIndex] = distance;
-            Serial.printf("Pomiar %d/%d: %d mm\n", 
-                measurementIndex + 1, MEASUREMENTS_COUNT, distance);
-            measurementIndex++;
             
-            // Jeśli mamy komplet pomiarów
-            if (measurementIndex >= MEASUREMENTS_COUNT) {
-                int sum = 0;
-                for (int i = 0; i < MEASUREMENTS_COUNT; i++) {
-                    sum += measurements[i];
-                }
-                int avgDistance = sum / MEASUREMENTS_COUNT;
-                Serial.printf("Średnia z %d pomiarów: %d mm\n", 
-                    MEASUREMENTS_COUNT, avgDistance);
-                measurementIndex = 0;              
-                ultrasonicInProgress = false;      
-                return avgDistance;    
-            }
-        } else {
-            Serial.printf("Pomiar poza zakresem: %d mm\n", distance);
+            Serial.println("-> Wysłano trigger");
+            return -1;                            
         }
-        ultrasonicInProgress = false;             
-        return -1;                                
+        return -1;
+    } else {
+        // Sprawdzamy stan pinu ECHO
+        int echoState = digitalRead(PIN_ULTRASONIC_ECHO);
+        
+        // Rozpoczęcie pulsu ECHO
+        if (echoState == HIGH && pulseStartTime == 0) {
+            pulseStartTime = micros();
+            return -1;
+        }
+        
+        // Koniec pulsu ECHO
+        if (echoState == LOW && pulseStartTime > 0) {
+            unsigned long duration = micros() - pulseStartTime;
+            Serial.printf("-> Czas pulsu: %lu us\n", duration);
+            
+            if (duration > 23529) {                   
+                ultrasonicInProgress = false;
+                Serial.println("-> Timeout - pulse too long");
+                return -1;                
+            }
+            
+            // Obliczenie odległości
+            int distance = (duration * 343) / 2000;   
+            if (distance >= 20 && distance <= 4000) { 
+                measurements[measurementIndex] = distance;
+                Serial.printf("-> Pomiar %d/%d: %d mm\n", 
+                    measurementIndex + 1, MEASUREMENTS_COUNT, distance);
+                measurementIndex++;
+                
+                // Jeśli mamy komplet pomiarów
+                if (measurementIndex >= MEASUREMENTS_COUNT) {
+                    int sum = 0;
+                    for (int i = 0; i < MEASUREMENTS_COUNT; i++) {
+                        sum += measurements[i];
+                    }
+                    int avgDistance = sum / MEASUREMENTS_COUNT;
+                    Serial.printf("-> Średnia: %d mm\n", avgDistance);
+                    measurementIndex = 0;              
+                    ultrasonicInProgress = false;      
+                    return avgDistance;    
+                }
+            } else {
+                Serial.printf("-> Pomiar poza zakresem: %d mm\n", distance);
+            }
+            
+            ultrasonicInProgress = false;
+            return -1;
+        }
+        
+        // Timeout całego pomiaru
+        if (micros() - echoStartTime > 30000) {  // 30ms timeout
+            ultrasonicInProgress = false;
+            Serial.println("-> Timeout - no echo");
+            return -1;
+        }
+        
+        return -1;  // Wciąż czekamy
     }
 }
 
@@ -555,6 +573,8 @@ void setup() {
     // Konfiguracja kierunków pinów i stanów początkowych
     pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);          // Wyjście - trigger czujnika ultradźwiękowego
     pinMode(PIN_ULTRASONIC_ECHO, INPUT);           // Wejście - echo czujnika ultradźwiękowego
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że TRIG jest LOW na starcie
+    
     pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);        // Wejście z podciąganiem - czujnik poziomu
     pinMode(PIN_BUTTON, INPUT_PULLUP);             // Wejście z podciąganiem - przycisk
     pinMode(PIN_BUZZER, OUTPUT);                   // Wyjście - buzzer
