@@ -51,7 +51,7 @@ const int PUMP_DELAY = 5;  // opóźnienie włączenia pompy - sekundy
 const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
 
 float currentDistance = 0;
-float volume = 0;            // Dodajemy też zmienną volume jako globalną
+float volume = 0;  // Dodajemy też zmienną volume jako globalną
 
 // Obiekty do komunikacji
 WiFiClient client; // Klient połączenia WiFi
@@ -98,6 +98,7 @@ struct ButtonState {
     unsigned long pressedTime = 0; // Czas wciśnięcia przycisku
     unsigned long releasedTime = 0; // Czas puszczenia przycisku
     bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia
+    bool isInitialized = false; 
 } buttonState;
 
 // Funkcja zapisująca stan do EEPROM
@@ -267,21 +268,21 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
  * - Długie (≥ 1s): kasuje blokadę bezpieczeństwa pompy
  */
 void handleButton() {
-    bool reading = digitalRead(PIN_BUTTON); // Odczyt stanu przycisku
+    bool reading = digitalRead(PIN_BUTTON);
     
     // Obsługa zmiany stanu przycisku
     if (reading != buttonState.lastState) {
         if (reading == LOW) {  // Przycisk naciśnięty
-            buttonState.pressedTime = millis();  // Zapamiętaj czas naciśnięcia
+            buttonState.pressedTime = millis();
             buttonState.isLongPressHandled = false;  // Reset flagi długiego naciśnięcia
         } else {  // Przycisk zwolniony
-            buttonState.releasedTime = millis();  // Zapamiętaj czas zwolnienia
+            buttonState.releasedTime = millis();
             
             // Sprawdzenie czy to było krótkie naciśnięcie
             if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
                 // Przełącz tryb serwisowy
                 status.isServiceMode = !status.isServiceMode;
-                switchService.setState(status.isServiceMode);  // Aktualizacja w HA
+                switchService.setState(status.isServiceMode, true);  // force update w HA
                 
                 // Log zmiany stanu
                 Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
@@ -302,14 +303,14 @@ void handleButton() {
     if (reading == LOW && !buttonState.isLongPressHandled) {
         if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
             status.pumpSafetyLock = false;         // Zdjęcie blokady pompy
-            switchPump.setState(false);            // Aktualizacja stanu w HA
+            switchPump.setState(false, true);      // force update w HA
             buttonState.isLongPressHandled = true; // Oznacz jako obsłużone
             Serial.println("Alarm pompy skasowany");
         }
     }
     
-    buttonState.lastState = reading;               // Zapamiętaj aktualny stan
-    yield();                                       // Oddaj sterowanie systemowi
+    buttonState.lastState = reading;
+    yield();  // Oddaj sterowanie systemowi
 }
 
 /**
@@ -460,7 +461,7 @@ void updatePump() {
 }
 
 void updateAlarmStates(float currentDistance) {
-    // Sprawdzenie alarmu braku wody z histerezą
+    // Alarm braku wody
     if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
         sensorAlarm.setValue("ON");               
@@ -468,10 +469,10 @@ void updateAlarmStates(float currentDistance) {
     } else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
         sensorAlarm.setValue("OFF");             
-        Serial.println("Alarm wody wyłączony");
+        Serial.printf("Alarm wody wyłączony (odległość: %.1f mm)\n", currentDistance);
     }
 
-    // Sprawdzenie stanu rezerwy z histerezą
+    // Stan rezerwy
     if (currentDistance >= DISTANCE_RESERVE && !status.waterReserveActive) {
         status.waterReserveActive = true;
         sensorReserve.setValue("ON");            
@@ -479,8 +480,14 @@ void updateAlarmStates(float currentDistance) {
     } else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
         sensorReserve.setValue("OFF");           
-        Serial.println("Poziom powyżej rezerwy");
+        Serial.printf("Poziom powyżej rezerwy (odległość: %.1f mm)\n", currentDistance);
     }
+
+    // Debug info
+    Serial.printf("Odległość: %.1f mm, Alarm wody: %s, Rezerwa: %s\n", 
+                 currentDistance,
+                 status.waterAlarmActive ? "ON" : "OFF",
+                 status.waterReserveActive ? "ON" : "OFF");
 }
 
 void updateWaterLevel() {
@@ -600,7 +607,10 @@ void setup() {
     switchService.setIcon("mdi:tools");            // Ikona narzędzi
     switchService.onCommand(onServiceSwitchCommand);// Funkcja obsługi zmiany stanu
     switchService.setState(status.isServiceMode);   // Stan początkowy
-    
+    // Inicjalizacja stanu - domyślnie wyłączony
+    status.isServiceMode = false;
+    switchService.setState(false, true); // force update przy starcie
+
     switchSound.setName("Dźwięk");
     switchSound.setIcon("mdi:volume-high");        // Ikona głośnika
     switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
@@ -609,7 +619,7 @@ void setup() {
     switchPump.setName("Alarm pompy");
     switchPump.setIcon("mdi:alert");               // Ikona alarmu
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
-
+   
     // Inicjalizacja połączenia MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
 }
@@ -643,41 +653,7 @@ void loop() {
     
     mqtt.loop();
     handleButton();
-    
-    // Obsługa trybu serwisowego
-    if (status.isServiceMode) {
-        if (serviceStartTime == 0) {
-            serviceStartTime = currentMillis;
-            Serial.println("Włączono tryb serwisowy - brak pomiarów przez 60 sekund");
-        }
-        
-        // Wyświetl status co 10 sekund
-        if (currentMillis - lastServicePrint >= 10000) {
-            lastServicePrint = currentMillis;
-            Serial.printf("Tryb serwisowy: pozostało %d sekund\n", 
-                (60000 - (currentMillis - serviceStartTime)) / 1000);
-        }
-        
-        if (currentMillis - serviceStartTime >= 60000) {
-            status.isServiceMode = false;
-            serviceStartTime = 0;
-            switchService.setState(false);
-            Serial.println("Zakończono tryb serwisowy");
-            lastMeasurement = 0;  // Wymusi natychmiastowy pomiar po wyjściu z trybu serwisowego
-        }
-        return;
-    }
-       
-    // Sprawdź czy nie ma zbyt długiej przerwy w pomiarach
-    if (currentMillis - status.lastSuccessfulMeasurement >= 60000) {
-        if (!status.isServiceMode) {  // Zabezpieczenie przed wielokrotnym logowaniem
-            Serial.println("UWAGA: Brak poprawnych pomiarów przez 60 sekund!");
-            status.isServiceMode = true;
-            switchService.setState(true);
-            serviceStartTime = 0;
-        }
-    }
-    
+           
     // Pomiar co MEASUREMENT_INTERVAL
     if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
         int distance = measureDistance();
