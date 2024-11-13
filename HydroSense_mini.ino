@@ -4,6 +4,20 @@
 #include <PubSubClient.h>
 #include <EEPROM.h> // Biblioteka do obsługi pamięci EEPROM
 
+// Struktura konfiguracji
+struct Config {
+    uint8_t version;          // Wersja konfiguracji
+    bool soundEnabled;        // Status dźwięku (włączony/wyłączony)
+    char checksum;           // Suma kontrolna
+};
+
+// Stałe konfiguracyjne
+const uint8_t CONFIG_VERSION = 1;
+const int EEPROM_SIZE = sizeof(Config);
+
+// Globalna instancja konfiguracji
+Config config;
+
 // Konfiguracja WiFi i MQTT
 const char* WIFI_SSID = "pimowo"; // Nazwa sieci WiFi
 const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj"; // Hasło do sieci WiFi
@@ -104,24 +118,61 @@ struct ButtonState {
     bool isInitialized = false; 
 } buttonState;
 
-// Funkcja zapisująca stan do EEPROM
-void saveToEEPROM() {
-    EEPROM.begin(EEPROM_SIZE);
-    EEPROM.write(EEPROM_SOUND_STATE_ADDR, status.soundEnabled ? 1 : 0);
-    bool saved = EEPROM.commit();
-    EEPROM.end();
-    Serial.printf("Zapisano stan dźwięku do EEPROM: %s (Status: %s)\n", 
-                 status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY",
-                 saved ? "OK" : "BŁĄD");
+// Obliczanie sumy kontrolnej
+char calculateChecksum(const Config& cfg) {
+    const byte* p = (const byte*)(&cfg);
+    char sum = 0;
+    for (int i = 0; i < sizeof(Config) - 1; i++) {
+        sum ^= p[i];
+    }
+    return sum;
 }
 
-// Funkcja odczytująca stan z EEPROM
-void loadFromEEPROM() {
+// Zapis konfiguracji
+void saveConfig() {
+    config.version = CONFIG_VERSION;
+    config.checksum = calculateChecksum(config);
+    
     EEPROM.begin(EEPROM_SIZE);
-    status.soundEnabled = EEPROM.read(EEPROM_SOUND_STATE_ADDR) == 1;
-    EEPROM.end();
-    Serial.printf("Wczytano stan dźwięku z EEPROM: %s\n", 
-                 status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
+    EEPROM.put(0, config);
+    bool success = EEPROM.commit();
+    
+    if (success) {
+        Serial.println(F("Konfiguracja zapisana"));
+    } else {
+        Serial.println(F("Błąd zapisu konfiguracji!"));
+    }
+}
+
+// Wczytywanie konfiguracji
+bool loadConfig() {
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.get(0, config);
+    
+    if (config.version != CONFIG_VERSION) {
+        Serial.println(F("Niekompatybilna wersja konfiguracji"));
+        setDefaultConfig();
+        return false;
+    }
+    
+    char calculatedChecksum = calculateChecksum(config);
+    if (config.checksum != calculatedChecksum) {
+        Serial.println(F("Błąd sumy kontrolnej"));
+        setDefaultConfig();
+        return false;
+    }
+    
+    Serial.println(F("Konfiguracja wczytana"));
+    return true;
+}
+
+// Ustawienia domyślne
+void setDefaultConfig() {
+    config.version = CONFIG_VERSION;
+    config.soundEnabled = true;  // Domyślnie dźwięk włączony
+    
+    saveConfig();
+    Serial.println(F("Utworzono domyślną konfigurację"));
 }
 
 // Konfiguracja i zarządzanie połączeniem WiFi
@@ -257,11 +308,9 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
 void onSoundSwitchCommand(bool state, HASwitch* sender) {
     status.soundEnabled = state;                   // Aktualizacja flagi stanu dźwięku
     
-    // Zapis stanu do pamięci EEPROM
-    EEPROM.begin(EEPROM_SIZE);                    // Inicjalizacja EEPROM
-    EEPROM.write(EEPROM_SOUND_STATE_ADDR,         // Zapis stanu (1 = włączony, 0 = wyłączony)
-                 state ? 1 : 0);
-    bool saved = EEPROM.commit();                 // Zatwierdzenie zapisu do EEPROM
+    // Zapisz stan do konfiguracji i EEPROM
+    config.soundEnabled = state;
+    saveConfig();
     
     // Aktualizacja stanu w Home Assistant
     switchSound.setState(state);                   // Synchronizacja stanu przełącznika
@@ -574,17 +623,14 @@ void setup() {
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
     Serial.println("\nStarting HydroSense...");  // Komunikat startowy
     
-    // Inicjalizacja pamięci EEPROM
-    EEPROM.begin(EEPROM_SIZE);  // Start EEPROM z określonym rozmiarem
-    delay(100);  // Opóźnienie stabilizacyjne
+    // Wczytaj konfigurację
+    if (!loadConfig()) {
+        Serial.println(F("Tworzenie nowej konfiguracji..."));
+        setDefaultConfig();
+    }
     
-    // Odczyt zapisanego stanu dźwięku z EEPROM
-    uint8_t savedState = EEPROM.read(EEPROM_SOUND_STATE_ADDR);
-    status.soundEnabled = (savedState == 1);
-    Serial.printf("Wczytano stan dźwięku z EEPROM (adres %d): %d -> %s\n", 
-                 EEPROM_SOUND_STATE_ADDR, 
-                 savedState,
-                 status.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
+    // Zastosuj wczytane ustawienia
+    status.soundEnabled = config.soundEnabled;
     
     // Konfiguracja kierunków pinów i stanów początkowych
     pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);          // Wyjście - trigger czujnika ultradźwiękowego
