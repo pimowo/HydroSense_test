@@ -1,8 +1,14 @@
-// Biblioteki
-#include <ESP8266WiFi.h> // Biblioteka do obsługi WiFi dla ESP8266
-#include <ArduinoHA.h> // Biblioteka do integracji z Home Assistant
-#include <PubSubClient.h>
-#include <EEPROM.h> // Biblioteka do obsługi pamięci EEPROM
+// Biblioteki związane z obsługą komunikacji
+#include <ESP8266WiFi.h>  // Obsługa WiFi dla ESP8266
+#include <PubSubClient.h>  // MQTT - protokół komunikacji z serwerem MQTT
+// Biblioteka do integracji z Home Assistant
+#include <ArduinoHA.h>  // Ułatwia komunikację z Home Assistant
+// Obsługa aktualizacji OTA (Over-The-Air)
+#include <ArduinoOTA.h>  // Aktualizacje firmware bezpośrednio przez WiFi
+// Obsługa pamięci EEPROM, wykorzystywana do przechowywania danych na stałe
+#include <EEPROM.h>  // Przechowuje dane między restartami urządzenia
+// Biblioteka CRC32 - używana do weryfikacji integralności danych
+#include <CRC32.h>  // Zapewnia spójność danych za pomocą sumy kontrolnej
 
 // Struktura konfiguracji
 struct Config {
@@ -536,7 +542,7 @@ void updateAlarmStates(float currentDistance) {
     if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
         sensorAlarm.setValue("ON");               
-        Serial.println("Brak wody!");
+        Serial.println("Brak wody ON");
     } 
     // Wyłącz alarm jeśli:
     // - odległość spadła poniżej progu wyłączenia (z histerezą)
@@ -544,7 +550,7 @@ void updateAlarmStates(float currentDistance) {
     else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
         sensorAlarm.setValue("OFF");
-        Serial.println("Poziom wody OK");
+        Serial.println("Brak wody OFF");
     }
 
     // --- Obsługa ostrzeżenia o rezerwie wody ---
@@ -624,6 +630,21 @@ void setup() {
     pinMode(PIN_PUMP, OUTPUT);                     // Wyjście - pompa
     digitalWrite(PIN_PUMP, LOW);                   // Wyłączenie pompy
     
+    // // Zresetuj tryb serwisowy przy starcie
+    // status.isServiceMode = false;
+    
+    // // Odczekaj moment na ustabilizowanie stanu przycisku
+    // delay(50);
+    
+    // // Sprawdź rzeczywisty stan przycisku
+    // if (digitalRead(PIN_BUTTON) == LOW) {
+    //     status.isServiceMode = true;
+    //     Serial.println("Przycisk wciśnięty podczas startu!");
+    // } else {
+    //     status.isServiceMode = false;
+    //     Serial.println("Przycisk nie wciśnięty podczas startu.");
+    // }
+
     // Nawiązanie połączenia WiFi
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {        // Oczekiwanie na połączenie
@@ -634,11 +655,6 @@ void setup() {
 
     // Próba połączenia MQTT
     Serial.println("Rozpoczynam połączenie MQTT...");
-    // if (connectMQTT()) {
-    //     Serial.println("Połączono z MQTT pomyślnie!");
-    // } else {
-    //     Serial.println("Nie udało się połączyć z MQTT!");
-    // }
     connectMQTT();
 
     // Konfiguracja urządzenia dla Home Assistant
@@ -691,16 +707,29 @@ void setup() {
     switchPump.setName("Alarm pompy");
     switchPump.setIcon("mdi:alert");               // Ikona alarmu
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
-   
-    //Inicjalizacja stanów początkowych
-    // status.waterAlarmActive = false;
-    // status.waterReserveActive = false;
-        
-    // sensorAlarm.setValue("OFF");
-    // sensorReserve.setValue("OFF");
 
-    // updateWaterLevel();
+    // Wykonaj pierwszy pomiar i ustaw stany
+    float initialDistance = measureDistance();
     
+    // Ustaw początkowe stany na podstawie pomiaru
+    status.waterAlarmActive = (initialDistance >= DISTANCE_WHEN_EMPTY);
+    status.waterReserveActive = (initialDistance >= DISTANCE_RESERVE);
+    
+    // Wymuś stan OFF na początku
+    sensorAlarm.setValue("OFF");
+    sensorReserve.setValue("OFF");
+    mqtt.loop();
+    
+    // Ustawienie końcowych stanów i wysyłka do HA
+    sensorAlarm.setValue(status.waterAlarmActive ? "ON" : "OFF");
+    sensorReserve.setValue(status.waterReserveActive ? "ON" : "OFF");
+    mqtt.loop();
+    
+    // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
+    ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
+    ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
+    ArduinoOTA.begin();  // Uruchom OTA
+
     Serial.println("Setup zakończony pomyślnie!");
 }
 
@@ -739,4 +768,7 @@ void loop() {
 
     updatePump();
     yield();
+
+    // Obsługa OTA (aktualizacji oprogramowania przez sieć)
+    ArduinoOTA.handle();
 }
