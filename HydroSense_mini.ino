@@ -40,11 +40,11 @@ const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
 #define PIN_WATER_LEVEL D5 // Pin czujnika poziomu wody w akwarium
 #define PIN_PUMP D1 // Pin sterowania pompą
 #define PIN_BUZZER D2 // Pin buzzera do alarmów dźwiękowych
+
 #define PIN_BUTTON D3 // Pin przycisku do kasowania alarmów
+//#define DEBOUNCE_DELAY 50  // 50ms dla debounce
 
 // Stałe czasowe (wszystkie wartości w milisekundach)
-//bool ultrasonicInProgress = false; // Flaga trwającego pomiaru
-//unsigned long lastUltrasonicTrigger = 0; // Czas ostatniego wyzwolenia pomiaru
 const unsigned long ULTRASONIC_TIMEOUT = 50; // Timeout pomiaru w ms
 const unsigned long MEASUREMENT_INTERVAL = 10000;// Interwał między pomiarami w ms
 const unsigned long WIFI_CHECK_INTERVAL = 5000;// Czas między sprawdzeniami WiFi w ms
@@ -75,6 +75,7 @@ const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
 
 float currentDistance = 0;
 float volume = 0;  // Dodajemy też zmienną volume jako globalną
+unsigned long lastDebounceTime = 0;  // ostatni czas zmiany stanu przycisku
 
 // Obiekty do komunikacji
 WiFiClient client; // Klient połączenia WiFi
@@ -322,50 +323,111 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
  * - Krótkie (< 1s): przełącza tryb serwisowy
  * - Długie (≥ 1s): kasuje blokadę bezpieczeństwa pompy
  */
-void handleButton() {
-    bool reading = digitalRead(PIN_BUTTON);
+// void handleButton() {
+//     bool reading = digitalRead(PIN_BUTTON);
     
-    // Obsługa zmiany stanu przycisku
-    if (reading != buttonState.lastState) {
-        if (reading == LOW) {  // Przycisk naciśnięty
-            buttonState.pressedTime = millis();
-            buttonState.isLongPressHandled = false;  // Reset flagi długiego naciśnięcia
-        } else {  // Przycisk zwolniony
-            buttonState.releasedTime = millis();
+//     // Obsługa zmiany stanu przycisku
+//     if (reading != buttonState.lastState) {
+//         if (reading == LOW) {  // Przycisk naciśnięty
+//             buttonState.pressedTime = millis();
+//             buttonState.isLongPressHandled = false;  // Reset flagi długiego naciśnięcia
+//         } else {  // Przycisk zwolniony
+//             buttonState.releasedTime = millis();
             
-            // Sprawdzenie czy to było krótkie naciśnięcie
-            if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
-                // Przełącz tryb serwisowy
-                status.isServiceMode = !status.isServiceMode;
-                switchService.setState(status.isServiceMode, true);  // force update w HA
+//             // Sprawdzenie czy to było krótkie naciśnięcie
+//             if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
+//                 // Przełącz tryb serwisowy
+//                 status.isServiceMode = !status.isServiceMode;
+//                 switchService.setState(status.isServiceMode, true);  // force update w HA
                 
-                // Log zmiany stanu
-                Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
-                            status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
+//                 // Log zmiany stanu
+//                 Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
+//                             status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
                 
-                // Jeśli włączono tryb serwisowy podczas pracy pompy
-                if (status.isServiceMode && status.isPumpActive) {
-                    digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
-                    status.isPumpActive = false;  // Reset flagi aktywności
-                    status.pumpStartTime = 0;  // Reset czasu startu
-                    sensorPump.setValue("OFF");  // Aktualizacja w HA
+//                 // Jeśli włączono tryb serwisowy podczas pracy pompy
+//                 if (status.isServiceMode && status.isPumpActive) {
+//                     digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+//                     status.isPumpActive = false;  // Reset flagi aktywności
+//                     status.pumpStartTime = 0;  // Reset czasu startu
+//                     sensorPump.setValue("OFF");  // Aktualizacja w HA
+//                 }
+//             }
+//         }
+//     }
+    
+//     // Obsługa długiego naciśnięcia (reset blokady pompy)
+//     if (reading == LOW && !buttonState.isLongPressHandled) {
+//         if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
+//             ESP.wdtFeed();  // Reset przy długim naciśnięciu
+//             status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
+//             switchPump.setState(false, true);  // force update w HA
+//             buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
+//             Serial.println("Alarm pompy skasowany");
+//         }
+//     }
+    
+//     buttonState.lastState = reading;
+//     yield();  // Oddaj sterowanie systemowi
+// }
+
+void handleButton() {
+    static unsigned long lastDebounceTime = 0;
+    static bool lastReading = HIGH;
+    const unsigned long DEBOUNCE_DELAY = 50;  // 50ms debounce
+
+    bool reading = digitalRead(PIN_BUTTON);
+
+    // Jeśli odczyt się zmienił, zresetuj timer debounce
+    if (reading != lastReading) {
+        lastDebounceTime = millis();
+    }
+    
+    // Kontynuuj tylko jeśli minął czas debounce
+    if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+        // Jeśli stan się faktycznie zmienił po debounce
+        if (reading != buttonState.lastState) {
+            buttonState.lastState = reading;
+            
+            if (reading == LOW) {  // Przycisk naciśnięty
+                buttonState.pressedTime = millis();
+                buttonState.isLongPressHandled = false;  // Reset flagi długiego naciśnięcia
+            } else {  // Przycisk zwolniony
+                buttonState.releasedTime = millis();
+                
+                // Sprawdzenie czy to było krótkie naciśnięcie
+                if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
+                    // Przełącz tryb serwisowy
+                    status.isServiceMode = !status.isServiceMode;
+                    switchService.setState(status.isServiceMode, true);  // force update w HA
+                    
+                    // Log zmiany stanu
+                    Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
+                                status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
+                    
+                    // Jeśli włączono tryb serwisowy podczas pracy pompy
+                    if (status.isServiceMode && status.isPumpActive) {
+                        digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+                        status.isPumpActive = false;  // Reset flagi aktywności
+                        status.pumpStartTime = 0;  // Reset czasu startu
+                        sensorPump.setValue("OFF");  // Aktualizacja w HA
+                    }
                 }
+            }
+        }
+        
+        // Obsługa długiego naciśnięcia (reset blokady pompy)
+        if (reading == LOW && !buttonState.isLongPressHandled) {
+            if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
+                ESP.wdtFeed();  // Reset przy długim naciśnięciu
+                status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
+                switchPump.setState(false, true);  // force update w HA
+                buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
+                Serial.println("Alarm pompy skasowany");
             }
         }
     }
     
-    // Obsługa długiego naciśnięcia (reset blokady pompy)
-    if (reading == LOW && !buttonState.isLongPressHandled) {
-        if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
-            ESP.wdtFeed();  // Reset przy długim naciśnięciu
-            status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
-            switchPump.setState(false, true);  // force update w HA
-            buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
-            Serial.println("Alarm pompy skasowany");
-        }
-    }
-    
-    buttonState.lastState = reading;
+    lastReading = reading;  // Zapisz ostatni odczyt dla następnego porównania
     yield();  // Oddaj sterowanie systemowi
 }
 
@@ -729,6 +791,14 @@ void setup() {
     ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
     ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
     ArduinoOTA.begin();  // Uruchom OTA
+
+    // Prosta melodia powitalna
+    tone(PIN_BUZZER, 1397, 100);  // F6
+    delay(150);
+    tone(PIN_BUZZER, 1568, 100);  // G6
+    delay(150);
+    tone(PIN_BUZZER, 1760, 150);  // A6
+    delay(200);
 
     Serial.println("Setup zakończony pomyślnie!");
 }
