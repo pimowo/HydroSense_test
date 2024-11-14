@@ -71,9 +71,10 @@ float currentDistance = 0;
 float volume = 0;  // Dodajemy też zmienną volume jako globalną
 
 // Obiekty do komunikacji
-WiFiClient client; // Klient połączenia WiFi
-HADevice device("HydroSense"); // Definicja urządzenia dla Home Assistant
-HAMqtt mqtt(client, device); // Klient MQTT dla Home Assistant
+byte mac[6];
+WiFiClient wifiClient; // Klient połączenia WiFi
+HADevice device; // Definicja urządzenia dla Home Assistant
+HAMqtt mqtt(wifiClient, device); // Klient MQTT dla Home Assistant
 
 // Sensory pomiarowe
 HASensor sensorDistance("water_level"); // Odległość od lustra wody w mm
@@ -553,10 +554,9 @@ void updateAlarmStates(float currentDistance) {
     // - alarm nie jest jeszcze aktywny
     if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
-        Serial.println("DEBUG MQTT: Wysyłam stan alarmu ON");
-        sensorAlarm.setValue("ON");
-        Serial.println("DEBUG MQTT: Stan alarmu wysłany");
-    }  
+        sensorAlarm.setValue("ON");               
+        Serial.println("Alarm: Krytycznie niski poziom wody!");
+    } 
     // Wyłącz alarm jeśli:
     // - odległość spadła poniżej progu wyłączenia (z histerezą)
     // - alarm jest aktywny
@@ -682,12 +682,16 @@ void setup() {
         Serial.println("Nie udało się połączyć z MQTT!");
     }
     
+    // Pobierz MAC adres i ustaw jako ID urządzenia
+    WiFi.macAddress(mac);
+    device.setUniqueId(mac, sizeof(mac));
+
     // Konfiguracja urządzenia dla Home Assistant
     device.setName("HydroSense");                  // Nazwa urządzenia
     device.setModel("HS ESP8266");                 // Model urządzenia
     device.setManufacturer("PMW");                 // Producent
     device.setSoftwareVersion("13.11.24");         // Wersja oprogramowania
-       
+
     // Konfiguracja sensorów pomiarowych w HA
     sensorDistance.setName("Pomiar odległości");
     sensorDistance.setIcon("mdi:ruler");           // Ikona linijki
@@ -711,13 +715,13 @@ void setup() {
     // Konfiguracja sensorów alarmowych w HA
     sensorAlarm.setName("Brak wody");
     sensorAlarm.setIcon("mdi:water-alert");        // Ikona alarmu wody
-    sensorAlarm.setAvailability(true);
-    Serial.println("DEBUG: Ustawiam początkowe stany sensorów");
-    sensorAlarm.setValue("OFF");
+    //status.waterAlarmActive = false;
+    //sensorAlarm.setValue("OFF");                   // Stan początkowy - wyłączony
+    sensorAlarm.setValue(status.waterAlarmActive ? "ON" : "OFF");
 
     sensorReserve.setName("Rezerwa wody");
     sensorReserve.setIcon("mdi:alert-outline");    // Ikona ostrzeżenia
-    sensorReserve.setAvailability(true);
+    status.waterReserveActive = false;
     sensorReserve.setValue("OFF");                 // Stan początkowy - wyłączony
     
     // Konfiguracja przełączników w HA
@@ -739,7 +743,7 @@ void setup() {
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
    
     // Inicjalizacja połączenia MQTT
-    mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
+    mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);    
 }
 
 void loop() {
