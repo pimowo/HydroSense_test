@@ -71,7 +71,6 @@ float currentDistance = 0;
 float volume = 0;  // Dodajemy też zmienną volume jako globalną
 
 // Obiekty do komunikacji
-byte mac[6];
 WiFiClient wifiClient; // Klient połączenia WiFi
 HADevice device; // Definicja urządzenia dla Home Assistant
 HAMqtt mqtt(wifiClient, device); // Klient MQTT dla Home Assistant
@@ -208,18 +207,7 @@ void setupWiFi() {
  * 
  * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
  */
-bool connectMQTT() {
-    // Serial.println("\n--- Diagnostyka MQTT ---");
-    // Serial.printf("WiFi SSID: %s\n", WiFi.SSID().c_str());
-    // Serial.printf("WiFi siła: %d dBm\n", WiFi.RSSI());
-    // Serial.printf("IP ESP: %s\n", WiFi.localIP().toString().c_str());
-    // Serial.printf("Brama: %s\n", WiFi.gatewayIP().toString().c_str());
-    // Serial.println("\nKonfiguracja MQTT:");
-    // Serial.printf("- Serwer: %s\n", MQTT_SERVER);
-    // Serial.printf("- Port: 1883\n");
-    // Serial.printf("- Użytkownik: %s\n", MQTT_USER);
-    // Serial.printf("- Hasło: %s\n", MQTT_PASSWORD);
-    
+bool connectMQTT() {   
     if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
         Serial.println("\nBŁĄD POŁĄCZENIA MQTT!");
         return false;
@@ -676,15 +664,12 @@ void setup() {
 
     // Próba połączenia MQTT
     Serial.println("Rozpoczynam połączenie MQTT...");
-    if (connectMQTT()) {
-        Serial.println("Połączono z MQTT pomyślnie!");
-    } else {
-        Serial.println("Nie udało się połączyć z MQTT!");
-    }
-    
-    // Pobierz MAC adres i ustaw jako ID urządzenia
-    WiFi.macAddress(mac);
-    device.setUniqueId(mac, sizeof(mac));
+    // if (connectMQTT()) {
+    //     Serial.println("Połączono z MQTT pomyślnie!");
+    // } else {
+    //     Serial.println("Nie udało się połączyć z MQTT!");
+    // }
+    connectMQTT();
 
     // Konfiguracja urządzenia dla Home Assistant
     device.setName("HydroSense");                  // Nazwa urządzenia
@@ -743,7 +728,19 @@ void setup() {
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
    
     // Inicjalizacja połączenia MQTT
-    mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);    
+    //mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);   
+
+    //Inicjalizacja stanów początkowych
+    status.waterAlarmActive = false;
+    status.waterReserveActive = false;
+    status.isPumpActive = false;
+    
+    sensorAlarm.setValue("OFF");
+    sensorReserve.setValue("OFF");
+    sensorPump.setValue("OFF");
+    
+    //Wymuszenie aktualizacji MQTT
+    mqtt.loop(); 
 }
 
 void loop() {
