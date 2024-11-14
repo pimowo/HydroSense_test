@@ -71,9 +71,9 @@ float currentDistance = 0;
 float volume = 0;  // Dodajemy też zmienną volume jako globalną
 
 // Obiekty do komunikacji
-WiFiClient wifiClient; // Klient połączenia WiFi
-HADevice device; // Definicja urządzenia dla Home Assistant
-HAMqtt mqtt(wifiClient, device); // Klient MQTT dla Home Assistant
+WiFiClient client; // Klient połączenia WiFi
+HADevice device("HydroSense"); // Definicja urządzenia dla Home Assistant
+HAMqtt mqtt(client, device); // Klient MQTT dla Home Assistant
 
 // Sensory pomiarowe
 HASensor sensorDistance("water_level"); // Odległość od lustra wody w mm
@@ -739,8 +739,9 @@ void setup() {
     sensorReserve.setValue("OFF");
     sensorPump.setValue("OFF");
     
-    //Wymuszenie aktualizacji MQTT
-    mqtt.loop(); 
+    mqtt.loop(); // Wymuszenie wysłania stanów początkowych
+    
+    Serial.println("Setup zakończony pomyślnie!");
 }
 
 void loop() {
