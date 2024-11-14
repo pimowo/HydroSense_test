@@ -111,7 +111,7 @@ bool isPumpActive = false; // Status pracy pompy
 // Struktura dla obsługi przycisku
 struct ButtonState {
     //bool currentState = HIGH; // Aktualny stan przycisku
-    //bool lastState = HIGH; // Poprzedni stan przycisku
+    bool lastState; // Poprzedni stan przycisku
     unsigned long pressedTime = 0; // Czas wciśnięcia przycisku
     unsigned long releasedTime = 0; // Czas puszczenia przycisku
     bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia
@@ -208,16 +208,16 @@ void setupWiFi() {
  * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
  */
 bool connectMQTT() {
-    Serial.println("\n--- Diagnostyka MQTT ---");
-    Serial.printf("WiFi SSID: %s\n", WiFi.SSID().c_str());
-    Serial.printf("WiFi siła: %d dBm\n", WiFi.RSSI());
-    Serial.printf("IP ESP: %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("Brama: %s\n", WiFi.gatewayIP().toString().c_str());
-    Serial.println("\nKonfiguracja MQTT:");
-    Serial.printf("- Serwer: %s\n", MQTT_SERVER);
-    Serial.printf("- Port: 1883\n");
-    Serial.printf("- Użytkownik: %s\n", MQTT_USER);
-    Serial.printf("- Hasło: %s\n", MQTT_PASSWORD);
+    // Serial.println("\n--- Diagnostyka MQTT ---");
+    // Serial.printf("WiFi SSID: %s\n", WiFi.SSID().c_str());
+    // Serial.printf("WiFi siła: %d dBm\n", WiFi.RSSI());
+    // Serial.printf("IP ESP: %s\n", WiFi.localIP().toString().c_str());
+    // Serial.printf("Brama: %s\n", WiFi.gatewayIP().toString().c_str());
+    // Serial.println("\nKonfiguracja MQTT:");
+    // Serial.printf("- Serwer: %s\n", MQTT_SERVER);
+    // Serial.printf("- Port: 1883\n");
+    // Serial.printf("- Użytkownik: %s\n", MQTT_USER);
+    // Serial.printf("- Hasło: %s\n", MQTT_PASSWORD);
     
     if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
         Serial.println("\nBŁĄD POŁĄCZENIA MQTT!");
@@ -420,11 +420,11 @@ int measureDistance() {
     int distance = (duration * 343) / 2000;
 
     // 7. Wyświetl informacje debugowe
-    Serial.print("Czas echa: ");
-    Serial.print(duration);
-    Serial.print(" us, Odległość: ");
-    Serial.print(distance);
-    Serial.println(" mm");
+    // Serial.print("Czas echa: ");
+    // Serial.print(duration);
+    // Serial.print(" us, Odległość: ");
+    // Serial.print(distance);
+    // Serial.println(" mm");
 
     // 8. Walidacja wyniku
     // - min 20mm - minimalna dokładna odległość dla HC-SR04
@@ -540,22 +540,31 @@ void updatePump() {
 }
 
 void updateAlarmStates(float currentDistance) {
+    Serial.println("\n--- DEBUG: updateAlarmStates ---");
+    Serial.printf("Aktualna odległość: %.1f mm\n", currentDistance);
+    Serial.printf("DISTANCE_WHEN_EMPTY: %d mm\n", DISTANCE_WHEN_EMPTY);
+    Serial.printf("DISTANCE_RESERVE: %d mm\n", DISTANCE_RESERVE);
+    Serial.printf("Obecny stan alarmu: %s\n", status.waterAlarmActive ? "ON" : "OFF");
+    Serial.printf("Obecny stan rezerwy: %s\n", status.waterReserveActive ? "ON" : "OFF");
+
     // --- Obsługa alarmu krytycznie niskiego poziomu wody ---
     // Włącz alarm jeśli:
     // - odległość jest większa lub równa max (zbiornik pusty)
     // - alarm nie jest jeszcze aktywny
     if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
-        sensorAlarm.setValue("ON");               
-        Serial.println("Alarm: Krytycznie niski poziom wody!");
-    } 
+        Serial.println("DEBUG MQTT: Wysyłam stan alarmu ON");
+        sensorAlarm.setValue("ON");
+        Serial.println("DEBUG MQTT: Stan alarmu wysłany");
+    }  
     // Wyłącz alarm jeśli:
     // - odległość spadła poniżej progu wyłączenia (z histerezą)
     // - alarm jest aktywny
     else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
-        sensorAlarm.setValue("OFF");             
-        Serial.printf("Alarm wody wyłączony (odległość: %.1f mm)\n", currentDistance);
+        Serial.println("DEBUG MQTT: Wysyłam stan alarmu OFF");
+        sensorAlarm.setValue("OFF");
+        Serial.println("DEBUG MQTT: Stan alarmu wysłany");
     }
 
     // --- Obsługa ostrzeżenia o rezerwie wody ---
@@ -564,26 +573,39 @@ void updateAlarmStates(float currentDistance) {
     // - ostrzeżenie nie jest jeszcze aktywne
     if (currentDistance >= DISTANCE_RESERVE && !status.waterReserveActive) {
         status.waterReserveActive = true;
-        sensorReserve.setValue("ON");            
-        Serial.println("Uwaga: Poziom rezerwy!");
+        Serial.println("DEBUG MQTT: Wysyłam stan rezerwy ON");
+        sensorReserve.setValue("ON");
+        Serial.println("DEBUG MQTT: Stan rezerwy wysłany");
     } 
     // Wyłącz ostrzeżenie o rezerwie jeśli:
     // - odległość spadła poniżej progu rezerwy (z histerezą)
     // - ostrzeżenie jest aktywne
     else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
-        sensorReserve.setValue("OFF");           
-        Serial.printf("Poziom powyżej rezerwy (odległość: %.1f mm)\n", currentDistance);
+        Serial.println("DEBUG MQTT: Wysyłam stan rezerwy OFF");
+        sensorReserve.setValue("OFF");
+        Serial.println("DEBUG MQTT: Stan rezerwy wysłany");
     }
 
     // Wyświetl aktualne wartości dla celów diagnostycznych
     // - aktualną odległość w mm
     // - stan alarmu wody (ON/OFF)
     // - stan rezerwy (ON/OFF)
-    Serial.printf("Odległość: %.1f mm, Alarm wody: %s, Rezerwa: %s\n", 
-                 currentDistance,
-                 status.waterAlarmActive ? "ON" : "OFF",
-                 status.waterReserveActive ? "ON" : "OFF");
+    // Serial.printf("Odległość: %.1f mm, Alarm wody: %s, Rezerwa: %s\n", 
+    //              currentDistance,
+    //              status.waterAlarmActive ? "ON" : "OFF",
+    //              status.waterReserveActive ? "ON" : "OFF");
+    // Dodajmy wymuszenie aktualizacji stanów
+    Serial.println("DEBUG MQTT: Wymuszenie aktualizacji stanów");
+    mqtt.loop();  // Przetworzenie komunikatów MQTT
+
+    Serial.println("--- Podsumowanie po aktualizacji ---");
+    Serial.printf("Stan alarmu po aktualizacji: %s\n", status.waterAlarmActive ? "ON" : "OFF");
+    Serial.printf("Stan rezerwy po aktualizacji: %s\n", status.waterReserveActive ? "ON" : "OFF");
+    
+    // Sprawdźmy stan połączenia MQTT
+    Serial.printf("Stan połączenia MQTT: %s\n", mqtt.isConnected() ? "Połączony" : "Rozłączony");
+    Serial.println("--------------------------------\n");
 }
 
 void updateWaterLevel() {
@@ -689,16 +711,15 @@ void setup() {
     // Konfiguracja sensorów alarmowych w HA
     sensorAlarm.setName("Brak wody");
     sensorAlarm.setIcon("mdi:water-alert");        // Ikona alarmu wody
-    sensorAlarm.setValue("OFF");                   // Stan początkowy - wyłączony
-    status.waterAlarmActive = false;
+    sensorAlarm.setAvailability(true);
+    Serial.println("DEBUG: Ustawiam początkowe stany sensorów");
     sensorAlarm.setValue("OFF");
 
     sensorReserve.setName("Rezerwa wody");
     sensorReserve.setIcon("mdi:alert-outline");    // Ikona ostrzeżenia
+    sensorReserve.setAvailability(true);
     sensorReserve.setValue("OFF");                 // Stan początkowy - wyłączony
-    status.waterReserveActive = false;
-    sensorReserve.setValue("OFF");
-
+    
     // Konfiguracja przełączników w HA
     switchService.setName("Serwis");
     switchService.setIcon("mdi:tools");            // Ikona narzędzi
@@ -719,10 +740,6 @@ void setup() {
    
     // Inicjalizacja połączenia MQTT
     mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD);
-
-    // Wymuszenie pierwszego sprawdzenia alarmów
-    float initialDistance = measureDistance();
-    updateAlarmStates(initialDistance);
 }
 
 void loop() {
@@ -760,6 +777,15 @@ void loop() {
         updateWaterLevel();  // Ta funkcja zawiera wszystko co potrzebne
         lastMeasurement = millis();
     }
+
+        // Dodaj debugowanie co 5 sekund
+    // if (currentMillis - lastDebugPrint >= 5000) {
+    //     lastDebugPrint = currentMillis;
+    //     Serial.printf("Debug - Stany: Alarm=%s, Rezerwa=%s, Odległość=%.1f\n",
+    //         status.waterAlarmActive ? "ON" : "OFF",
+    //         status.waterReserveActive ? "ON" : "OFF",
+    //         currentDistance);
+    // }
 
     updatePump();
     yield();
