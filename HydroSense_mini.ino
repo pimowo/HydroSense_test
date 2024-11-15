@@ -101,7 +101,7 @@ bool isPumpActive = false; // Status pracy pompy
     bool pumpSafetyLock = false; // Blokada bezpieczeństwa pompy
     bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
     bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
-    bool soundEnabled = false; // Status włączenia dźwięku alarmu
+    //bool soundEnabled = false; // Status włączenia dźwięku alarmu
     bool isServiceMode = false; // Status trybu serwisowego
     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
 } status;
@@ -392,10 +392,7 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
  * - Zapisuje nowy stan do pamięci EEPROM (trwałej)
  * - Aktualizuje stan w Home Assistant
  */
-void onSoundSwitchCommand(bool state, HASwitch* sender) {
-    // Aktualizuj stan w pamięci RAM
-    status.soundEnabled = state;
-    
+void onSoundSwitchCommand(bool state, HASwitch* sender) {   
     // Zapisz stan w konfiguracji EEPROM
     config.soundEnabled = state;
     saveConfig();  // Zapisz do EEPROM
@@ -731,13 +728,13 @@ void setup() {
     // Próba połączenia MQTT
     Serial.println("Rozpoczynam połączenie MQTT...");
     connectMQTT();
+
     setupHA();
    
     // Wczytaj konfigurację z EEPROM
-    if (loadConfig()) {
-        // Synchronizuj stan dźwięku z wczytanej konfiguracji
-        status.soundEnabled = config.soundEnabled;
-        switchSound.setState(config.soundEnabled); // Aktualizuj stan w HA
+    if (loadConfig()) {        
+        status.soundEnabled = config.soundEnabled;  // Synchronizuj stan dźwięku z wczytanej konfiguracji
+        switchSound.setState(config.soundEnabled);  // Aktualizuj stan w HA
     }
     
     firstUpdateHA();
@@ -748,46 +745,45 @@ void setup() {
     ArduinoOTA.begin();  // Uruchom OTA
 
     Serial.println("Setup zakończony pomyślnie!");
-
-    welcomeMelody();
+    
+    if (soundEnabled) {
+      welcomeMelody();
+    }
 }
 
 void loop() {
-    unsigned long currentMillis = millis();
-    static unsigned long lastMQTTRetry = 0;
-    static unsigned long lastMeasurement = 0;
+  unsigned long currentMillis = millis();
+  static unsigned long lastMQTTRetry = 0;
+  static unsigned long lastMeasurement = 0;
 
-    // Feed watchdog
-    ESP.wdtFeed();
+  ESP.wdtFeed();  // Feed watchdog
 
-    // Sprawdź WiFi i MQTT - bez zmian
-    if (WiFi.status() != WL_CONNECTED) {
-        setupWiFi();
-        return;
+  // Sprawdź WiFi i MQTT - bez zmian
+  if (WiFi.status() != WL_CONNECTED) {
+    setupWiFi();
+    return;
+  }
+        
+  if (!mqtt.isConnected()) {
+    if (currentMillis - lastMQTTRetry >= 10000) {
+      lastMQTTRetry = currentMillis;
+      Serial.println("\nBrak połączenia MQTT - próba reconnect...");
+      if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+        Serial.println("MQTT połączono ponownie!");
+      }
     }
-         
-    if (!mqtt.isConnected()) {
-        if (currentMillis - lastMQTTRetry >= 10000) {
-            lastMQTTRetry = currentMillis;
-            Serial.println("\nBrak połączenia MQTT - próba reconnect...");
-            if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-                Serial.println("MQTT połączono ponownie!");
-            }
-        }
-    }
+  }
     
-    mqtt.loop();
-    handleButton();
-           
-    // Pomiar co MEASUREMENT_INTERVAL
-    if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
-        updateWaterLevel();  // Ta funkcja zawiera wszystko co potrzebne
-        lastMeasurement = millis();
-    }
+  mqtt.loop();
+  handleButton();
+          
+  // Pomiar co MEASUREMENT_INTERVAL
+  if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
+    updateWaterLevel();  // Ta funkcja zawiera wszystko co potrzebne
+    lastMeasurement = millis();
+  }
 
-    updatePump();
-    yield();
-
-    // Obsługa OTA (aktualizacji oprogramowania przez sieć)
-    ArduinoOTA.handle();
+  updatePump();
+  yield();
+  ArduinoOTA.handle();  // Obsługa OTA
 }
