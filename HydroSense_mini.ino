@@ -101,7 +101,7 @@ bool isPumpActive = false; // Status pracy pompy
     bool pumpSafetyLock = false; // Blokada bezpieczeństwa pompy
     bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
     bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
-    //bool soundEnabled = false; // Status włączenia dźwięku alarmu
+    bool soundEnabled;// = false; // Status włączenia dźwięku alarmu
     bool isServiceMode = false; // Status trybu serwisowego
     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
 } status;
@@ -135,7 +135,8 @@ void saveConfig() {
     bool success = EEPROM.commit();
     
     if (success) {
-        Serial.println(F("Konfiguracja zapisana"));
+        Serial.printf("Konfiguracja zapisana. Stan dźwięku: %s\n",
+                     config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     } else {
         Serial.println(F("Błąd zapisu konfiguracji!"));
     }
@@ -161,8 +162,10 @@ bool loadConfig() {
     
     // Synchronizuj stan po wczytaniu
     status.soundEnabled = config.soundEnabled;
+    switchSound.setState(config.soundEnabled, true);  // force update
     
-    Serial.println(F("Konfiguracja wczytana"));
+    Serial.printf("Konfiguracja wczytana. Stan dźwięku: %s\n", 
+                 config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     return true;
 }
 
@@ -393,12 +396,12 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
  * - Aktualizuje stan w Home Assistant
  */
 void onSoundSwitchCommand(bool state, HASwitch* sender) {   
-    // Zapisz stan w konfiguracji EEPROM
-    config.soundEnabled = state;
+    status.soundEnabled = state;  // Aktualizuj status lokalny
+    config.soundEnabled = state;  // Aktualizuj konfigurację
     saveConfig();  // Zapisz do EEPROM
     
     // Aktualizuj stan w Home Assistant
-    switchSound.setState(state);
+    switchSound.setState(state, true);  // force update
     
     Serial.printf("Zmieniono stan dźwięku na: %s\n", 
                   state ? "WŁĄCZONY" : "WYŁĄCZONY");
@@ -746,8 +749,8 @@ void setup() {
 
     Serial.println("Setup zakończony pomyślnie!");
     
-    if (soundEnabled) {
-      welcomeMelody();
+    if (status.soundEnabled) {
+        welcomeMelody();
     }
 }
 
