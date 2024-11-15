@@ -462,11 +462,11 @@ void setupHA() {
     sensorDistance.setUnitOfMeasurement("mm");     // Jednostka - milimetry
     
     sensorLevel.setName("Poziom wody");
-    sensorLevel.setIcon("mdi:water-percent");      // Ikona poziomu wody
+    sensorLevel.setIcon("mdi:cup-water");      // Ikona poziomu wody
     sensorLevel.setUnitOfMeasurement("%");         // Jednostka - procenty
     
     sensorVolume.setName("Objętość wody");
-    sensorVolume.setIcon("mdi:water");             // Ikona wody
+    sensorVolume.setIcon("mdi:cup-water");             // Ikona wody
     sensorVolume.setUnitOfMeasurement("L");        // Jednostka - litry
     
     // Konfiguracja sensorów statusu w HA
@@ -474,14 +474,14 @@ void setupHA() {
     sensorPump.setIcon("mdi:water-pump");          // Ikona pompy
     
     sensorWater.setName("Czujnik wody");
-    sensorWater.setIcon("mdi:water");              // Ikona wody
+    sensorWater.setIcon("mdi:electric-switch");              // Ikona wody
     
     // Konfiguracja sensorów alarmowych w HA
     sensorAlarm.setName("Brak wody");
-    sensorAlarm.setIcon("mdi:water-alert");        // Ikona alarmu wody
+    sensorAlarm.setIcon("mdi:alarm-light");        // Ikona alarmu wody
 
     sensorReserve.setName("Rezerwa wody");
-    sensorReserve.setIcon("mdi:alert-outline");    // Ikona ostrzeżenia
+    sensorReserve.setIcon("mdi:alarm-light-outline");    // Ikona ostrzeżenia
     
     // Konfiguracja przełączników w HA
     switchService.setName("Serwis");
@@ -502,15 +502,15 @@ void setupHA() {
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
 
     // Dodanie nowych sensorów
-    sensorDailyPumpRuns.setName("Uruchomienia pompy dzisiaj");
-    sensorDailyPumpRuns.setIcon("mdi:pump");
+    sensorDailyPumpRuns.setName("Dzisiejsze uruchomienia pompy");
+    sensorDailyPumpRuns.setIcon("mdi:water-pump");
     sensorDailyPumpRuns.setUnitOfMeasurement("razy");
     
-    sensorDailyPumpTime.setName("Czas pracy pompy dzisiaj");
+    sensorDailyPumpTime.setName("Dzisiejszy czas pracy pompy");
     sensorDailyPumpTime.setIcon("mdi:timer");
     sensorDailyPumpTime.setUnitOfMeasurement("min");
     
-    sensorDailyWaterUsed.setName("Zużycie wody dzisiaj");
+    sensorDailyWaterUsed.setName("Dzisiejsze zużycie wody");
     sensorDailyWaterUsed.setIcon("mdi:water");
     sensorDailyWaterUsed.setUnitOfMeasurement("L");
 }
@@ -1028,7 +1028,7 @@ void setup() {
     Serial.println("Setup zakończony pomyślnie!");
     
     if (status.soundEnabled) {
-        welcomeMelody();
+        //welcomeMelody();
     }
 }
 
@@ -1037,27 +1037,26 @@ void loop() {
     static unsigned long lastMQTTRetry = 0;
     static unsigned long lastMeasurement = 0;
 
-    // Podstawowe utrzymanie systemu
-    ESP.wdtFeed();      // Reset watchdog timer aby zapobiec automatycznemu restartowi
-    ArduinoOTA.handle(); // Obsługa aktualizacji Over-The-Air
-    yield();            // Pozwól ESP8266 wykonać krytyczne zadania systemowe
-
-    // Obsługa głównych funkcji urządzenia
-    mqtt.loop();        // Przetwarzanie komunikacji MQTT
-    handleButton();     // Obsługa przycisków fizycznych
-    updatePump();       // Zarządzanie pracą pompy
-    checkAlarmConditions(); // Sprawdzanie warunków alarmowych (dźwięki ostrzegawcze)
+    // KRYTYCZNE OPERACJE SYSTEMOWE
     
-    // Sprawdzanie i zarządzanie połączeniem WiFi
+    // Zabezpieczenie przed zawieszeniem systemu
+    ESP.wdtFeed();      // Resetowanie licznika watchdog
+    yield();            // Obsługa krytycznych zadań systemowych ESP8266
+    
+    // System aktualizacji bezprzewodowej
+    ArduinoOTA.handle(); // Nasłuchiwanie żądań aktualizacji OTA
+
+    // ZARZĄDZANIE ŁĄCZNOŚCIĄ
+    
+    // Sprawdzanie i utrzymanie połączenia WiFi
     if (WiFi.status() != WL_CONNECTED) {
-        setupWiFi();    // Próba ponownego połączenia z WiFi
-        return;         // Przerwij loop() i zacznij od nowa
+        setupWiFi();    // Próba ponownego połączenia z siecią
+        return;         // Powrót do początku pętli po próbie połączenia
     }
-        
+    
     // Zarządzanie połączeniem MQTT
     if (!mqtt.isConnected()) {
-        // Próba ponownego połączenia MQTT co 10 sekund
-        if (currentMillis - lastMQTTRetry >= 10000) {
+        if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
             lastMQTTRetry = currentMillis;
             Serial.println("\nBrak połączenia MQTT - próba reconnect...");
             if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
@@ -1065,23 +1064,35 @@ void loop() {
             }
         }
     }
+        
+    mqtt.loop();  // Obsługa komunikacji MQTT
 
-    // Aktualizacja czasu i statystyk
-    if (currentMillis - lastTimeUpdate >= 3600000) { // co godzinę
+    // GŁÓWNE FUNKCJE URZĄDZENIA
+    
+    // Obsługa interfejsu i sterowania
+    handleButton();     // Przetwarzanie sygnałów z przycisków
+    updatePump();       // Sterowanie pompą
+    checkAlarmConditions(); // System ostrzeżeń dźwiękowych
+    
+    // Monitoring poziomu wody
+    if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
+        updateWaterLevel();  // Pomiar i aktualizacja stanu wody
+        lastMeasurement = millis();
+    }
+
+    // STATYSTYKI I ZARZĄDZANIE CZASEM
+    
+    // Aktualizacja czasu i resetowanie statystyk (co godzinę)
+    if (currentMillis - lastTimeUpdate >= 3600000) {
         if (timeClient.update()) {
             lastTimeUpdate = currentMillis;
             checkStatisticsReset();
         }
     }
     
-    if (currentMillis - lastStatsUpdate >= 60000) { // co minutę
+    // Aktualizacja statystyk Home Assistant (co minutę)
+    if (currentMillis - lastStatsUpdate >= 60000) {
         updateHAStatistics();
         lastStatsUpdate = currentMillis;
-    }
-
-    // Regularne pomiary poziomu wody
-    if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
-        updateWaterLevel();  // Aktualizacja poziomu wody i powiązanych stanów
-        lastMeasurement = millis();
     }
 }
