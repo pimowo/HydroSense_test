@@ -112,6 +112,10 @@ HASwitch switchPump("pump_alarm"); // Przełącznik resetowania blokady pompy
 HASwitch switchService("service_mode"); // Przełącznik trybu serwisowego
 HASwitch switchSound("sound_switch"); // Przełącznik dźwięku alarmu            
 
+HASensor sensorDailyPumpRuns("daily_pump_runs", true);
+HASensor sensorDailyPumpTime("daily_pump_time", true);
+HASensor sensorDailyWaterUsed("daily_water_used", true);
+
 // Status systemu
 struct {
 bool isPumpActive = false; // Status pracy pompy
@@ -145,9 +149,6 @@ char calculateChecksum(const Config& cfg) {
     }
     return sum;
 }
-
-// Strefa czasowa dla Polski (UTC+1 lub UTC+2 w czasie letnim)
-const long utcOffsetInSeconds = 3600; // 3600 dla UTC+1, 7200 dla UTC+2
 
 // Definicje dla różnych typów alarmów
 enum AlarmType {
@@ -301,6 +302,39 @@ void updateHAStatistics() {
     // Podobnie dla pozostałych statystyk...
 }
 
+// Deklaracja getCurrentWaterLevel
+float getCurrentWaterLevel() {
+    int distance = measureDistance();
+    return calculateWaterLevel(distance);
+}
+
+// Funkcja sprawdzająca resety statystyk
+void checkStatisticsReset() {
+    time_t now = timeClient.getEpochTime();
+    struct tm* timeinfo = localtime(&now);
+    
+    // Reset dzienny o północy
+    if (timeinfo->tm_hour == 0 && timeinfo->tm_min == 0) {
+        if (now - pumpStats.lastDailyReset >= 86400) { // 24 godziny
+            resetDailyStatistics();
+        }
+    }
+    
+    // Reset tygodniowy w niedzielę o północy
+    if (timeinfo->tm_wday == 0 && timeinfo->tm_hour == 0 && timeinfo->tm_min == 0) {
+        if (now - pumpStats.lastWeeklyReset >= 604800) { // 7 dni
+            resetWeeklyStatistics();
+        }
+    }
+    
+    // Reset miesięczny pierwszego dnia miesiąca o północy
+    if (timeinfo->tm_mday == 1 && timeinfo->tm_hour == 0 && timeinfo->tm_min == 0) {
+        if (now - pumpStats.lastMonthlyReset >= 2592000) { // 30 dni
+            resetMonthlyStatistics();
+        }
+    }
+}
+
 // Funkcja do aktualizacji statystyk przy włączeniu pompy
 void onPumpStart() {
     pumpStats.dailyPumpRuns++;
@@ -448,23 +482,18 @@ void setupHA() {
     switchPump.setIcon("mdi:alert");               // Ikona alarmu
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
 
-    // Dodanie nowych sensorów dla statystyk
-    device.addSensor("daily_pump_runs")
-        ->setName("Uruchomienia pompy dzisiaj")
-        ->setIcon("mdi:pump")
-        ->setUnitOfMeasurement("razy");
-        
-    device.addSensor("daily_pump_time")
-        ->setName("Czas pracy pompy dzisiaj")
-        ->setIcon("mdi:timer")
-        ->setUnitOfMeasurement("min");
-        
-    device.addSensor("daily_water_used")
-        ->setName("Zużycie wody dzisiaj")
-        ->setIcon("mdi:water")
-        ->setUnitOfMeasurement("L");
-        
-    // Podobnie dla tygodniowych i miesięcznych statystyk...
+    // Dodanie nowych sensorów
+    sensorDailyPumpRuns.setName("Uruchomienia pompy dzisiaj");
+    sensorDailyPumpRuns.setIcon("mdi:pump");
+    sensorDailyPumpRuns.setUnitOfMeasurement("razy");
+    
+    sensorDailyPumpTime.setName("Czas pracy pompy dzisiaj");
+    sensorDailyPumpTime.setIcon("mdi:timer");
+    sensorDailyPumpTime.setUnitOfMeasurement("min");
+    
+    sensorDailyWaterUsed.setName("Zużycie wody dzisiaj");
+    sensorDailyWaterUsed.setIcon("mdi:water");
+    sensorDailyWaterUsed.setUnitOfMeasurement("L");
 }
 
 void setupPin() {
@@ -761,7 +790,6 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 
 // Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
 void updatePump() {
-    unsigned long currentMillis = millis();
     // Zabezpieczenie przed przepełnieniem licznika millis() (po około 50 dniach)
     // Jeśli millis() się przepełni, aktualizujemy czasy startowe
     if (millis() < status.pumpStartTime) {
@@ -786,18 +814,6 @@ void updatePump() {
             status.isPumpActive = false;  // Oznacz jako nieaktywną
             status.pumpStartTime = 0;  // Zeruj czas startu
             sensorPump.setValue("OFF");  // Aktualizuj status w HA
-            if (/* warunki wyłączenia pompy */) {
-                digitalWrite(PIN_PUMP, LOW);
-                status.isPumpActive = false;
-                onPumpStop();  // Dodajemy wywołanie
-            }
-        } else {
-            // Jeśli pompa nie jest aktywna
-            if (/* warunki włączenia pompy */) {
-                digitalWrite(PIN_PUMP, HIGH);
-                status.isPumpActive = true;
-                onPumpStart();  // Dodajemy wywołanie
-            }    
         }
         return;
     }
@@ -1031,18 +1047,15 @@ void loop() {
         }
     }
 
-    // Aktualizacja czasu
-    if (currentMillis - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
+    // Aktualizacja czasu i statystyk
+    if (currentMillis - lastTimeUpdate >= 3600000) { // co godzinę
         if (timeClient.update()) {
             lastTimeUpdate = currentMillis;
-            
-            // Sprawdzenie resetów statystyk
             checkStatisticsReset();
         }
-    }     
-
-    // Aktualizacja statystyk w Home Assistant
-    if (currentMillis - lastStatsUpdate >= STATS_UPDATE_INTERVAL) {
+    }
+    
+    if (currentMillis - lastStatsUpdate >= 60000) { // co minutę
         updateHAStatistics();
         lastStatsUpdate = currentMillis;
     }
