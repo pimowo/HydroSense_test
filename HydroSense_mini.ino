@@ -152,11 +152,10 @@ char calculateChecksum(const Config& cfg) {
 
 // Definicje dla różnych typów alarmów
 enum AlarmType {
-    ALARM_WATER_LOW,           // Brak wody
-    ALARM_PUMP_SAFETY,         // Alarm bezpieczeństwa pompy
-    ALARM_WATER_RESERVE,       // Rezerwa wody
-    ALARM_PUMP_START,          // Start pompy
-    ALARM_PUMP_STOP            // Stop pompy
+    ALARM_PUMP_START,
+    ALARM_PUMP_STOP,
+    ALARM_WATER_LOW,
+    ALARM_WATER_HIGH
 };
 
 // Struktura dla dźwięków alarmowych
@@ -286,20 +285,19 @@ void resetMonthlyStatistics() {
 }
 
 void updateHAStatistics() {
-    char timestamp[20];
-    time_t now = timeClient.getEpochTime();
-    struct tm* timeinfo = localtime(&now);
+    char value[16];
     
-    snprintf(timestamp, sizeof(timestamp), "%04d-%02d-%02d %02d:%02d:%02d",
-        timeinfo->tm_year + 1900, timeinfo->tm_mon + 1, timeinfo->tm_mday,
-        timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
-        
-    // Aktualizacja sensorów
-    sensorDailyPumpRuns.setValue(pumpStats.dailyPumpRuns, timestamp);
-    sensorDailyPumpTime.setValue(pumpStats.dailyPumpWorkTime / 60, timestamp); // Konwersja na minuty
-    sensorDailyWaterUsed.setValue(pumpStats.dailyWaterUsed, timestamp);
+    // Konwersja liczby uruchomień pompy na string
+    itoa(pumpStats.dailyPumpRuns, value, 10);
+    sensorDailyPumpRuns.setValue(value);
     
-    // Podobnie dla pozostałych statystyk...
+    // Konwersja czasu pracy pompy na string (w minutach)
+    itoa(pumpStats.dailyPumpWorkTime / 60, value, 10);
+    sensorDailyPumpTime.setValue(value);
+    
+    // Konwersja zużycia wody na string
+    dtostrf(pumpStats.dailyWaterUsed, 4, 2, value);
+    sensorDailyWaterUsed.setValue(value);
 }
 
 // Deklaracja getCurrentWaterLevel
@@ -376,14 +374,32 @@ float calculateWaterUsed(float beforeLevel, float afterLevel) {
 }
 
 void playAlarm(AlarmType type) {
-    if (!status.soundEnabled) return;
-    
-    const AlarmTone& tone = alarmTones[type];
-    for(uint8_t i = 0; i < tone.repeats; i++) {
-        ::tone(PIN_BUZZER, tone.frequency, tone.duration);
-        if(tone.pauseDuration > 0 && i < tone.repeats - 1) {
-            delay(tone.pauseDuration);
-        }
+    // Sprawdź czy dźwięk jest włączony
+    if (!config.soundEnabled) {
+        return; // Jeśli dźwięk jest wyłączony, zakończ funkcję
+    }
+
+    // Parametry dźwięku dla różnych typów alarmów
+    switch (type) {
+        case ALARM_PUMP_START:
+            tone(PIN_BUZZER, 2000, 100);  // Wysoki dźwięk, krótki
+            break;
+            
+        case ALARM_PUMP_STOP:
+            tone(PIN_BUZZER, 1000, 200);  // Niższy dźwięk, dłuższy
+            break;
+            
+        case ALARM_WATER_LOW:
+            // Dwa krótkie sygnały
+            tone(PIN_BUZZER, 2500, 100);
+            delay(150);
+            tone(PIN_BUZZER, 2500, 100);
+            break;
+            
+        case ALARM_WATER_HIGH:
+            // Jeden długi sygnał
+            tone(PIN_BUZZER, 3000, 500);
+            break;
     }
 }
 
