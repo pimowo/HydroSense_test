@@ -12,9 +12,9 @@
 
 // Struktura konfiguracji
 struct Config {
-    uint8_t version;          // Wersja konfiguracji
-    bool soundEnabled;        // Status dźwięku (włączony/wyłączony)
-    char checksum;           // Suma kontrolna
+    uint8_t version;  // Wersja konfiguracji
+    bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
+    char checksum;  // Suma kontrolna
 };
 
 // Stałe konfiguracyjne
@@ -25,43 +25,39 @@ const int EEPROM_SIZE = sizeof(Config);
 Config config;
 
 // Konfiguracja WiFi i MQTT
-const char* WIFI_SSID = "pimowo"; // Nazwa sieci WiFi
-const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj"; // Hasło do sieci WiFi
-const char* MQTT_SERVER = "192.168.1.14"; // Adres IP serwera MQTT (Home Assistant)
-const char* MQTT_USER = "hydrosense"; // Użytkownik MQTT
-const char* MQTT_PASSWORD = "hydrosense"; // Hasło MQTT
+const char* WIFI_SSID = "pimowo";  // Nazwa sieci WiFi
+const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
+const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
+const char* MQTT_USER = "hydrosense";  // Użytkownik MQTT
+const char* MQTT_PASSWORD = "hydrosense";  // Hasło MQTT
 
-// Definicje pinów ESP8266
-
-// Piny dla czujnika HC-SR04
+// Konfiguracja pinów ESP8266
 #define PIN_ULTRASONIC_TRIG D6 // Pin TRIG czujnika ultradźwiękowego
 #define PIN_ULTRASONIC_ECHO D7 // Pin ECHO czujnika ultradźwiękowego
 
 #define PIN_WATER_LEVEL D5 // Pin czujnika poziomu wody w akwarium
 #define PIN_PUMP D1 // Pin sterowania pompą
 #define PIN_BUZZER D2 // Pin buzzera do alarmów dźwiękowych
-
 #define PIN_BUTTON D3 // Pin przycisku do kasowania alarmów
-//#define DEBOUNCE_DELAY 50  // 50ms dla debounce
 
 // Stałe czasowe (wszystkie wartości w milisekundach)
-const unsigned long ULTRASONIC_TIMEOUT = 50; // Timeout pomiaru w ms
-const unsigned long MEASUREMENT_INTERVAL = 10000;// Interwał między pomiarami w ms
-const unsigned long WIFI_CHECK_INTERVAL = 5000;// Czas między sprawdzeniami WiFi w ms
-const unsigned long WATCHDOG_TIMEOUT = 8000; // Timeout dla watchdoga w ms
-const unsigned long PUMP_MAX_WORK_TIME = 300000;    // Maksymalny czas pracy pompy (5 minut)
-const unsigned long PUMP_DELAY_TIME = 60000;        // Opóźnienie ponownego załączenia pompy (1 minuta)
-const unsigned long SENSOR_READ_INTERVAL = 5000;    // Częstotliwość odczytu czujnika (5 sekund)
-const unsigned long MQTT_RETRY_INTERVAL = 5000;     // Czas między próbami połączenia MQTT (5 sekund)
-const unsigned long WIFI_RETRY_INTERVAL = 10000;    // Czas między próbami połączenia WiFi (10 sekund)
-const unsigned long BUTTON_DEBOUNCE_TIME = 50;      // Czas debouncingu przycisku (50ms)
-const unsigned long LONG_PRESS_TIME = 1000;         // Czas długiego naciśnięcia przycisku (1 sekunda)
+const unsigned long ULTRASONIC_TIMEOUT = 50;  // Timeout pomiaru w ms
+const unsigned long MEASUREMENT_INTERVAL = 10000;  // Interwał między pomiarami w ms
+const unsigned long WIFI_CHECK_INTERVAL = 5000;  // Czas między sprawdzeniami WiFi w ms
+const unsigned long WATCHDOG_TIMEOUT = 8000;  // Timeout dla watchdoga w ms
+const unsigned long PUMP_MAX_WORK_TIME = 300000;  // Maksymalny czas pracy pompy (5 minut)
+const unsigned long PUMP_DELAY_TIME = 60000;  // Opóźnienie ponownego załączenia pompy (1 minuta)
+const unsigned long SENSOR_READ_INTERVAL = 5000;  // Częstotliwość odczytu czujnika (5 sekund)
+const unsigned long MQTT_RETRY_INTERVAL = 5000;  // Czas między próbami połączenia MQTT (5 sekund)
+const unsigned long WIFI_RETRY_INTERVAL = 10000;  // Czas między próbami połączenia WiFi (10 sekund)
+const unsigned long BUTTON_DEBOUNCE_TIME = 50;  // Czas debouncingu przycisku (50ms)
+const unsigned long LONG_PRESS_TIME = 1000;  // Czas długiego naciśnięcia przycisku (1 sekunda)
 
 // Konfiguracja EEPROM
-#define EEPROM_SIZE 512 // Rozmiar używanej pamięci EEPROM w bajtach
+#define EEPROM_SIZE 512  // Rozmiar używanej pamięci EEPROM w bajtach
 
 // Adresy w pamięci EEPROM
-#define EEPROM_SOUND_STATE_ADDR 0 // Adres przechowywania stanu dźwięku (1 bajt)
+#define EEPROM_SOUND_STATE_ADDR 0  // Adres przechowywania stanu dźwięku (1 bajt)
 
 // Konfiguracja zbiornika i pomiarów
 const int DISTANCE_WHEN_FULL = 65.0;  // pełny zbiornik - mm
@@ -168,6 +164,9 @@ bool loadConfig() {
         setDefaultConfig();
         return false;
     }
+    
+    // Synchronizuj stan po wczytaniu
+    status.soundEnabled = config.soundEnabled;
     
     Serial.println(F("Konfiguracja wczytana"));
     return true;
@@ -302,16 +301,16 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
  * - Aktualizuje stan w Home Assistant
  */
 void onSoundSwitchCommand(bool state, HASwitch* sender) {
-    status.soundEnabled = state;                   // Aktualizacja flagi stanu dźwięku
+    // Aktualizuj stan w pamięci RAM
+    status.soundEnabled = state;
     
-    // Zapisz stan do konfiguracji i EEPROM
+    // Zapisz stan w konfiguracji EEPROM
     config.soundEnabled = state;
-    saveConfig();
+    saveConfig();  // Zapisz do EEPROM
     
-    // Aktualizacja stanu w Home Assistant
-    switchSound.setState(state);                   // Synchronizacja stanu przełącznika
+    // Aktualizuj stan w Home Assistant
+    switchSound.setState(state);
     
-    // Log zmiany stanu
     Serial.printf("Zmieniono stan dźwięku na: %s\n", 
                   state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
@@ -324,52 +323,6 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
  * - Długie (≥ 1s): kasuje blokadę bezpieczeństwa pompy
  */
 // void handleButton() {
-//     bool reading = digitalRead(PIN_BUTTON);
-    
-//     // Obsługa zmiany stanu przycisku
-//     if (reading != buttonState.lastState) {
-//         if (reading == LOW) {  // Przycisk naciśnięty
-//             buttonState.pressedTime = millis();
-//             buttonState.isLongPressHandled = false;  // Reset flagi długiego naciśnięcia
-//         } else {  // Przycisk zwolniony
-//             buttonState.releasedTime = millis();
-            
-//             // Sprawdzenie czy to było krótkie naciśnięcie
-//             if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
-//                 // Przełącz tryb serwisowy
-//                 status.isServiceMode = !status.isServiceMode;
-//                 switchService.setState(status.isServiceMode, true);  // force update w HA
-                
-//                 // Log zmiany stanu
-//                 Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
-//                             status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
-                
-//                 // Jeśli włączono tryb serwisowy podczas pracy pompy
-//                 if (status.isServiceMode && status.isPumpActive) {
-//                     digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
-//                     status.isPumpActive = false;  // Reset flagi aktywności
-//                     status.pumpStartTime = 0;  // Reset czasu startu
-//                     sensorPump.setValue("OFF");  // Aktualizacja w HA
-//                 }
-//             }
-//         }
-//     }
-    
-//     // Obsługa długiego naciśnięcia (reset blokady pompy)
-//     if (reading == LOW && !buttonState.isLongPressHandled) {
-//         if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
-//             ESP.wdtFeed();  // Reset przy długim naciśnięciu
-//             status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
-//             switchPump.setState(false, true);  // force update w HA
-//             buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
-//             Serial.println("Alarm pompy skasowany");
-//         }
-//     }
-    
-//     buttonState.lastState = reading;
-//     yield();  // Oddaj sterowanie systemowi
-// }
-
 void handleButton() {
     static unsigned long lastDebounceTime = 0;
     static bool lastReading = HIGH;
@@ -436,14 +389,14 @@ void handleButton() {
 // - zmierzoną odległość w milimetrach
 // - (-1) w przypadku błędu lub przekroczenia czasu odpowiedzi
 int measureDistance() {
-    // 1. Generowanie impulsu wyzwalającego (trigger)
+    // Generowanie impulsu wyzwalającego (trigger)
     digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że pin jest w stanie niskim
     delayMicroseconds(5);  // Krótka pauza dla stabilizacji
     digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);  // Wysłanie impulsu 10µs
     delayMicroseconds(10);  // Czekaj 10µs
     digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Zakończ impuls
 
-    // 2. Oczekiwanie na początek sygnału echo
+    // Oczekiwanie na początek sygnału echo
     // Timeout 100ms chroni przed zawieszeniem jeśli czujnik nie odpowiada
     unsigned long startWaiting = millis();
     while (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
@@ -453,11 +406,11 @@ int measureDistance() {
         }
     }
 
-    // 3. Pomiar czasu początku echa (w mikrosekundach)
+    // Pomiar czasu początku echa (w mikrosekundach)
     // micros() zapewnia dokładniejszy pomiar niż millis()
     unsigned long echoStartTime = micros();
 
-    // 4. Oczekiwanie na koniec sygnału echo
+    // Oczekiwanie na koniec sygnału echo
     // Timeout 20ms - teoretyczny max dla 3.4m to około 20ms
     while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
         if (micros() - echoStartTime > 20000) {
@@ -466,24 +419,17 @@ int measureDistance() {
         }
     }
 
-    // 5. Obliczenie czasu trwania echa (w mikrosekundach)
+    // Obliczenie czasu trwania echa (w mikrosekundach)
     unsigned long duration = micros() - echoStartTime;
 
-    // 6. Konwersja czasu na odległość
+    // Konwersja czasu na odległość
     // Wzór: distance = (czas * prędkość dźwięku) / 2
     // - czas w mikrosekundach
     // - prędkość dźwięku = 343 m/s = 0.343 mm/µs
     // - dzielimy przez 2 bo dźwięk pokonuje drogę w obie strony
     int distance = (duration * 343) / 2000;
 
-    // 7. Wyświetl informacje debugowe
-    // Serial.print("Czas echa: ");
-    // Serial.print(duration);
-    // Serial.print(" us, Odległość: ");
-    // Serial.print(distance);
-    // Serial.println(" mm");
-
-    // 8. Walidacja wyniku
+    // Walidacja wyniku
     // - min 20mm - minimalna dokładna odległość dla HC-SR04
     // - max 1500mm - maksymalna użyteczna odległość dla zbiornika
     if (distance >= 20 && distance <= 1500) {
@@ -692,21 +638,6 @@ void setup() {
     pinMode(PIN_PUMP, OUTPUT);                     // Wyjście - pompa
     digitalWrite(PIN_PUMP, LOW);                   // Wyłączenie pompy
     
-    // // Zresetuj tryb serwisowy przy starcie
-    // status.isServiceMode = false;
-    
-    // // Odczekaj moment na ustabilizowanie stanu przycisku
-    // delay(50);
-    
-    // // Sprawdź rzeczywisty stan przycisku
-    // if (digitalRead(PIN_BUTTON) == LOW) {
-    //     status.isServiceMode = true;
-    //     Serial.println("Przycisk wciśnięty podczas startu!");
-    // } else {
-    //     status.isServiceMode = false;
-    //     Serial.println("Przycisk nie wciśnięty podczas startu.");
-    // }
-
     // Nawiązanie połączenia WiFi
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {        // Oczekiwanie na połączenie
@@ -770,6 +701,13 @@ void setup() {
     switchPump.setIcon("mdi:alert");               // Ikona alarmu
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
 
+    // Wczytaj konfigurację z EEPROM
+    if (loadConfig()) {
+        // Synchronizuj stan dźwięku z wczytanej konfiguracji
+        status.soundEnabled = config.soundEnabled;
+        switchSound.setState(config.soundEnabled); // Aktualizuj stan w HA
+    }
+    
     // Wykonaj pierwszy pomiar i ustaw stany
     float initialDistance = measureDistance();
     
