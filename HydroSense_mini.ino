@@ -5,6 +5,25 @@
 #include <ArduinoOTA.h>  // Obsługa aktualizacji OTA (Over-The-Air)
 #include <EEPROM.h>  // Obsługa pamięci EEPROM, wykorzystywana do przechowywania danych na stałe
 #include <CRC32.h>  // Biblioteka CRC32 - używana do weryfikacji integralności danych
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <Time.h>
+#include <TimeLib.h>
+
+// Definicje dla NTP
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org");
+
+// Definicje interwałów czasowych
+#define TIME_UPDATE_INTERVAL 3600000  // 1 godzina w milisekundach
+#define STATS_UPDATE_INTERVAL 60000   // 1 minuta w milisekundach
+
+// Zmienne do śledzenia czasu
+unsigned long lastTimeUpdate = 0;
+unsigned long lastStatsUpdate = 0;
+
+// Strefa czasowa dla Polski (UTC+1 lub UTC+2 w czasie letnim)
+const long utcOffsetInSeconds = 3600; // 3600 dla UTC+1, 7200 dla UTC+2
 
 // Struktura konfiguracji
 struct Config {
@@ -127,6 +146,70 @@ char calculateChecksum(const Config& cfg) {
     return sum;
 }
 
+// Strefa czasowa dla Polski (UTC+1 lub UTC+2 w czasie letnim)
+const long utcOffsetInSeconds = 3600; // 3600 dla UTC+1, 7200 dla UTC+2
+
+// Definicje dla różnych typów alarmów
+enum AlarmType {
+    ALARM_WATER_LOW,           // Brak wody
+    ALARM_PUMP_SAFETY,         // Alarm bezpieczeństwa pompy
+    ALARM_WATER_RESERVE,       // Rezerwa wody
+    ALARM_PUMP_START,          // Start pompy
+    ALARM_PUMP_STOP            // Stop pompy
+};
+
+// Struktura dla dźwięków alarmowych
+struct AlarmTone {
+    uint16_t frequency;        // Częstotliwość dźwięku
+    uint16_t duration;         // Czas trwania
+    uint8_t repeats;          // Liczba powtórzeń
+    uint16_t pauseDuration;   // Przerwa między powtórzeniami
+};
+
+// Konfiguracja dźwięków dla różnych alarmów
+const AlarmTone alarmTones[] = {
+    {2000, 1000, 3, 500},     // ALARM_WATER_LOW
+    {3000, 500, 5, 200},      // ALARM_PUMP_SAFETY
+    {1500, 200, 2, 300},      // ALARM_WATER_RESERVE
+    {800, 100, 1, 0},         // ALARM_PUMP_START
+    {600, 200, 1, 0}          // ALARM_PUMP_STOP
+};
+
+// Struktura dla statystyk
+struct PumpStatistics {
+    // Dzienne statystyki
+    uint16_t dailyPumpRuns;
+    uint32_t dailyPumpWorkTime;    // w sekundach
+    float dailyWaterUsed;          // w litrach
+    
+    // Tygodniowe statystyki
+    uint16_t weeklyPumpRuns;
+    uint32_t weeklyPumpWorkTime;
+    float weeklyWaterUsed;
+    
+    // Miesięczne statystyki
+    uint16_t monthlyPumpRuns;
+    uint32_t monthlyPumpWorkTime;
+    float monthlyWaterUsed;
+    
+    // Całkowite statystyki
+    uint32_t totalPumpRuns;
+    uint32_t totalPumpWorkTime;
+    float totalWaterUsed;
+    
+    // Znaczniki czasowe ostatnich resetów
+    time_t lastDailyReset;
+    time_t lastWeeklyReset;
+    time_t lastMonthlyReset;
+};
+
+// Globalna instancja statystyk
+PumpStatistics pumpStats = {0};
+
+// Zmienne do śledzenia stanu pompy
+unsigned long pumpStartTime = 0;      // Czas startu pompy
+float waterLevelBeforePump = 0;       // Poziom wody przed startem pompy
+
 // Zapis konfiguracji
 void saveConfig() {
     config.version = CONFIG_VERSION;
@@ -180,6 +263,96 @@ void setDefaultConfig() {
     Serial.println(F("Utworzono domyślną konfigurację"));
 }
 
+void resetDailyStatistics() {
+    pumpStats.dailyPumpRuns = 0;
+    pumpStats.dailyPumpWorkTime = 0;
+    pumpStats.dailyWaterUsed = 0;
+    pumpStats.lastDailyReset = timeClient.getEpochTime();
+}
+
+void resetWeeklyStatistics() {
+    pumpStats.weeklyPumpRuns = 0;
+    pumpStats.weeklyPumpWorkTime = 0;
+    pumpStats.weeklyWaterUsed = 0;
+    pumpStats.lastWeeklyReset = timeClient.getEpochTime();
+}
+
+void resetMonthlyStatistics() {
+    pumpStats.monthlyPumpRuns = 0;
+    pumpStats.monthlyPumpWorkTime = 0;
+    pumpStats.monthlyWaterUsed = 0;
+    pumpStats.lastMonthlyReset = timeClient.getEpochTime();
+}
+
+void updateHAStatistics() {
+    char timestamp[20];
+    time_t now = timeClient.getEpochTime();
+    struct tm* timeinfo = localtime(&now);
+    
+    snprintf(timestamp, sizeof(timestamp), "%04d-%02d-%02d %02d:%02d:%02d",
+        timeinfo->tm_year + 1900, timeinfo->tm_mon + 1, timeinfo->tm_mday,
+        timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+        
+    // Aktualizacja sensorów
+    sensorDailyPumpRuns.setValue(pumpStats.dailyPumpRuns, timestamp);
+    sensorDailyPumpTime.setValue(pumpStats.dailyPumpWorkTime / 60, timestamp); // Konwersja na minuty
+    sensorDailyWaterUsed.setValue(pumpStats.dailyWaterUsed, timestamp);
+    
+    // Podobnie dla pozostałych statystyk...
+}
+
+// Funkcja do aktualizacji statystyk przy włączeniu pompy
+void onPumpStart() {
+    pumpStats.dailyPumpRuns++;
+    pumpStats.weeklyPumpRuns++;
+    pumpStats.monthlyPumpRuns++;
+    pumpStats.totalPumpRuns++;
+    
+    pumpStartTime = millis();
+    waterLevelBeforePump = getCurrentWaterLevel();
+    
+    // Sygnał dźwiękowy startu pompy
+    playAlarm(ALARM_PUMP_START);
+}
+
+// Funkcja do aktualizacji statystyk przy wyłączeniu pompy
+void onPumpStop() {
+    unsigned long pumpWorkTime = (millis() - pumpStartTime) / 1000; // czas w sekundach
+    float waterUsed = calculateWaterUsed(waterLevelBeforePump, getCurrentWaterLevel());
+    
+    pumpStats.dailyPumpWorkTime += pumpWorkTime;
+    pumpStats.weeklyPumpWorkTime += pumpWorkTime;
+    pumpStats.monthlyPumpWorkTime += pumpWorkTime;
+    pumpStats.totalPumpWorkTime += pumpWorkTime;
+    
+    pumpStats.dailyWaterUsed += waterUsed;
+    pumpStats.weeklyWaterUsed += waterUsed;
+    pumpStats.monthlyWaterUsed += waterUsed;
+    pumpStats.totalWaterUsed += waterUsed;
+    
+    // Sygnał dźwiękowy zatrzymania pompy
+    playAlarm(ALARM_PUMP_STOP);
+}
+
+// Funkcja do obliczania zużytej wody
+float calculateWaterUsed(float beforeLevel, float afterLevel) {
+    // Zakładając, że poziomy są w procentach i znamy objętość zbiornika
+    const float CONTAINER_VOLUME = 20.0; // Objętość zbiornika w litrach - do dostosowania
+    return (beforeLevel - afterLevel) * CONTAINER_VOLUME / 100.0;
+}
+
+void playAlarm(AlarmType type) {
+    if (!status.soundEnabled) return;
+    
+    const AlarmTone& tone = alarmTones[type];
+    for(uint8_t i = 0; i < tone.repeats; i++) {
+        ::tone(PIN_BUZZER, tone.frequency, tone.duration);
+        if(tone.pauseDuration > 0 && i < tone.repeats - 1) {
+            delay(tone.pauseDuration);
+        }
+    }
+}
+
 // Konfiguracja i zarządzanie połączeniem WiFi
 void setupWiFi() {
     // Zmienne statyczne zachowujące wartość między wywołaniami
@@ -228,7 +401,7 @@ void setupHA() {
     device.setName("HydroSense");                  // Nazwa urządzenia
     device.setModel("HS ESP8266");                 // Model urządzenia
     device.setManufacturer("PMW");                 // Producent
-    device.setSoftwareVersion("13.11.24");         // Wersja oprogramowania
+    device.setSoftwareVersion("15.11.24");         // Wersja oprogramowania
 
     // Konfiguracja sensorów pomiarowych w HA
     sensorDistance.setName("Pomiar odległości");
@@ -275,6 +448,23 @@ void setupHA() {
     switchPump.setIcon("mdi:alert");               // Ikona alarmu
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
 
+    // Dodanie nowych sensorów dla statystyk
+    device.addSensor("daily_pump_runs")
+        ->setName("Uruchomienia pompy dzisiaj")
+        ->setIcon("mdi:pump")
+        ->setUnitOfMeasurement("razy");
+        
+    device.addSensor("daily_pump_time")
+        ->setName("Czas pracy pompy dzisiaj")
+        ->setIcon("mdi:timer")
+        ->setUnitOfMeasurement("min");
+        
+    device.addSensor("daily_water_used")
+        ->setName("Zużycie wody dzisiaj")
+        ->setIcon("mdi:water")
+        ->setUnitOfMeasurement("L");
+        
+    // Podobnie dla tygodniowych i miesięcznych statystyk...
 }
 
 void setupPin() {
@@ -571,6 +761,7 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 
 // Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
 void updatePump() {
+    unsigned long currentMillis = millis();
     // Zabezpieczenie przed przepełnieniem licznika millis() (po około 50 dniach)
     // Jeśli millis() się przepełni, aktualizujemy czasy startowe
     if (millis() < status.pumpStartTime) {
@@ -595,6 +786,18 @@ void updatePump() {
             status.isPumpActive = false;  // Oznacz jako nieaktywną
             status.pumpStartTime = 0;  // Zeruj czas startu
             sensorPump.setValue("OFF");  // Aktualizuj status w HA
+            if (/* warunki wyłączenia pompy */) {
+                digitalWrite(PIN_PUMP, LOW);
+                status.isPumpActive = false;
+                onPumpStop();  // Dodajemy wywołanie
+            }
+        } else {
+            // Jeśli pompa nie jest aktywna
+            if (/* warunki włączenia pompy */) {
+                digitalWrite(PIN_PUMP, HIGH);
+                status.isPumpActive = true;
+                onPumpStart();  // Dodajemy wywołanie
+            }    
         }
         return;
     }
@@ -772,6 +975,21 @@ void setup() {
     ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
     ArduinoOTA.begin();  // Uruchom OTA
 
+    // Inicjalizacja NTP
+    timeClient.begin();
+    timeClient.setTimeOffset(utcOffsetInSeconds);
+    
+    // Pierwsze pobranie czasu
+    while(!timeClient.update()) {
+        timeClient.forceUpdate();
+        delay(500);
+    }
+    
+    // Reset statystyk
+    resetDailyStatistics();
+    resetWeeklyStatistics();
+    resetMonthlyStatistics();
+
     Serial.println("Setup zakończony pomyślnie!");
     
     if (status.soundEnabled) {
@@ -812,7 +1030,23 @@ void loop() {
             }
         }
     }
-             
+
+    // Aktualizacja czasu
+    if (currentMillis - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
+        if (timeClient.update()) {
+            lastTimeUpdate = currentMillis;
+            
+            // Sprawdzenie resetów statystyk
+            checkStatisticsReset();
+        }
+    }     
+
+    // Aktualizacja statystyk w Home Assistant
+    if (currentMillis - lastStatsUpdate >= STATS_UPDATE_INTERVAL) {
+        updateHAStatistics();
+        lastStatsUpdate = currentMillis;
+    }
+
     // Regularne pomiary poziomu wody
     if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
         updateWaterLevel();  // Aktualizacja poziomu wody i powiązanych stanów
