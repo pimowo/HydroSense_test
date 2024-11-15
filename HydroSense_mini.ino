@@ -48,6 +48,7 @@ const unsigned long MQTT_RETRY_INTERVAL = 5000;  // Czas między próbami połą
 const unsigned long WIFI_RETRY_INTERVAL = 10000;  // Czas między próbami połączenia WiFi (10 sekund)
 const unsigned long BUTTON_DEBOUNCE_TIME = 50;  // Czas debouncingu przycisku (50ms)
 const unsigned long LONG_PRESS_TIME = 1000;  // Czas długiego naciśnięcia przycisku (1 sekunda)
+const unsigned long SOUND_ALERT_INTERVAL = 60000; // 1 minuta w milisekundach
 
 // Konfiguracja EEPROM
 #define EEPROM_SIZE 512  // Rozmiar używanej pamięci EEPROM w bajtach
@@ -104,6 +105,7 @@ bool isPumpActive = false; // Status pracy pompy
     bool soundEnabled;// = false; // Status włączenia dźwięku alarmu
     bool isServiceMode = false; // Status trybu serwisowego
     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
+    unsigned long lastSoundAlert = 0;  //
 } status;
 
 // Struktura dla obsługi przycisku
@@ -310,11 +312,13 @@ void firstUpdateHA() {
     // Wymuś stan OFF na początku
     sensorAlarm.setValue("OFF");
     sensorReserve.setValue("OFF");
+    switchSound.setState(false);  // Dodane - wymuś stan początkowy
     mqtt.loop();
     
     // Ustawienie końcowych stanów i wysyłka do HA
     sensorAlarm.setValue(status.waterAlarmActive ? "ON" : "OFF");
     sensorReserve.setValue(status.waterReserveActive ? "ON" : "OFF");
+    switchSound.setState(status.soundEnabled);  // Dodane - ustaw aktualny stan dźwięku
     mqtt.loop();
 }
 
@@ -474,6 +478,26 @@ void handleButton() {
     
     lastReading = reading;  // Zapisz ostatni odczyt dla następnego porównania
     yield();  // Oddaj sterowanie systemowi
+}
+
+void shortAlertBeep() {
+    tone(PIN_BUZZER, 2000, 100);  // Częstotliwość 2000Hz, czas 100ms
+}
+
+void checkAlarmConditions() {
+    // Sprawdź czy minęła minuta od ostatniego alarmu
+    if (millis() - status.lastSoundAlert >= SOUND_ALERT_INTERVAL) {
+        // Sprawdź czy dźwięk jest włączony i czy występuje któryś z alarmów
+        if (status.soundEnabled && (status.waterAlarmActive || status.pumpSafetyLock)) {
+            shortAlertBeep();
+            status.lastSoundAlert = millis();
+            
+            // Debug info
+            Serial.println(F("Alarm dźwiękowy - przyczyna:"));
+            if (status.waterAlarmActive) Serial.println(F("- Brak wody"));
+            if (status.pumpSafetyLock) Serial.println(F("- Alarm pompy"));
+        }
+    }
 }
 
 // Funkcja wykonuje pomiar odległości za pomocą czujnika ultradźwiękowego HC-SR04
@@ -741,6 +765,7 @@ void setup() {
     }
     
     firstUpdateHA();
+    status.lastSoundAlert = millis();
     
     // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
     ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
@@ -755,38 +780,42 @@ void setup() {
 }
 
 void loop() {
-  unsigned long currentMillis = millis();
-  static unsigned long lastMQTTRetry = 0;
-  static unsigned long lastMeasurement = 0;
+    unsigned long currentMillis = millis();
+    static unsigned long lastMQTTRetry = 0;
+    static unsigned long lastMeasurement = 0;
 
-  ESP.wdtFeed();  // Feed watchdog
+    // Podstawowe utrzymanie systemu
+    ESP.wdtFeed();      // Reset watchdog timer aby zapobiec automatycznemu restartowi
+    ArduinoOTA.handle(); // Obsługa aktualizacji Over-The-Air
+    yield();            // Pozwól ESP8266 wykonać krytyczne zadania systemowe
 
-  // Sprawdź WiFi i MQTT - bez zmian
-  if (WiFi.status() != WL_CONNECTED) {
-    setupWiFi();
-    return;
-  }
-        
-  if (!mqtt.isConnected()) {
-    if (currentMillis - lastMQTTRetry >= 10000) {
-      lastMQTTRetry = currentMillis;
-      Serial.println("\nBrak połączenia MQTT - próba reconnect...");
-      if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        Serial.println("MQTT połączono ponownie!");
-      }
-    }
-  }
+    // Obsługa głównych funkcji urządzenia
+    mqtt.loop();        // Przetwarzanie komunikacji MQTT
+    handleButton();     // Obsługa przycisków fizycznych
+    updatePump();       // Zarządzanie pracą pompy
+    checkAlarmConditions(); // Sprawdzanie warunków alarmowych (dźwięki ostrzegawcze)
     
-  mqtt.loop();
-  handleButton();
-          
-  // Pomiar co MEASUREMENT_INTERVAL
-  if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
-    updateWaterLevel();  // Ta funkcja zawiera wszystko co potrzebne
-    lastMeasurement = millis();
-  }
-
-  updatePump();
-  yield();
-  ArduinoOTA.handle();  // Obsługa OTA
+    // Sprawdzanie i zarządzanie połączeniem WiFi
+    if (WiFi.status() != WL_CONNECTED) {
+        setupWiFi();    // Próba ponownego połączenia z WiFi
+        return;         // Przerwij loop() i zacznij od nowa
+    }
+        
+    // Zarządzanie połączeniem MQTT
+    if (!mqtt.isConnected()) {
+        // Próba ponownego połączenia MQTT co 10 sekund
+        if (currentMillis - lastMQTTRetry >= 10000) {
+            lastMQTTRetry = currentMillis;
+            Serial.println("\nBrak połączenia MQTT - próba reconnect...");
+            if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+                Serial.println("MQTT połączono ponownie!");
+            }
+        }
+    }
+             
+    // Regularne pomiary poziomu wody
+    if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
+        updateWaterLevel();  // Aktualizacja poziomu wody i powiązanych stanów
+        lastMeasurement = millis();
+    }
 }
