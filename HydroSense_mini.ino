@@ -1,14 +1,10 @@
 // Biblioteki związane z obsługą komunikacji
 #include <ESP8266WiFi.h>  // Obsługa WiFi dla ESP8266
 #include <PubSubClient.h>  // MQTT - protokół komunikacji z serwerem MQTT
-// Biblioteka do integracji z Home Assistant
-#include <ArduinoHA.h>  // Ułatwia komunikację z Home Assistant
-// Obsługa aktualizacji OTA (Over-The-Air)
-#include <ArduinoOTA.h>  // Aktualizacje firmware bezpośrednio przez WiFi
-// Obsługa pamięci EEPROM, wykorzystywana do przechowywania danych na stałe
-#include <EEPROM.h>  // Przechowuje dane między restartami urządzenia
-// Biblioteka CRC32 - używana do weryfikacji integralności danych
-#include <CRC32.h>  // Zapewnia spójność danych za pomocą sumy kontrolnej
+#include <ArduinoHA.h>  // Biblioteka do integracji z Home Assistant
+#include <ArduinoOTA.h>  // Obsługa aktualizacji OTA (Over-The-Air)
+#include <EEPROM.h>  // Obsługa pamięci EEPROM, wykorzystywana do przechowywania danych na stałe
+#include <CRC32.h>  // Biblioteka CRC32 - używana do weryfikacji integralności danych
 
 // Struktura konfiguracji
 struct Config {
@@ -219,6 +215,104 @@ bool connectMQTT() {
     
     Serial.println("MQTT połączono pomyślnie!");
     return true;
+}
+
+// Funkcja konfigurująca Home Assistant
+void setupHA() {
+ // Konfiguracja urządzenia dla Home Assistant
+    device.setName("HydroSense");                  // Nazwa urządzenia
+    device.setModel("HS ESP8266");                 // Model urządzenia
+    device.setManufacturer("PMW");                 // Producent
+    device.setSoftwareVersion("13.11.24");         // Wersja oprogramowania
+
+    // Konfiguracja sensorów pomiarowych w HA
+    sensorDistance.setName("Pomiar odległości");
+    sensorDistance.setIcon("mdi:ruler");           // Ikona linijki
+    sensorDistance.setUnitOfMeasurement("mm");     // Jednostka - milimetry
+    
+    sensorLevel.setName("Poziom wody");
+    sensorLevel.setIcon("mdi:water-percent");      // Ikona poziomu wody
+    sensorLevel.setUnitOfMeasurement("%");         // Jednostka - procenty
+    
+    sensorVolume.setName("Objętość wody");
+    sensorVolume.setIcon("mdi:water");             // Ikona wody
+    sensorVolume.setUnitOfMeasurement("L");        // Jednostka - litry
+    
+    // Konfiguracja sensorów statusu w HA
+    sensorPump.setName("Status pompy");
+    sensorPump.setIcon("mdi:water-pump");          // Ikona pompy
+    
+    sensorWater.setName("Czujnik wody");
+    sensorWater.setIcon("mdi:water");              // Ikona wody
+    
+    // Konfiguracja sensorów alarmowych w HA
+    sensorAlarm.setName("Brak wody");
+    sensorAlarm.setIcon("mdi:water-alert");        // Ikona alarmu wody
+
+    sensorReserve.setName("Rezerwa wody");
+    sensorReserve.setIcon("mdi:alert-outline");    // Ikona ostrzeżenia
+    
+    // Konfiguracja przełączników w HA
+    switchService.setName("Serwis");
+    switchService.setIcon("mdi:tools");            // Ikona narzędzi
+    switchService.onCommand(onServiceSwitchCommand);// Funkcja obsługi zmiany stanu
+    switchService.setState(status.isServiceMode);   // Stan początkowy
+    // Inicjalizacja stanu - domyślnie wyłączony
+    status.isServiceMode = false;
+    switchService.setState(false, true); // force update przy starcie
+
+    switchSound.setName("Dźwięk");
+    switchSound.setIcon("mdi:volume-high");        // Ikona głośnika
+    switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
+    switchSound.setState(status.soundEnabled);      // Stan początkowy
+    
+    switchPump.setName("Alarm pompy");
+    switchPump.setIcon("mdi:alert");               // Ikona alarmu
+    switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
+
+}
+
+void setupPin() {
+    // Konfiguracja kierunków pinów i stanów początkowych
+    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);          // Wyjście - trigger czujnika ultradźwiękowego
+    pinMode(PIN_ULTRASONIC_ECHO, INPUT);           // Wejście - echo czujnika ultradźwiękowego
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że TRIG jest LOW na starcie
+    
+    pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);        // Wejście z podciąganiem - czujnik poziomu
+    pinMode(PIN_BUTTON, INPUT_PULLUP);             // Wejście z podciąganiem - przycisk
+    pinMode(PIN_BUZZER, OUTPUT);                   // Wyjście - buzzer
+    digitalWrite(PIN_BUZZER, LOW);                 // Wyłączenie buzzera
+    pinMode(PIN_PUMP, OUTPUT);                     // Wyjście - pompa
+    digitalWrite(PIN_PUMP, LOW);                   // Wyłączenie pompy
+}
+
+void welcomeMelody() {
+    // Prosta melodia powitalna
+    tone(PIN_BUZZER, 1397, 100);  // F6
+    delay(150);
+    tone(PIN_BUZZER, 1568, 100);  // G6
+    delay(150);
+    tone(PIN_BUZZER, 1760, 150);  // A6
+    delay(200);
+}
+
+void firstUpdateHA() {
+    // Wykonaj pierwszy pomiar i ustaw stany
+    float initialDistance = measureDistance();
+    
+    // Ustaw początkowe stany na podstawie pomiaru
+    status.waterAlarmActive = (initialDistance >= DISTANCE_WHEN_EMPTY);
+    status.waterReserveActive = (initialDistance >= DISTANCE_RESERVE);
+    
+    // Wymuś stan OFF na początku
+    sensorAlarm.setValue("OFF");
+    sensorReserve.setValue("OFF");
+    mqtt.loop();
+    
+    // Ustawienie końcowych stanów i wysyłka do HA
+    sensorAlarm.setValue(status.waterAlarmActive ? "ON" : "OFF");
+    sensorReserve.setValue(status.waterReserveActive ? "ON" : "OFF");
+    mqtt.loop();
 }
 
 // Funkcja obliczająca poziom wody w zbiorniku dolewki w procentach
@@ -624,17 +718,7 @@ void setup() {
     // Zastosuj wczytane ustawienia
     status.soundEnabled = config.soundEnabled;
     
-    // Konfiguracja kierunków pinów i stanów początkowych
-    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);          // Wyjście - trigger czujnika ultradźwiękowego
-    pinMode(PIN_ULTRASONIC_ECHO, INPUT);           // Wejście - echo czujnika ultradźwiękowego
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że TRIG jest LOW na starcie
-    
-    pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);        // Wejście z podciąganiem - czujnik poziomu
-    pinMode(PIN_BUTTON, INPUT_PULLUP);             // Wejście z podciąganiem - przycisk
-    pinMode(PIN_BUZZER, OUTPUT);                   // Wyjście - buzzer
-    digitalWrite(PIN_BUZZER, LOW);                 // Wyłączenie buzzera
-    pinMode(PIN_PUMP, OUTPUT);                     // Wyjście - pompa
-    digitalWrite(PIN_PUMP, LOW);                   // Wyłączenie pompy
+    setupPin();
     
     // Nawiązanie połączenia WiFi
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -647,58 +731,8 @@ void setup() {
     // Próba połączenia MQTT
     Serial.println("Rozpoczynam połączenie MQTT...");
     connectMQTT();
-
-    // Konfiguracja urządzenia dla Home Assistant
-    device.setName("HydroSense");                  // Nazwa urządzenia
-    device.setModel("HS ESP8266");                 // Model urządzenia
-    device.setManufacturer("PMW");                 // Producent
-    device.setSoftwareVersion("13.11.24");         // Wersja oprogramowania
-
-    // Konfiguracja sensorów pomiarowych w HA
-    sensorDistance.setName("Pomiar odległości");
-    sensorDistance.setIcon("mdi:ruler");           // Ikona linijki
-    sensorDistance.setUnitOfMeasurement("mm");     // Jednostka - milimetry
-    
-    sensorLevel.setName("Poziom wody");
-    sensorLevel.setIcon("mdi:water-percent");      // Ikona poziomu wody
-    sensorLevel.setUnitOfMeasurement("%");         // Jednostka - procenty
-    
-    sensorVolume.setName("Objętość wody");
-    sensorVolume.setIcon("mdi:water");             // Ikona wody
-    sensorVolume.setUnitOfMeasurement("L");        // Jednostka - litry
-    
-    // Konfiguracja sensorów statusu w HA
-    sensorPump.setName("Status pompy");
-    sensorPump.setIcon("mdi:water-pump");          // Ikona pompy
-    
-    sensorWater.setName("Czujnik wody");
-    sensorWater.setIcon("mdi:water");              // Ikona wody
-    
-    // Konfiguracja sensorów alarmowych w HA
-    sensorAlarm.setName("Brak wody");
-    sensorAlarm.setIcon("mdi:water-alert");        // Ikona alarmu wody
-
-    sensorReserve.setName("Rezerwa wody");
-    sensorReserve.setIcon("mdi:alert-outline");    // Ikona ostrzeżenia
-    
-    // Konfiguracja przełączników w HA
-    switchService.setName("Serwis");
-    switchService.setIcon("mdi:tools");            // Ikona narzędzi
-    switchService.onCommand(onServiceSwitchCommand);// Funkcja obsługi zmiany stanu
-    switchService.setState(status.isServiceMode);   // Stan początkowy
-    // Inicjalizacja stanu - domyślnie wyłączony
-    status.isServiceMode = false;
-    switchService.setState(false, true); // force update przy starcie
-
-    switchSound.setName("Dźwięk");
-    switchSound.setIcon("mdi:volume-high");        // Ikona głośnika
-    switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
-    switchSound.setState(status.soundEnabled);      // Stan początkowy
-    
-    switchPump.setName("Alarm pompy");
-    switchPump.setIcon("mdi:alert");               // Ikona alarmu
-    switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
-
+    setupHA();
+   
     // Wczytaj konfigurację z EEPROM
     if (loadConfig()) {
         // Synchronizuj stan dźwięku z wczytanej konfiguracji
@@ -706,37 +740,16 @@ void setup() {
         switchSound.setState(config.soundEnabled); // Aktualizuj stan w HA
     }
     
-    // Wykonaj pierwszy pomiar i ustaw stany
-    float initialDistance = measureDistance();
-    
-    // Ustaw początkowe stany na podstawie pomiaru
-    status.waterAlarmActive = (initialDistance >= DISTANCE_WHEN_EMPTY);
-    status.waterReserveActive = (initialDistance >= DISTANCE_RESERVE);
-    
-    // Wymuś stan OFF na początku
-    sensorAlarm.setValue("OFF");
-    sensorReserve.setValue("OFF");
-    mqtt.loop();
-    
-    // Ustawienie końcowych stanów i wysyłka do HA
-    sensorAlarm.setValue(status.waterAlarmActive ? "ON" : "OFF");
-    sensorReserve.setValue(status.waterReserveActive ? "ON" : "OFF");
-    mqtt.loop();
+    firstUpdateHA();
     
     // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
     ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
     ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
     ArduinoOTA.begin();  // Uruchom OTA
 
-    // Prosta melodia powitalna
-    tone(PIN_BUZZER, 1397, 100);  // F6
-    delay(150);
-    tone(PIN_BUZZER, 1568, 100);  // G6
-    delay(150);
-    tone(PIN_BUZZER, 1760, 150);  // A6
-    delay(200);
-
     Serial.println("Setup zakończony pomyślnie!");
+
+    welcomeMelody();
 }
 
 void loop() {
