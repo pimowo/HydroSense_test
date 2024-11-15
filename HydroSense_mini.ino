@@ -158,6 +158,9 @@ enum AlarmType {
     ALARM_WATER_HIGH
 };
 
+// Deklaracja funkcji (dodaj to po enum AlarmType)
+void playAlarm(AlarmType type);  // Deklaracja prototypu funkcji
+
 // Struktura dla dźwięków alarmowych
 struct AlarmTone {
     uint16_t frequency;        // Częstotliwość dźwięku
