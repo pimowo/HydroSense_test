@@ -456,15 +456,20 @@ void updatePump() {
 
     // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
     // Sprawdź czy pompa nie przekroczyła maksymalnego czasu pracy
-    if (status.isPumpActive && (millis() - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
-        digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
-        status.isPumpActive = false;  // Oznacz jako nieaktywną
-        status.pumpStartTime = 0;  // Zeruj czas startu
-        sensorPump.setValue("OFF");  // Aktualizuj status w HA
-        status.pumpSafetyLock = true;  // Aktywuj blokadę bezpieczeństwa
-        switchPump.setState(true);  // Aktywuj przełącznik alarmu w HA
-        Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
-        return;
+    if (status.isPumpActive) {
+        unsigned long currentTime = millis();
+        // Sprawdzenie przepełnienia licznika
+        if (currentTime < status.pumpStartTime || 
+            (currentTime - status.pumpStartTime) >= (PUMP_WORK_TIME * 1000)) {
+            digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
+            status.isPumpActive = false;  // Oznacz jako nieaktywną
+            status.pumpStartTime = 0;  // Zeruj czas startu
+            sensorPump.setValue("OFF");  // Aktualizuj status w HA
+            status.pumpSafetyLock = true;  // Aktywuj blokadę bezpieczeństwa
+            switchPump.setState(true);  // Aktywuj przełącznik alarmu w HA
+            Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
+            return;
+        }
     }
     
     // --- ZABEZPIECZENIE 3: Blokady bezpieczeństwa ---
@@ -509,7 +514,7 @@ void updatePump() {
             status.pumpStartTime = millis();  // Zapisz czas startu
             status.isPumpDelayActive = false;  // Wyłącz opóźnienie
             sensorPump.setValue("ON");  // Aktualizuj status w HA
-            onPumpStart();  // Dodaj to wywołanie!
+            onPumpStart();
         }
     }
 }
@@ -533,7 +538,7 @@ void onPumpStop() {
     status.isPumpActive = false;
     status.pumpStartTime = 0;
     sensorPump.setValue("OFF");
-    onPumpStop();  // Dodaj to wywołanie!
+    onPumpStop();
 
     // Oblicz faktyczne zużycie wody
     float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
@@ -945,8 +950,9 @@ int calculateWaterLevel(int distance) {
 
 //
 float calculateWaterUsed(float beforeVolume, float afterVolume) {
+    if (beforeVolume < 0 || afterVolume < 0) return 0;
     float difference = beforeVolume - afterVolume;
-    return difference > 0 ? difference : 0;  // zwracamy tylko dodatnie zużycie
+    return difference > 0 ? difference : 0;
 }
 
 //
