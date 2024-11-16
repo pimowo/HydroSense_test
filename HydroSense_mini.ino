@@ -672,6 +672,46 @@ void setupHA() {
     sensorMonthlyWaterUsed.setUnitOfMeasurement("L");
 }
 
+// Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
+void configOTA();
+    ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
+    ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
+
+    ArduinoOTA.onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH) {
+            type = "sketch";
+        } else {  // U_FS
+            type = "filesystem";
+        }
+        Serial.println("Start updating " + type);
+    });
+    
+    ArduinoOTA.onEnd([]() {
+        Serial.println("\nKoniec OTA");
+        WiFi.disconnect(true);      // Rozłącz WiFi
+        mqtt.disconnect();          // Rozłącz MQTT
+        delay(100);                 // Krótkie opóźnienie
+        ESP.eraseConfig();         // Wyczyść konfigurację ESP
+    });
+    
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("Postęp: %u%%\r", (progress / (total / 100)));
+    });
+    
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+    
+    ArduinoOTA.begin();
+    Serial.println("OTA Gotowy");
+}
+
 // --- Deklaracje funkcji ogólnych
 
 // Konfiguracja kierunków pinów i stanów początkowych
@@ -1143,11 +1183,6 @@ void setup() {
     firstUpdateHA();
     status.lastSoundAlert = millis();
     
-    // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
-    ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
-    ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
-    ArduinoOTA.begin();  // Uruchom OTA
-
     // Inicjalizacja NTP
     timeClient.begin();
     timeClient.setTimeOffset(utcOffsetInSeconds);
@@ -1193,6 +1228,8 @@ void loop() {
         return;         // Powrót do początku pętli po próbie połączenia
     }
     
+    configOTA();
+
     // Zarządzanie połączeniem MQTT
     if (!mqtt.isConnected()) {
         if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
