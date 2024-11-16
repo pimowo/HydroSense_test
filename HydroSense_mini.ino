@@ -450,8 +450,6 @@ void updatePump() {
     }
     
     // Odczyt stanu czujnika poziomu wody
-    // LOW = brak wody - należy uzupełnić
-    // HIGH = woda obecna - stan normalny
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
     sensorWater.setValue(waterPresent ? "ON" : "OFF");
     
@@ -460,9 +458,7 @@ void updatePump() {
         if (status.isPumpActive) {
             digitalWrite(POMPA_PIN, LOW);
             status.isPumpActive = false;
-            status.pumpStartTime = 0;
-            sensorPump.setValue("OFF");
-            onPumpStop();
+            onPumpStop();  // Tylko jedno miejsce wywołania
         }
         return;
     }
@@ -471,9 +467,7 @@ void updatePump() {
     if (status.isPumpActive && (millis() - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
         digitalWrite(POMPA_PIN, LOW);
         status.isPumpActive = false;
-        status.pumpStartTime = 0;
-        sensorPump.setValue("OFF");
-        onPumpStop();
+        onPumpStop();  // Tylko jedno miejsce wywołania
         status.pumpSafetyLock = true;
         switchPump.setState(true);
         Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
@@ -485,9 +479,7 @@ void updatePump() {
         if (status.isPumpActive) {
             digitalWrite(POMPA_PIN, LOW);
             status.isPumpActive = false;
-            status.pumpStartTime = 0;
-            sensorPump.setValue("OFF");
-            onPumpStop();
+            onPumpStop();  // Tylko jedno miejsce wywołania
         }
         return;
     }
@@ -496,10 +488,7 @@ void updatePump() {
     if (!waterPresent && status.isPumpActive) {
         digitalWrite(POMPA_PIN, LOW);
         status.isPumpActive = false;
-        status.pumpStartTime = 0;
-        status.isPumpDelayActive = false;
-        sensorPump.setValue("OFF");
-        onPumpStop();
+        onPumpStop();  // Tylko jedno miejsce wywołania
         return;
     }
     
@@ -518,28 +507,38 @@ void updatePump() {
             status.pumpStartTime = millis();
             status.isPumpDelayActive = false;
             sensorPump.setValue("ON");
-            onPumpStart();
+            onPumpStart();  // Tylko jedno miejsce wywołania
         }
     }
 }
 
 // Wywoływana przy uruchomieniu pompy
 void onPumpStart() {
-    // Zapis stanu początkowego przed uruchomieniem pompy
+    static bool startingPump = false;
+    if (startingPump) return;  // Zabezpieczenie przed rekurencją
+    
+    startingPump = true;
     waterLevelBeforePump = getCurrentWaterLevel();
     
-    // Aktualizacja statystyk tylko przy faktycznym starcie pompy
-    if (!status.isPumpActive) {
+    // Aktualizacja liczników tylko jeśli pompa faktycznie startuje
+    if (status.isPumpActive) {
         pumpStats.dailyPumpRuns++;
         pumpStats.weeklyPumpRuns++;
         pumpStats.monthlyPumpRuns++;
     }
+    
+    startingPump = false;
 }
 
 // Wywoływana przy zatrzymaniu pompy
 void onPumpStop() {
-    // Zabezpieczenie przed wielokrotnym liczeniem statystyk
+    static bool stoppingPump = false;
+    if (stoppingPump) return;  // Zabezpieczenie przed rekurencją
+    
+    stoppingPump = true;
+    
     if (!status.isPumpActive) {
+        stoppingPump = false;
         return;
     }
 
@@ -551,15 +550,20 @@ void onPumpStop() {
         workTime = (millis() - status.pumpStartTime) / 1000;
     }
     
-    // Pomiar poziomu wody i obliczenie zużycia
     float currentLevel = getCurrentWaterLevel();
     float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
     
-    // Aktualizuj statystyki tylko jeśli pompa faktycznie pracowała
+    // Aktualizacja statusów
+    status.pumpStartTime = 0;
+    sensorPump.setValue("OFF");
+    
+    // Aktualizacja statystyk
     if (workTime > 0 && waterUsed > 0) {
         safeIncrementStats(workTime, waterUsed);
         updateHAStatistics();
     }
+    
+    stoppingPump = false;
 }
 
 // Funkcja obsługuje zdarzenie resetu alarmu pompy
