@@ -109,6 +109,14 @@ HASensor sensorDailyPumpRuns("daily_pump_runs", true);    // Dzienne uruchomieni
 HASensor sensorDailyPumpTime("daily_pump_time", true);    // Dzienne czas pracy pompy
 HASensor sensorDailyWaterUsed("daily_water_used", true);  // Dzienne zużycie wody
 
+HASensor sensorweeklyPumpRuns("daily_pump_runs", true);    // Dzienne uruchomienia pompy
+HASensor sensorDailyPumpTime("daily_pump_time", true);    // Dzienne czas pracy pompy
+HASensor sensorDailyWaterUsed("daily_water_used", true);  // Dzienne zużycie wody
+
+HASensor sensorDailyPumpRuns("daily_pump_runs", true);    // Dzienne uruchomienia pompy
+HASensor sensorDailyPumpTime("daily_pump_time", true);    // Dzienne czas pracy pompy
+HASensor sensorDailyWaterUsed("daily_water_used", true);  // Dzienne zużycie wody
+
 // --- Deklaracje funkcji i struktury
 
 // Status systemu
@@ -631,7 +639,31 @@ void setupHA() {
     switchPump.setIcon("mdi:alert");               // Ikona alarmu
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
 
-    // Dodanie nowych sensorów
+    // Statystyki
+    sensorDailyPumpRuns.setName("Dzisiejsze uruchomienia pompy");
+    sensorDailyPumpRuns.setIcon("mdi:water-pump");
+    sensorDailyPumpRuns.setUnitOfMeasurement("razy");
+    
+    sensorDailyPumpTime.setName("Dzisiejszy czas pracy pompy");
+    sensorDailyPumpTime.setIcon("mdi:timer");
+    sensorDailyPumpTime.setUnitOfMeasurement("min");
+    
+    sensorDailyWaterUsed.setName("Dzisiejsze zużycie wody");
+    sensorDailyWaterUsed.setIcon("mdi:water");
+    sensorDailyWaterUsed.setUnitOfMeasurement("L");
+
+    weeklyPumpRuns.setName("Dzisiejsze uruchomienia pompy");
+    sensorDailyPumpRuns.setIcon("mdi:water-pump");
+    sensorDailyPumpRuns.setUnitOfMeasurement("razy");
+    
+    sensorDailyPumpTime.setName("Dzisiejszy czas pracy pompy");
+    sensorDailyPumpTime.setIcon("mdi:timer");
+    sensorDailyPumpTime.setUnitOfMeasurement("min");
+    
+    sensorDailyWaterUsed.setName("Dzisiejsze zużycie wody");
+    sensorDailyWaterUsed.setIcon("mdi:water");
+    sensorDailyWaterUsed.setUnitOfMeasurement("L");
+
     sensorDailyPumpRuns.setName("Dzisiejsze uruchomienia pompy");
     sensorDailyPumpRuns.setIcon("mdi:water-pump");
     sensorDailyPumpRuns.setUnitOfMeasurement("razy");
@@ -966,29 +998,27 @@ void handleButton() {
 }
 
 // 
-void playShortWarningSound() {
-    tone(BUZZER_PIN, 2000, 100);  // Częstotliwość 2000Hz, czas 100ms
-}
-
 void resetDailyStatistics() {
-    pumpStats.dailyPumpRuns = 0;
-    pumpStats.dailyPumpWorkTime = 0;
-    pumpStats.dailyWaterUsed = 0;
-    pumpStats.lastDailyReset = timeClient.getEpochTime();
+    pumpStats.dailyPumpRuns = 0;  // Resetowanie dziennej liczby uruchomień pompy
+    pumpStats.dailyPumpWorkTime = 0;  // Resetowanie dziennego czasu pracy pompy
+    pumpStats.dailyWaterUsed = 0;  // Resetowanie dziennego zużycia wody
+    pumpStats.lastDailyReset = timeClient.getEpochTime();  // Ustawianie czasu ostatniego dziennego resetu
 }
 
+// 
 void resetWeeklyStatistics() {
-    pumpStats.weeklyPumpRuns = 0;
-    pumpStats.weeklyPumpWorkTime = 0;
-    pumpStats.weeklyWaterUsed = 0;
-    pumpStats.lastWeeklyReset = timeClient.getEpochTime();
+    pumpStats.weeklyPumpRuns = 0;  // Resetowanie tygodniowej liczby uruchomień pompy
+    pumpStats.weeklyPumpWorkTime = 0;  // Resetowanie tygodniowego czasu pracy pompy
+    pumpStats.weeklyWaterUsed = 0;  // Resetowanie tygodniowego zużycia wody
+    pumpStats.lastWeeklyReset = timeClient.getEpochTime();  // Ustawianie czasu ostatniego tygodniowego resetu
 }
 
+//
 void resetMonthlyStatistics() {
-    pumpStats.monthlyPumpRuns = 0;
-    pumpStats.monthlyPumpWorkTime = 0;
-    pumpStats.monthlyWaterUsed = 0;
-    pumpStats.lastMonthlyReset = timeClient.getEpochTime();
+    pumpStats.monthlyPumpRuns = 0;  // Resetowanie miesięcznej liczby uruchomień pompy
+    pumpStats.monthlyPumpWorkTime = 0;  // Resetowanie miesięcznego czasu pracy pompy
+    pumpStats.monthlyWaterUsed = 0;  // Resetowanie miesięcznego zużycia wody
+    pumpStats.lastMonthlyReset = timeClient.getEpochTime();  // Ustawianie czasu ostatniego miesięcznego resetu
 }
 
 // Sprawdzenie i reset statystyk
@@ -1022,6 +1052,30 @@ void checkStatisticsReset() {
 void updateHAStatistics() {
     char value[16];
     
+    // Konwersja liczby uruchomień pompy na string
+    itoa(pumpStats.dailyPumpRuns, value, 10);
+    sensorDailyPumpRuns.setValue(value);
+    
+    // Konwersja czasu pracy pompy na string (w minutach)
+    itoa(pumpStats.dailyPumpWorkTime / 60, value, 10);
+    sensorDailyPumpTime.setValue(value);
+    
+    // Konwersja zużycia wody na string
+    dtostrf(pumpStats.dailyWaterUsed, 4, 2, value);
+    sensorDailyWaterUsed.setValue(value);
+
+    // Konwersja liczby uruchomień pompy na string
+    itoa(pumpStats.dailyPumpRuns, value, 10);
+    sensorDailyPumpRuns.setValue(value);
+    
+    // Konwersja czasu pracy pompy na string (w minutach)
+    itoa(pumpStats.dailyPumpWorkTime / 60, value, 10);
+    sensorDailyPumpTime.setValue(value);
+    
+    // Konwersja zużycia wody na string
+    dtostrf(pumpStats.dailyWaterUsed, 4, 2, value);
+    sensorDailyWaterUsed.setValue(value);
+
     // Konwersja liczby uruchomień pompy na string
     itoa(pumpStats.dailyPumpRuns, value, 10);
     sensorDailyPumpRuns.setValue(value);
@@ -1114,9 +1168,9 @@ void setup() {
     }
     
     // Reset statystyk
-    resetDailyStatistics();
-    resetWeeklyStatistics();
-    resetMonthlyStatistics();
+    // resetDailyStatistics();
+    // resetWeeklyStatistics();
+    // resetMonthlyStatistics();
 
     Serial.println("Setup zakończony pomyślnie!");
     
