@@ -135,6 +135,7 @@ struct SystemStatus {
     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
     unsigned long lastSoundAlert = 0;  //
 }; 
+SystemStatus systemStatus;
 
 // eeprom
 struct Config {
@@ -142,6 +143,7 @@ struct Config {
     bool soundEnabled;      // Status dźwięku (włączony/wyłączony)
     char checksum;          // Suma kontrolna
 };
+Config config;
 
 // Struktura dla obsługi przycisku
 struct ButtonState {
@@ -151,6 +153,7 @@ struct ButtonState {
     bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia
     bool isInitialized = false; 
 };
+ButtonState buttonState;
 
 // Struktura dla dźwięków alarmowych
 struct AlarmTone {
@@ -232,11 +235,6 @@ struct PumpStatistics {
     time_t lastWeeklyReset;
     time_t lastMonthlyReset;
 };
-
-// Globalna instancja konfiguracji
-SystemStatus systemStatus;
-ButtonState buttonState;
-Config config;
 PumpStatistics pumpStats = {0};
 
 // --- EEPROM
@@ -372,7 +370,7 @@ void updateAlarmStates(float currentDistance) {
     // Włącz alarm jeśli:
     // - odległość jest większa lub równa max (zbiornik pusty)
     // - alarm nie jest jeszcze aktywny
-    if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
+    if (currentDistance >= ODLEGLOSC_PUSTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
         sensorAlarm.setValue("ON");               
         Serial.println("Brak wody ON");
@@ -380,7 +378,7 @@ void updateAlarmStates(float currentDistance) {
     // Wyłącz alarm jeśli:
     // - odległość spadła poniżej progu wyłączenia (z histerezą)
     // - alarm jest aktywny
-    else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
+    else if (currentDistance < (ODLEGLOSC_PUSTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
         sensorAlarm.setValue("OFF");
         Serial.println("Brak wody OFF");
@@ -685,7 +683,7 @@ void firstUpdateHA() {
     float initialDistance = measureDistance();
     
     // Ustaw początkowe stany na podstawie pomiaru
-    status.waterAlarmActive = (initialDistance >= DISTANCE_WHEN_EMPTY);
+    status.waterAlarmActive = (initialDistance >= ODLEGLOSC_PUSTY);
     status.waterReserveActive = (initialDistance >= DISTANCE_RESERVE);
     
     // Wymuś stan OFF na początku
@@ -862,12 +860,12 @@ int measureDistance() {
 // Wzór: ((EMPTY - distance) / (EMPTY - FULL)) * 100
 int calculateWaterLevel(int distance) {
     // Ograniczenie wartości do zakresu pomiarowego
-    if (distance < DISTANCE_WHEN_FULL) distance = DISTANCE_WHEN_FULL;  // Nie mniej niż przy pełnym
-    if (distance > DISTANCE_WHEN_EMPTY) distance = DISTANCE_WHEN_EMPTY;  // Nie więcej niż przy pustym
+    if (distance < ODLEGLOSC_PELNY) distance = ODLEGLOSC_PELNY;  // Nie mniej niż przy pełnym
+    if (distance > ODLEGLOSC_PUSTY) distance = ODLEGLOSC_PUSTY;  // Nie więcej niż przy pustym
     
     // Obliczenie procentowe poziomu wody
-    float percentage = (float)(DISTANCE_WHEN_EMPTY - distance) /  // Różnica: pusty - aktualny
-                      (float)(DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL) *  // Różnica: pusty - pełny
+    float percentage = (float)(ODLEGLOSC_PUSTY - distance) /  // Różnica: pusty - aktualny
+                      (float)(ODLEGLOSC_PUSTY - ODLEGLOSC_PELNY) *  // Różnica: pusty - pełny
                       100.0;  // Przeliczenie na procenty
     
     return (int)percentage;  // Zwrot wartości całkowitej
@@ -881,8 +879,8 @@ void updateWaterLevel() {
     updateAlarmStates(currentDistance);
 
     // Obliczenie objętości
-    float waterHeight = DISTANCE_WHEN_EMPTY - currentDistance;    
-    waterHeight = constrain(waterHeight, 0, DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL);
+    float waterHeight = ODLEGLOSC_PUSTY - currentDistance;    
+    waterHeight = constrain(waterHeight, 0, ODLEGLOSC_PUSTY - ODLEGLOSC_PELNY);
     
     // Obliczenie objętości w litrach (wszystko w mm)
     float radius = TANK_DIAMETER / 2.0;
