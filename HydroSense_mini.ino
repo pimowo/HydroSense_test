@@ -1,13 +1,10 @@
 // --- Biblioteki
 
-#include <Arduino.h>
-#include <ArduinoHA.h>     // Biblioteka do integracji z Home Assistant
-#include <ArduinoOTA.h>    // Obsługa aktualizacji OTA (Over-The-Air)
-#include <ESP8266WiFi.h>   // Obsługa WiFi dla ESP8266
-#include <PubSubClient.h>  // MQTT - protokół komunikacji z serwerem MQTT
-#include <EEPROM.h>        // Obsługa pamięci EEPROM, używana do przechowywania danych na stałe
-#include <CRC32.h>         // Biblioteka CRC32 - używana do weryfikacji integralności danych
-#include <WiFiUdp.h>       // Obsługa komunikacji UDP
+#include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
+#include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
+#include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
+#include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
+#include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
 
 // --- Definicje stałych i zmiennych globalnych
 
@@ -731,13 +728,6 @@ int calculateWaterLevel(int distance) {
                       100.0;  // Przeliczenie na procenty
     
     return (int)percentage;  // Zwrot wartości całkowitej
-}
-
-//
-float calculateWaterUsed(float beforeVolume, float afterVolume) {
-    if (beforeVolume < 0 || afterVolume < 0) return 0;  // dodaj zabezpieczenie
-    float difference = beforeVolume - afterVolume;
-    return difference > 0 ? difference : 0;
 }
 
 //
