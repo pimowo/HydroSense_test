@@ -30,8 +30,7 @@ const long utcOffsetInSeconds = 3600; // Przesunięcie czasowe w sekundach (3600
 
 // Stałe konfiguracyjne
 const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
-const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM
-//Config config;                           // Globalna instancja konfiguracji
+const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM                       
 
 // Konfiguracja WiFi i MQTT
 const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
@@ -122,8 +121,8 @@ HASensor sensorMonthlyWaterUsed("monthly_water_used", true);  // Miesięczne zu�
 // --- Deklaracje funkcji i struktury
 
 // Status systemu
-struct {
-bool isPumpActive = false; // Status pracy pompy
+struct SystemStatus {
+    bool isPumpActive = false; // Status pracy pompy
     unsigned long pumpStartTime = 0; // Czas startu pompy
     float waterLevelBeforePump = 0;       // Poziom wody przed startem pompy
     bool isPumpDelayActive = false; // Status opóźnienia przed startem pompy
@@ -136,15 +135,13 @@ bool isPumpActive = false; // Status pracy pompy
     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
     unsigned long lastSoundAlert = 0;  //
 }; 
-//status;
 
 // eeprom
 struct Config {
     uint8_t version;        // Wersja konfiguracji
     bool soundEnabled;      // Status dźwięku (włączony/wyłączony)
     char checksum;          // Suma kontrolna
-}; 
-//Config config;
+};
 
 // Struktura dla obsługi przycisku
 struct ButtonState {
@@ -153,8 +150,7 @@ struct ButtonState {
     unsigned long releasedTime = 0; // Czas puszczenia przycisku
     bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia
     bool isInitialized = false; 
-}; 
-//buttonState;
+};
 
 // Struktura dla dźwięków alarmowych
 struct AlarmTone {
@@ -237,7 +233,10 @@ struct PumpStatistics {
     time_t lastMonthlyReset;
 };
 
-// Globalna instancja statystyk
+// Globalna instancja konfiguracji
+SystemStatus systemStatus;
+ButtonState buttonState;
+Config config;
 PumpStatistics pumpStats = {0};
 
 // --- EEPROM
