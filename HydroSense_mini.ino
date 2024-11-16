@@ -1,3 +1,30 @@
+/*
+START
+  |
+  v
+Sprawdź tryb serwisowy ----> [Aktywny] ---> STOP
+  |
+  v [Nieaktywny]
+Sprawdź blokady bezpieczeństwa ----> [Aktywne] ---> STOP
+  |
+  v [Nieaktywne]
+Sprawdź poziom wody
+  |
+  v
+[Potrzeba dolania?]
+  |
+  |---> [TAK] ---> Aktywuj opóźnienie (PUMP_DELAY)
+  |                  |
+  |                  v
+  |                [Po opóźnieniu] ---> Włącz pompę --> Monitoruj czas pracy
+  |                                                           |
+  |                                                           v
+  |                                                     [Przekroczony] ---> Wyłącz pompę
+  |                                                                        + Aktywuj blokadę
+  |
+  |---> [NIE] ---> STOP (Pompa pozostaje wyłączona)
+*/
+
 // --- Biblioteki
 
 #include <Arduino.h>
@@ -482,6 +509,7 @@ void updatePump() {
             status.pumpStartTime = millis();  // Zapisz czas startu
             status.isPumpDelayActive = false;  // Wyłącz opóźnienie
             sensorPump.setValue("ON");  // Aktualizuj status w HA
+            onPumpStart();  // Dodaj to wywołanie!
         }
     }
 }
@@ -501,6 +529,12 @@ void onPumpStop() {
     unsigned long workTime = (millis() - pumpStartTime) / 1000;  // czas w sekundach
     float currentLevel = getCurrentWaterLevel();
     
+    digitalWrite(POMPA_PIN, LOW);
+    status.isPumpActive = false;
+    status.pumpStartTime = 0;
+    sensorPump.setValue("OFF");
+    onPumpStop();  // Dodaj to wywołanie!
+
     // Oblicz faktyczne zużycie wody
     float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
     
