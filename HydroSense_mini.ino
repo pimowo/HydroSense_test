@@ -371,7 +371,7 @@ void updatePump() {
     
     // Sprawdź czas pracy pompy
     if (status.isPumpActive) {
-        if (millis() - status.pumpStartTime >= (PUMP_WORK_TIME * 1000)) {
+        if (millis() - status.pumpStartTime >= (PUMP_MAX_WORK_TIME * 1000)) {
             digitalWrite(POMPA_PIN, LOW);
             status.isPumpActive = false;
             status.pumpStartTime = 0;
@@ -614,7 +614,6 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
             status.isPumpActive = false;  // Reset flagi aktywności
             status.pumpStartTime = 0;  // Reset czasu startu
             sensorPump.setValue("OFF");  // Aktualizacja stanu w HA
-            onPumpStop();
         }
     } else {  // Wyłączanie trybu serwisowego
         // Reset stanu opóźnienia pompy aby umożliwić normalne uruchomienie
@@ -771,14 +770,6 @@ void updateWaterLevel() {
     float radius = SREDNICA_ZBIORNIKA / 2.0;
     volume = PI * (radius * radius) * waterHeight / 1000000.0; // mm³ na litry
     
-    // Jeśli objętość się zmieniła, aktualizujemy statystyki
-    if (volume != previousVolume) {
-        float waterUsed = calculateWaterUsed(previousVolume, volume);
-        if (waterUsed > 0) {
-            safeIncrementStats(0, waterUsed);
-        }
-    }
-
     // Aktualizacja sensorów pomiarowych
     sensorDistance.setValue(String((int)currentDistance).c_str());
     sensorLevel.setValue(String(calculateWaterLevel(currentDistance)).c_str());
@@ -949,29 +940,6 @@ void setup() {
     firstUpdateHA();
     status.lastSoundAlert = millis();
     
-    // Inicjalizacja statystyk z aktualnym czasem
-    time_t local = time(nullptr);
-    struct tm *timeinfo = localtime(&local);
-    
-    // Ustaw znaczniki czasowe resetów
-    pumpStats.lastDailyReset = local;
-    pumpStats.lastWeeklyReset = local;
-    pumpStats.lastMonthlyReset = local;
-
-    // Debug info
-    // Serial.print("Aktualny czas: ");
-    // Serial.print(timeinfo->tm_year + 1900);
-    // Serial.print("-");
-    // Serial.print(timeinfo->tm_mon + 1);
-    // Serial.print("-");
-    // Serial.print(timeinfo->tm_mday);
-    // Serial.print(" ");
-    // Serial.print(timeinfo->tm_hour);
-    // Serial.print(":");
-    // Serial.print(timeinfo->tm_min);
-    // Serial.print(":");
-    // Serial.println(timeinfo->tm_sec);
-
     Serial.println("Setup zakończony pomyślnie!");
     
     if (status.soundEnabled) {
