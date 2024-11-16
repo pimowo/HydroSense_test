@@ -27,11 +27,7 @@ unsigned long lastTimeUpdate = 0;   // Ostatnia aktualizacja czasu
 unsigned long lastStatsUpdate = 0;  // Ostatnia aktualizacja statystyk
 
 // Strefa czasowa dla Polski (UTC+1 lub UTC+2 w czasie letnim)
-const long utcOffsetInSeconds = 3600; // Przesunięcie czasowe w sekundach (3600 dla UTC+1)
-
-// Stałe konfiguracyjne
-const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
-const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM                       
+const long utcOffsetInSeconds = 3600; // Przesunięcie czasowe w sekundach (3600 dla UTC+1)                  
 
 // Konfiguracja WiFi i MQTT
 const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
@@ -64,7 +60,6 @@ const unsigned long LONG_PRESS_TIME = 1000;        // Czas długiego naciśnięc
 const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnałami dźwiękowymi
 
 // Konfiguracja EEPROM
-#define EEPROM_SIZE 512              // Rozmiar używanej pamięci EEPROM
 #define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
 // Konfiguracja zbiornika i pomiarów
@@ -208,34 +203,6 @@ struct PumpStatistics {
     time_t lastWeeklyReset;
     time_t lastMonthlyReset;
 };
-
-// Struktura dla statystyk
-struct PumpStatistics {
-    // Dzienne statystyki
-    uint16_t dailyPumpRuns;
-    uint32_t dailyPumpWorkTime;    // w sekundach
-    float dailyWaterUsed;          // w litrach
-    
-    // Tygodniowe statystyki
-    uint16_t weeklyPumpRuns;
-    uint32_t weeklyPumpWorkTime;
-    float weeklyWaterUsed;
-    
-    // Miesięczne statystyki
-    uint16_t monthlyPumpRuns;
-    uint32_t monthlyPumpWorkTime;
-    float monthlyWaterUsed;
-    
-    // Całkowite statystyki
-    // uint32_t totalPumpRuns;
-    // uint32_t totalPumpWorkTime;
-    // float totalWaterUsed;
-    
-    // Znaczniki czasowe ostatnich resetów
-    time_t lastDailyReset;
-    time_t lastWeeklyReset;
-    time_t lastMonthlyReset;
-};
 PumpStatistics pumpStats = {0};
 
 struct Status {
@@ -251,6 +218,15 @@ struct Status {
     unsigned long lastSoundAlert;
 };
 Status status;
+
+// Stałe konfiguracyjne
+const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
+const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
+
+float currentDistance = 0;
+float volume = 0;
+unsigned long pumpStartTime = 0;
+float waterLevelBeforePump = 0;
 
 // --- EEPROM
 
@@ -531,12 +507,12 @@ void onPumpStop() {
     pumpStats.dailyPumpWorkTime += pumpWorkTime;
     pumpStats.weeklyPumpWorkTime += pumpWorkTime;
     pumpStats.monthlyPumpWorkTime += pumpWorkTime;
-    pumpStats.totalPumpWorkTime += pumpWorkTime;
+    //pumpStats.totalPumpWorkTime += pumpWorkTime;
     
     pumpStats.dailyWaterUsed += waterUsed;
     pumpStats.weeklyWaterUsed += waterUsed;
     pumpStats.monthlyWaterUsed += waterUsed;
-    pumpStats.totalWaterUsed += waterUsed;
+    //pumpStats.totalWaterUsed += waterUsed;
     
     // Sygnał dźwiękowy zatrzymania pompy
     playAlarm(ALARM_PUMP_STOP);
