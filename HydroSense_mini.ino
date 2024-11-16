@@ -251,7 +251,7 @@ void onPumpStart();
 void onPumpStop();
 float getCurrentWaterLevel();
 int measureDistance();
-float calculateWaterLevel(int distance);
+//float calculateWaterLevel(int distance);
 float calculateWaterUsed(float beforeVolume, float afterVolume);
 void safeIncrementStats(unsigned long workTime, float waterUsed);
 void updateHAStatistics();
