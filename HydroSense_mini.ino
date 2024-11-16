@@ -525,10 +525,10 @@ void updatePump() {
     }
     
     // Po upływie opóźnienia, włącz pompę
-    if (status.isPumpActive) {
+    if (status.isPumpDelayActive && !status.isPumpActive) {  // Zmieniony warunek!
         unsigned long currentTime = millis();
-        if (currentTime < status.pumpStartTime ||  // przepełnienie
-            (currentTime - status.pumpStartTime) >= (PUMP_WORK_TIME * 1000)) {
+        if (currentTime < status.pumpDelayStartTime ||  // sprawdź przepełnienie
+            (currentTime - status.pumpDelayStartTime) >= (PUMP_DELAY * 1000)) {
             digitalWrite(POMPA_PIN, HIGH);  // Włącz pompę
             status.isPumpActive = true;  // Oznacz jako aktywną
             status.pumpStartTime = millis();  // Zapisz czas startu
@@ -559,7 +559,6 @@ void onPumpStop() {
     status.isPumpActive = false;
     status.pumpStartTime = 0;
     sensorPump.setValue("OFF");
-    onPumpStop();
 
     // Oblicz faktyczne zużycie wody
     float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
