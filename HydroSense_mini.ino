@@ -1250,9 +1250,12 @@ void updateHAStatistics() {
 
 // Czas
 time_t getCurrentTime() {
-    time_t now;
-    time(&now);
-    return now;  // Czas jest już lokalny dzięki konfiguracji strefy czasowej
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        Serial.println(F("Failed to obtain time"));
+        return 0;
+    }
+    return mktime(&timeinfo);
 }
 
 // Funkcja pomocnicza do wyświetlania czasu (przydatna przy debugowaniu)
