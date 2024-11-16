@@ -440,8 +440,7 @@ void updateAlarmStates(float currentDistance) {
 
 // Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
 void updatePump() {
-    // Zabezpieczenie przed przepełnieniem licznika millis() (po około 50 dniach)
-    // Jeśli millis() się przepełni, aktualizujemy czasy startowe
+    // Zabezpieczenie przed przepełnieniem licznika millis()
     if (millis() < status.pumpStartTime) {
         status.pumpStartTime = millis();
     }
@@ -450,94 +449,70 @@ void updatePump() {
         status.pumpDelayStartTime = millis();
     }
     
-    // Odczyt stanu czujnika poziomu wody w akwarium
+    // Odczyt stanu czujnika poziomu wody
     // LOW = brak wody - należy uzupełnić
     // HIGH = woda obecna - stan normalny
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
     sensorWater.setValue(waterPresent ? "ON" : "OFF");
     
     // --- ZABEZPIECZENIE 1: Tryb serwisowy ---
-    // Jeśli aktywny jest tryb serwisowy, wyłącz pompę i zakończ
     if (status.isServiceMode) {
         if (status.isPumpActive) {
-            digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
-            status.isPumpActive = false;  // Oznacz jako nieaktywną
-            status.pumpStartTime = 0;  // Zeruj czas startu
-            sensorPump.setValue("OFF");  // Aktualizuj status w HA
+            digitalWrite(POMPA_PIN, LOW);
+            status.isPumpActive = false;
+            status.pumpStartTime = 0;
+            sensorPump.setValue("OFF");
             onPumpStop();
         }
         return;
     }
 
     // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
-    // Sprawdź czy pompa nie przekroczyła maksymalnego czasu pracy
-    if (status.isPumpActive) {
-        unsigned long currentTime = millis();
-        // Sprawdzenie przepełnienia licznika
-        if (currentTime < status.pumpStartTime || 
-            (currentTime - status.pumpStartTime) >= (PUMP_WORK_TIME * 1000)) {
-            digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
-            status.isPumpActive = false;  // Oznacz jako nieaktywną
-            status.pumpStartTime = 0;  // Zeruj czas startu
-            sensorPump.setValue("OFF");  // Aktualizuj status w HA
-            onPumpStop();
-            status.pumpSafetyLock = true;  // Aktywuj blokadę bezpieczeństwa
-            switchPump.setState(true);  // Aktywuj przełącznik alarmu w HA
-            Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
-            return;
-        }
+    if (status.isPumpActive && (millis() - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
+        digitalWrite(POMPA_PIN, LOW);
+        status.isPumpActive = false;
+        status.pumpStartTime = 0;
+        sensorPump.setValue("OFF");
+        onPumpStop();
+        status.pumpSafetyLock = true;
+        switchPump.setState(true);
+        Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
+        return;
     }
     
     // --- ZABEZPIECZENIE 3: Blokady bezpieczeństwa ---
-    // Sprawdź czy nie jest aktywna blokada bezpieczeństwa lub alarm braku wody
     if (status.pumpSafetyLock || status.waterAlarmActive) {
         if (status.isPumpActive) {
-            digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
-            status.isPumpActive = false;  // Oznacz jako nieaktywną
-            status.pumpStartTime = 0;  // Zeruj czas startu
-            sensorPump.setValue("OFF");  // Aktualizuj status w HA
+            digitalWrite(POMPA_PIN, LOW);
+            status.isPumpActive = false;
+            status.pumpStartTime = 0;
+            sensorPump.setValue("OFF");
             onPumpStop();
         }
         return;
     }
     
-     // --- ZABEZPIECZENIE 4: Ochrona przed przepełnieniem ---
-    // Jeśli woda osiągnęła poziom, a pompa pracuje, 
-    // wyłącz ją aby zapobiec przelaniu
+    // --- ZABEZPIECZENIE 4: Ochrona przed przepełnieniem ---
     if (!waterPresent && status.isPumpActive) {
-        digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
-        status.isPumpActive = false;  // Oznacz jako nieaktywną
-        status.pumpStartTime = 0;  // Zeruj czas startu
-        status.isPumpDelayActive = false;  // Wyłącz opóźnienie
-        sensorPump.setValue("OFF");  // Aktualizuj status w HA
+        digitalWrite(POMPA_PIN, LOW);
+        status.isPumpActive = false;
+        status.pumpStartTime = 0;
+        status.isPumpDelayActive = false;
+        sensorPump.setValue("OFF");
         onPumpStop();
         return;
     }
     
     // --- LOGIKA WŁĄCZANIA POMPY ---
-    // Jeśli brakuje wody w akwarium (czujnik niezanurzony - LOW) 
-    // i pompa nie pracuje oraz nie trwa odliczanie opóźnienia,
-    // rozpocznij procedurę opóźnionego startu pompy
-    if (!waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
+    if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
         status.isPumpDelayActive = true;
         status.pumpDelayStartTime = millis();
         return;
     }
     
-    // Sprawdzenie opóźnienia przed włączeniem
+    // Po upływie opóźnienia, włącz pompę
     if (status.isPumpDelayActive && !status.isPumpActive) {
-        unsigned long currentTime = millis();
-        unsigned long elapsedDelay;
-        
-        // Bezpieczne obliczenie czasu opóźnienia
-        if (currentTime < status.pumpDelayStartTime) {
-            elapsedDelay = (ULONG_MAX - status.pumpDelayStartTime) + currentTime;
-        } else {
-            elapsedDelay = currentTime - status.pumpDelayStartTime;
-        }
-        
-        // Sprawdź czy minęło wymagane opóźnienie
-        if (elapsedDelay >= (PUMP_DELAY * 1000)) {
+        if (millis() - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
             digitalWrite(POMPA_PIN, HIGH);
             status.isPumpActive = true;
             status.pumpStartTime = millis();
@@ -545,63 +520,46 @@ void updatePump() {
             sensorPump.setValue("ON");
             onPumpStart();
         }
-        return;
-    }
-
-    // Sprawdzenie czasu pracy pompy
-    if (status.isPumpActive) {
-        unsigned long currentTime = millis();
-        unsigned long workTime;
-        
-        // Bezpieczne obliczenie czasu pracy
-        if (currentTime < status.pumpStartTime) {
-            workTime = (ULONG_MAX - status.pumpStartTime) + currentTime;
-        } else {
-            workTime = currentTime - status.pumpStartTime;
-        }
-        
-        // Wyłącz pompę po przekroczeniu czasu pracy
-        if (workTime >= (PUMP_WORK_TIME * 1000)) {
-            digitalWrite(POMPA_PIN, LOW);
-            status.isPumpActive = false;
-            status.isPumpDelayActive = false;
-            status.pumpStartTime = 0;
-            sensorPump.setValue("OFF");
-            onPumpStop();
-        }
     }
 }
 
 // Wywoływana przy uruchomieniu pompy
 void onPumpStart() {
-    pumpStats.dailyPumpRuns++;
-    pumpStats.weeklyPumpRuns++;
-    pumpStats.monthlyPumpRuns++;
-    
-    // używaj zmiennej ze struktury status
+    // Zapis stanu początkowego przed uruchomieniem pompy
     waterLevelBeforePump = getCurrentWaterLevel();
-    // pumpStartTime jest już ustawiony w updatePump()
+    
+    // Aktualizacja statystyk tylko przy faktycznym starcie pompy
+    if (!status.isPumpActive) {
+        pumpStats.dailyPumpRuns++;
+        pumpStats.weeklyPumpRuns++;
+        pumpStats.monthlyPumpRuns++;
+    }
 }
 
 // Wywoływana przy zatrzymaniu pompy
 void onPumpStop() {
-    unsigned long workTime = (millis() - status.pumpStartTime) / 1000;  // czas w sekundach
-    float currentLevel = getCurrentWaterLevel();
-    
-    digitalWrite(POMPA_PIN, LOW);
-    status.isPumpActive = false;
-    status.pumpStartTime = 0;
-    sensorPump.setValue("OFF");
-        
-    // Oblicz faktyczne zużycie wody
-    float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
-    
-    // Dodaj do statystyk tylko jeśli faktycznie zużyto wodę
-    if (waterUsed > 0) {
-        safeIncrementStats(workTime, waterUsed);
+    // Zabezpieczenie przed wielokrotnym liczeniem statystyk
+    if (!status.isPumpActive) {
+        return;
+    }
+
+    // Oblicz czas pracy
+    unsigned long workTime;
+    if (millis() < status.pumpStartTime) {
+        workTime = ((ULONG_MAX - status.pumpStartTime) + millis()) / 1000;
+    } else {
+        workTime = (millis() - status.pumpStartTime) / 1000;
     }
     
-    updateHAStatistics();
+    // Pomiar poziomu wody i obliczenie zużycia
+    float currentLevel = getCurrentWaterLevel();
+    float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
+    
+    // Aktualizuj statystyki tylko jeśli pompa faktycznie pracowała
+    if (workTime > 0 && waterUsed > 0) {
+        safeIncrementStats(workTime, waterUsed);
+        updateHAStatistics();
+    }
 }
 
 // Funkcja obsługuje zdarzenie resetu alarmu pompy
@@ -1403,90 +1361,25 @@ void setup() {
     pumpStats.lastMonthlyReset = local;
 
     // Debug info
-    Serial.print("Aktualny czas: ");
-    Serial.print(timeinfo->tm_year + 1900);
-    Serial.print("-");
-    Serial.print(timeinfo->tm_mon + 1);
-    Serial.print("-");
-    Serial.print(timeinfo->tm_mday);
-    Serial.print(" ");
-    Serial.print(timeinfo->tm_hour);
-    Serial.print(":");
-    Serial.print(timeinfo->tm_min);
-    Serial.print(":");
-    Serial.println(timeinfo->tm_sec);
+    // Serial.print("Aktualny czas: ");
+    // Serial.print(timeinfo->tm_year + 1900);
+    // Serial.print("-");
+    // Serial.print(timeinfo->tm_mon + 1);
+    // Serial.print("-");
+    // Serial.print(timeinfo->tm_mday);
+    // Serial.print(" ");
+    // Serial.print(timeinfo->tm_hour);
+    // Serial.print(":");
+    // Serial.print(timeinfo->tm_min);
+    // Serial.print(":");
+    // Serial.println(timeinfo->tm_sec);
 
     Serial.println("Setup zakończony pomyślnie!");
     
     if (status.soundEnabled) {
-        //welcomeMelody();
+        welcomeMelody();
     }  
 }
-
-// --- Pętla główna
-// void loop() {
-//     unsigned long currentMillis = millis();
-//     static unsigned long lastMQTTRetry = 0;
-//     static unsigned long lastMeasurement = 0;
-
-//     // KRYTYCZNE OPERACJE SYSTEMOWE
-    
-//     // Zabezpieczenie przed zawieszeniem systemu
-//     ESP.wdtFeed();      // Resetowanie licznika watchdog
-//     yield();            // Obsługa krytycznych zadań systemowych ESP8266
-    
-//     // System aktualizacji bezprzewodowej
-//     ArduinoOTA.handle(); // Nasłuchiwanie żądań aktualizacji OTA
-
-//     // ZARZĄDZANIE ŁĄCZNOŚCIĄ
-    
-//     // Sprawdzanie i utrzymanie połączenia WiFi
-//     if (WiFi.status() != WL_CONNECTED) {
-//         setupWiFi();    // Próba ponownego połączenia z siecią
-//         return;         // Powrót do początku pętli po próbie połączenia
-//     }
-    
-//     // Zarządzanie połączeniem MQTT
-//     if (!mqtt.isConnected()) {
-//         if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
-//             lastMQTTRetry = currentMillis;
-//             Serial.println("\nBrak połączenia MQTT - próba reconnect...");
-//             if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-//                 Serial.println("MQTT połączono ponownie!");
-//             }
-//         }
-//     }
-        
-//     mqtt.loop();  // Obsługa komunikacji MQTT
-
-//     // GŁÓWNE FUNKCJE URZĄDZENIA
-    
-//     // Obsługa interfejsu i sterowania
-//     handleButton();     // Przetwarzanie sygnałów z przycisków
-//     updatePump();       // Sterowanie pompą
-//     checkAlarmConditions(); // System ostrzeżeń dźwiękowych
-    
-//     // Monitoring poziomu wody
-//     if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
-//         updateWaterLevel();  // Pomiar i aktualizacja stanu wody
-//         lastMeasurement = millis();
-//     }
-
-//     // STATYSTYKI I ZARZĄDZANIE CZASEM
-    
-//     // Aktualizacja czasu i resetowanie statystyk (co godzinę)
-//     // Aktualizacja czasu
-//     if (millis() - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
-//         timeClient.update();
-//         lastTimeUpdate = millis();
-//     }
-    
-//     // Aktualizacja statystyk Home Assistant (co minutę)
-//     if (currentMillis - lastStatsUpdate >= 60000) {
-//         updateHAStatistics();
-//         lastStatsUpdate = currentMillis;
-//     }
-// }
 
 void loop() {
     unsigned long currentMillis = millis();
@@ -1497,11 +1390,11 @@ void loop() {
     // KRYTYCZNE OPERACJE SYSTEMOWE
     
     // Zabezpieczenie przed zawieszeniem systemu
-    ESP.wdtFeed();      // Resetowanie licznika watchdog
-    yield();            // Obsługa krytycznych zadań systemowych ESP8266
+    ESP.wdtFeed();  // Resetowanie licznika watchdog
+    yield();  // Obsługa krytycznych zadań systemowych ESP8266
     
     // System aktualizacji bezprzewodowej
-    ArduinoOTA.handle(); // Nasłuchiwanie żądań aktualizacji OTA
+    ArduinoOTA.handle();  // Nasłuchiwanie żądań aktualizacji OTA
 
     // ZARZĄDZANIE ŁĄCZNOŚCIĄ
     
