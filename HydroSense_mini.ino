@@ -192,9 +192,9 @@ struct PumpStatistics {
     uint16_t monthlyPumpWorkTime;
     uint8_t monthlyWaterUsed;
         
-    // time_t lastDailyReset;
-    // time_t lastWeeklyReset;
-    // time_t lastMonthlyReset;
+    time_t lastDailyReset;
+    time_t lastWeeklyReset;
+    time_t lastMonthlyReset;
 };
 PumpStatistics pumpStats = {0};
 
@@ -633,41 +633,41 @@ void setupHA() {
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
 
     // Statystyki
-    sensorDailyPumpRuns.setName("Dzisiejsze uruchomienia pompy");
+    sensorDailyPumpRuns.setName("Uruchomienia pompy - dzień");
     sensorDailyPumpRuns.setIcon("mdi:water-pump");
     //sensorDailyPumpRuns.setUnitOfMeasurement("razy");
     
-    sensorDailyPumpTime.setName("Dzisiejszy czas pracy pompy");
+    sensorDailyPumpTime.setName("Czas pracy pompy - dzień");
     sensorDailyPumpTime.setIcon("mdi:timer");
     sensorDailyPumpTime.setUnitOfMeasurement("min");
     
-    sensorDailyWaterUsed.setName("Dzisiejsze zużycie wody");
+    sensorDailyWaterUsed.setName("Zużycie wody - dzień");
     sensorDailyWaterUsed.setIcon("mdi:water");
     sensorDailyWaterUsed.setUnitOfMeasurement("L");
 
     // Tygodniowe statystyki
-    sensorWeeklyPumpRuns.setName("Tygodniowe uruchomienia pompy");
+    sensorWeeklyPumpRuns.setName("Uruchomienia pompy - tydzień");
     sensorWeeklyPumpRuns.setIcon("mdi:water-pump");
     //sensorWeeklyPumpRuns.setUnitOfMeasurement("razy");
     
-    sensorWeeklyPumpTime.setName("Tygodniowy czas pracy pompy");
+    sensorWeeklyPumpTime.setName("Czas pracy pompy - tydzień");
     sensorWeeklyPumpTime.setIcon("mdi:timer");
     sensorWeeklyPumpTime.setUnitOfMeasurement("min");
     
-    sensorWeeklyWaterUsed.setName("Tygodniowe zużycie wody");
+    sensorWeeklyWaterUsed.setName("Zużycie wody - tydzień");
     sensorWeeklyWaterUsed.setIcon("mdi:water");
     sensorWeeklyWaterUsed.setUnitOfMeasurement("L");
     
     // Miesięczne statystyki
-    sensorMonthlyPumpRuns.setName("Miesięczne uruchomienia pompy");
+    sensorMonthlyPumpRuns.setName("Uruchomienia pompy - miesiąc");
     sensorMonthlyPumpRuns.setIcon("mdi:water-pump");
     //sensorMonthlyPumpRuns.setUnitOfMeasurement("razy");
     
-    sensorMonthlyPumpTime.setName("Miesięczny czas pracy pompy");
+    sensorMonthlyPumpTime.setName("Czas pracy pompy - miesiąc");
     sensorMonthlyPumpTime.setIcon("mdi:timer");
     sensorMonthlyPumpTime.setUnitOfMeasurement("min");
     
-    sensorMonthlyWaterUsed.setName("Miesięczne zużycie wody");
+    sensorMonthlyWaterUsed.setName("Zużycie wody - miesiąc");
     sensorMonthlyWaterUsed.setIcon("mdi:water");
     sensorMonthlyWaterUsed.setUnitOfMeasurement("L");
 }
