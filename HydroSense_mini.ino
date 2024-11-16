@@ -7,23 +7,23 @@
 #include <PubSubClient.h>  // MQTT - protokół komunikacji z serwerem MQTT
 #include <EEPROM.h>        // Obsługa pamięci EEPROM, używana do przechowywania danych na stałe
 #include <CRC32.h>         // Biblioteka CRC32 - używana do weryfikacji integralności danych
-#include <NTPClient.h>     // Obsługa klienta NTP (Network Time Protocol)
+//#include <NTPClient.h>     // Obsługa klienta NTP (Network Time Protocol)
 #include <WiFiUdp.h>       // Obsługa komunikacji UDP
 #include <Time.h>          // Obsługa funkcji związanych z czasem
 #include <TimeLib.h>       // Dodatkowe funkcje związane z czasem
-#include <Timezone.h>      // https://github.com/JChristensen/Timezone
+#include <sys/time.h>      // Dla funkcji czasowych
 
 // --- Definicje stałych i zmiennych globalnych
 
 // Definicje dla NTP (Network Time Protocol)
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org");
+//WiFiUDP ntpUDP;
+//NTPClient timeClient(ntpUDP, "pool.ntp.org");
 // Zasady dla czasu środkowoeuropejskiego (CET/CEST)
 // Czas letni (CEST) = UTC + 2
 // Czas zimowy (CET) = UTC + 1
-TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};  // Czas letni (UTC + 2)
-TimeChangeRule CET = {"CET", Last, Sun, Oct, 3, 60};     // Czas zimowy (UTC + 1)
-Timezone CE(CEST, CET);
+//TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};  // Czas letni (UTC + 2)
+//TimeChangeRule CET = {"CET", Last, Sun, Oct, 3, 60};     // Czas zimowy (UTC + 1)
+//Timezone CE(CEST, CET);
 
 // Definicje interwałów czasowych
 #define TIME_UPDATE_INTERVAL 3600000  // Interwał aktualizacji czasu (1 godzina w milisekundach)
@@ -186,19 +186,19 @@ enum AlarmType {
 // Struktura dla statystyk
 struct PumpStatistics {
     // Dzienne statystyki
-    uint8_t dailyPumpRuns;      // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
-    uint16_t dailyPumpWorkTime; // było uint32_t, teraz uint16_t (oszczędność 2 bajty)
-    uint8_t dailyWaterUsed;     // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
+    uint8_t dailyPumpRuns;      
+    uint16_t dailyPumpWorkTime; 
+    uint8_t dailyWaterUsed;     
     
     // Tygodniowe statystyki
-    uint8_t weeklyPumpRuns;     // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
-    uint16_t weeklyPumpWorkTime;// było uint32_t, teraz uint16_t (oszczędność 2 bajty)
-    uint8_t weeklyWaterUsed;    // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
+    uint8_t weeklyPumpRuns;     
+    uint16_t weeklyPumpWorkTime;
+    uint8_t weeklyWaterUsed;    
     
     // Miesięczne statystyki
-    uint8_t monthlyPumpRuns;    // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
-    uint16_t monthlyPumpWorkTime;// było uint32_t, teraz uint16_t (oszczędność 2 bajty)
-    uint8_t monthlyWaterUsed;   // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
+    uint8_t monthlyPumpRuns;    
+    uint16_t monthlyPumpWorkTime;
+    uint8_t monthlyWaterUsed;   
     
     // Znaczniki czasu resetów
     time_t lastDailyReset;
@@ -819,13 +819,6 @@ float getCurrentWaterLevel() {
     return waterLevel;  // Zwrócenie obliczonego poziomu wody
 }
 
-// Obliczenie zużycia wody
-float calculateWaterUsed(float beforeLevel, float afterLevel) {
-    // Zakładając, że poziomy są w procentach i znamy objętość zbiornika
-    const float CONTAINER_VOLUME = 20.0; // Objętość zbiornika w litrach - do dostosowania
-    return (beforeLevel - afterLevel) * CONTAINER_VOLUME / 100.0;
-}
-
 // Pomiar odległości
 // Funkcja wykonuje pomiar odległości za pomocą czujnika ultradźwiękowego HC-SR04
 // Zwraca:
@@ -929,11 +922,15 @@ int calculateWaterLevel(int distance) {
 
 //
 float calculateWaterUsed(float beforeVolume, float afterVolume) {
-    return beforeVolume - afterVolume; // bezpośrednie odjęcie objętości
+    float difference = beforeVolume - afterVolume;
+    return difference > 0 ? difference : 0;  // zwracamy tylko dodatnie zużycie
 }
 
 //
 void updateWaterLevel() {
+    // Zapisz poprzednią objętość
+    float previousVolume = volume;
+
     currentDistance = measureDistance();
     if (currentDistance < 0) return; // błąd pomiaru
     
@@ -951,7 +948,7 @@ void updateWaterLevel() {
     // Jeśli objętość się zmieniła, aktualizujemy statystyki
     if (volume != previousVolume) {
         float waterUsed = calculateWaterUsed(previousVolume, volume);
-        if (waterUsed > 0) {  // tylko gdy faktycznie ubyło wody
+        if (waterUsed > 0) {
             safeIncrementStats(0, waterUsed);
         }
     }
@@ -1074,7 +1071,7 @@ void resetStatistics(const char* period) {
 
 // Sprawdzenie i reset statystyk
 void safeIncrementStats(unsigned long workTime, float waterUsed) {
-    // Zabezpieczenie przed przepełnieniem liczników dziennych
+    // Dzienne statystyki
     if (pumpStats.dailyPumpRuns < UINT8_MAX) {
         pumpStats.dailyPumpRuns++;
     }
@@ -1084,36 +1081,34 @@ void safeIncrementStats(unsigned long workTime, float waterUsed) {
     if (waterUsed > 0 && pumpStats.dailyWaterUsed + waterUsed <= UINT8_MAX) {
         pumpStats.dailyWaterUsed += (uint8_t)waterUsed;
     }
-    
-    // Zabezpieczenie przed przepełnieniem liczników tygodniowych
+
+    // Tygodniowe statystyki
     if (pumpStats.weeklyPumpRuns < UINT8_MAX) {
         pumpStats.weeklyPumpRuns++;
     }
     if (pumpStats.weeklyPumpWorkTime + workTime <= UINT16_MAX) {
         pumpStats.weeklyPumpWorkTime += workTime;
     }
-    if (pumpStats.weeklyWaterUsed + waterUsed <= UINT8_MAX) {
-        pumpStats.weeklyWaterUsed += (uint16_t)waterUsed;
+    if (waterUsed > 0 && pumpStats.weeklyWaterUsed + waterUsed <= UINT8_MAX) {
+        pumpStats.weeklyWaterUsed += (uint8_t)waterUsed;
     }
-    
-    // Zabezpieczenie przed przepełnieniem liczników miesięcznych
+
+    // Miesięczne statystyki
     if (pumpStats.monthlyPumpRuns < UINT8_MAX) {
         pumpStats.monthlyPumpRuns++;
     }
     if (pumpStats.monthlyPumpWorkTime + workTime <= UINT16_MAX) {
         pumpStats.monthlyPumpWorkTime += workTime;
     }
-    if (pumpStats.monthlyWaterUsed + waterUsed <= UINT8_MAX) {
-        pumpStats.monthlyWaterUsed += (uint16_t)waterUsed;
+    if (waterUsed > 0 && pumpStats.monthlyWaterUsed + waterUsed <= UINT8_MAX) {
+        pumpStats.monthlyWaterUsed += (uint8_t)waterUsed;
     }
 }
 
 // Sprawdzenie i reset statystyk
 void checkStatisticsReset() {
-    time_t utc = timeClient.getEpochTime();
-    time_t local = getLocalTime();
-    
-    struct tm *timeinfo = localtime(&local);
+    time_t now = getLocalTime();
+    struct tm *timeinfo = localtime(&now);
     struct tm *lastDailyReset = localtime(&pumpStats.lastDailyReset);
     struct tm *lastWeeklyReset = localtime(&pumpStats.lastWeeklyReset);
     struct tm *lastMonthlyReset = localtime(&pumpStats.lastMonthlyReset);
@@ -1122,7 +1117,7 @@ void checkStatisticsReset() {
     #ifdef DEBUG
     Serial.println(F("Checking statistics reset:"));
     Serial.print(F("Current time: "));
-    printDateTime(local);
+    printDateTime(now);
     Serial.print(F("Last daily reset: "));
     printDateTime(pumpStats.lastDailyReset);
     #endif
@@ -1203,7 +1198,9 @@ void updateHAStatistics() {
 
 // Czas
 time_t getLocalTime() {
-    return CE.toLocal(timeClient.getEpochTime());
+    time_t now;
+    time(&now);
+    return now;  // Czas jest już lokalny dzięki konfiguracji strefy czasowej
 }
 
 // Funkcja pomocnicza do wyświetlania czasu (przydatna przy debugowaniu)
@@ -1267,13 +1264,32 @@ void setup() {
     
     // Nawiązanie połączenia WiFi
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) {        // Oczekiwanie na połączenie
+    Serial.print("Łączenie z WiFi");
+    while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
+        ESP.wdtFeed(); // Reset watchdoga podczas łączenia
     }
     Serial.println("\nPołączono z WiFi");
 
     configOTA();
+
+    // Konfiguracja czasu
+    Serial.println("Konfiguracja czasu...");
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");    // Serwery NTP
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);       // Strefa czasowa dla Polski
+    tzset();
+
+    // Czekaj na synchronizację czasu
+    Serial.print("Oczekiwanie na synchronizację czasu");
+    time_t now = time(nullptr);
+    while (now < 24 * 3600) {
+        delay(500);
+        Serial.print(".");
+        ESP.wdtFeed();
+        now = time(nullptr);
+    }
+    Serial.println("\nCzas zsynchronizowany");
 
     // Próba połączenia MQTT
     Serial.println("Rozpoczynam połączenie MQTT...");
@@ -1290,21 +1306,28 @@ void setup() {
     firstUpdateHA();
     status.lastSoundAlert = millis();
     
-    // Inicjalizacja NTP
-    timeClient.begin();
-    timeClient.setTimeOffset(utcOffsetInSeconds);
+    // Inicjalizacja statystyk z aktualnym czasem
+    time_t local = time(nullptr);
+    struct tm *timeinfo = localtime(&local);
     
-    // Pierwsze pobranie czasu
-    while(!timeClient.update()) {
-        timeClient.forceUpdate();
-        delay(500);
-    }
-    
-    // Inicjalizacja z aktualnym czasem lokalnym
-    time_t local = getLocalTime();
+    // Ustaw znaczniki czasowe resetów
     pumpStats.lastDailyReset = local;
     pumpStats.lastWeeklyReset = local;
     pumpStats.lastMonthlyReset = local;
+
+    // Debug info
+    Serial.print("Aktualny czas: ");
+    Serial.print(timeinfo->tm_year + 1900);
+    Serial.print("-");
+    Serial.print(timeinfo->tm_mon + 1);
+    Serial.print("-");
+    Serial.print(timeinfo->tm_mday);
+    Serial.print(" ");
+    Serial.print(timeinfo->tm_hour);
+    Serial.print(":");
+    Serial.print(timeinfo->tm_min);
+    Serial.print(":");
+    Serial.println(timeinfo->tm_sec);
 
     Serial.println("Setup zakończony pomyślnie!");
     
@@ -1314,10 +1337,75 @@ void setup() {
 }
 
 // --- Pętla główna
+// void loop() {
+//     unsigned long currentMillis = millis();
+//     static unsigned long lastMQTTRetry = 0;
+//     static unsigned long lastMeasurement = 0;
+
+//     // KRYTYCZNE OPERACJE SYSTEMOWE
+    
+//     // Zabezpieczenie przed zawieszeniem systemu
+//     ESP.wdtFeed();      // Resetowanie licznika watchdog
+//     yield();            // Obsługa krytycznych zadań systemowych ESP8266
+    
+//     // System aktualizacji bezprzewodowej
+//     ArduinoOTA.handle(); // Nasłuchiwanie żądań aktualizacji OTA
+
+//     // ZARZĄDZANIE ŁĄCZNOŚCIĄ
+    
+//     // Sprawdzanie i utrzymanie połączenia WiFi
+//     if (WiFi.status() != WL_CONNECTED) {
+//         setupWiFi();    // Próba ponownego połączenia z siecią
+//         return;         // Powrót do początku pętli po próbie połączenia
+//     }
+    
+//     // Zarządzanie połączeniem MQTT
+//     if (!mqtt.isConnected()) {
+//         if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
+//             lastMQTTRetry = currentMillis;
+//             Serial.println("\nBrak połączenia MQTT - próba reconnect...");
+//             if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+//                 Serial.println("MQTT połączono ponownie!");
+//             }
+//         }
+//     }
+        
+//     mqtt.loop();  // Obsługa komunikacji MQTT
+
+//     // GŁÓWNE FUNKCJE URZĄDZENIA
+    
+//     // Obsługa interfejsu i sterowania
+//     handleButton();     // Przetwarzanie sygnałów z przycisków
+//     updatePump();       // Sterowanie pompą
+//     checkAlarmConditions(); // System ostrzeżeń dźwiękowych
+    
+//     // Monitoring poziomu wody
+//     if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
+//         updateWaterLevel();  // Pomiar i aktualizacja stanu wody
+//         lastMeasurement = millis();
+//     }
+
+//     // STATYSTYKI I ZARZĄDZANIE CZASEM
+    
+//     // Aktualizacja czasu i resetowanie statystyk (co godzinę)
+//     // Aktualizacja czasu
+//     if (millis() - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
+//         timeClient.update();
+//         lastTimeUpdate = millis();
+//     }
+    
+//     // Aktualizacja statystyk Home Assistant (co minutę)
+//     if (currentMillis - lastStatsUpdate >= 60000) {
+//         updateHAStatistics();
+//         lastStatsUpdate = currentMillis;
+//     }
+// }
+
 void loop() {
     unsigned long currentMillis = millis();
     static unsigned long lastMQTTRetry = 0;
     static unsigned long lastMeasurement = 0;
+    static unsigned long lastStatsUpdate = 0;
 
     // KRYTYCZNE OPERACJE SYSTEMOWE
     
@@ -1357,23 +1445,45 @@ void loop() {
     checkAlarmConditions(); // System ostrzeżeń dźwiękowych
     
     // Monitoring poziomu wody
-    if (millis() - lastMeasurement >= MEASUREMENT_INTERVAL) {
+    if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
         updateWaterLevel();  // Pomiar i aktualizacja stanu wody
-        lastMeasurement = millis();
+        lastMeasurement = currentMillis;
     }
 
     // STATYSTYKI I ZARZĄDZANIE CZASEM
     
-    // Aktualizacja czasu i resetowanie statystyk (co godzinę)
-    // Aktualizacja czasu
-    if (millis() - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
-        timeClient.update();
-        lastTimeUpdate = millis();
+    // Sprawdzanie resetów statystyk
+    static time_t lastTimeCheck = 0;
+    time_t now = time(nullptr);
+    
+    // Sprawdzaj resety co minutę
+    if (now - lastTimeCheck >= 60) {
+        checkStatisticsReset();
+        lastTimeCheck = now;
+        
+        // Debug - wyświetl aktualny czas
+        #ifdef DEBUG
+        struct tm timeinfo;
+        localtime_r(&now, &timeinfo);
+        Serial.printf("Aktualny czas: %04d-%02d-%02d %02d:%02d:%02d\n",
+                     timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+                     timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+        #endif
     }
     
     // Aktualizacja statystyk Home Assistant (co minutę)
     if (currentMillis - lastStatsUpdate >= 60000) {
         updateHAStatistics();
         lastStatsUpdate = currentMillis;
+        
+        // Synchronizacja czasu (co godzinę)
+        static time_t lastSync = 0;
+        if (now - lastSync >= 3600) {
+            configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+            lastSync = now;
+            #ifdef DEBUG
+            Serial.println("Wykonano synchronizację czasu");
+            #endif
+        }
     }
 }
