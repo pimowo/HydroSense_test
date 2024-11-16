@@ -917,7 +917,7 @@ void handleButton() {
     static bool lastReading = HIGH;
     const unsigned long DEBOUNCE_DELAY = 50;  // 50ms debounce
 
-    bool reading = digitalRead(PIN_BUTTON);
+    bool reading = digitalRead(PRZYCISK_PIN);
 
     // Jeśli odczyt się zmienił, zresetuj timer debounce
     if (reading != lastReading) {
