@@ -1,9 +1,10 @@
 // --- Biblioteki
 
-#include <ESP8266WiFi.h>   // Obsługa WiFi dla ESP8266
-#include <PubSubClient.h>  // MQTT - protokół komunikacji z serwerem MQTT
+#include <Arduino.h>
 #include <ArduinoHA.h>     // Biblioteka do integracji z Home Assistant
 #include <ArduinoOTA.h>    // Obsługa aktualizacji OTA (Over-The-Air)
+#include <ESP8266WiFi.h>   // Obsługa WiFi dla ESP8266
+#include <PubSubClient.h>  // MQTT - protokół komunikacji z serwerem MQTT
 #include <EEPROM.h>        // Obsługa pamięci EEPROM, używana do przechowywania danych na stałe
 #include <CRC32.h>         // Biblioteka CRC32 - używana do weryfikacji integralności danych
 #include <NTPClient.h>     // Obsługa klienta NTP (Network Time Protocol)
@@ -388,7 +389,7 @@ void updateAlarmStates(float currentDistance) {
     // Włącz ostrzeżenie o rezerwie jeśli:
     // - odległość osiągnęła próg rezerwy
     // - ostrzeżenie nie jest jeszcze aktywne
-    if (currentDistance >= DISTANCE_RESERVE && !status.waterReserveActive) {
+    if (currentDistance >= REZERWA_ODLEGLOSC && !status.waterReserveActive) {
         status.waterReserveActive = true;
         sensorReserve.setValue("ON");
         Serial.println("Rezerwa ON");
@@ -396,7 +397,7 @@ void updateAlarmStates(float currentDistance) {
     // Wyłącz ostrzeżenie o rezerwie jeśli:
     // - odległość spadła poniżej progu rezerwy (z histerezą)
     // - ostrzeżenie jest aktywne
-    else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
+    else if (currentDistance < (REZERWA_ODLEGLOSC - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
         sensorReserve.setValue("OFF");
         Serial.println("Rezerwa OFF");
@@ -427,7 +428,7 @@ void updatePump() {
     // Jeśli aktywny jest tryb serwisowy, wyłącz pompę i zakończ
     if (status.isServiceMode) {
         if (status.isPumpActive) {
-            digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+            digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
             status.isPumpActive = false;  // Oznacz jako nieaktywną
             status.pumpStartTime = 0;  // Zeruj czas startu
             sensorPump.setValue("OFF");  // Aktualizuj status w HA
@@ -438,7 +439,7 @@ void updatePump() {
     // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
     // Sprawdź czy pompa nie przekroczyła maksymalnego czasu pracy
     if (status.isPumpActive && (millis() - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
-        digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+        digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
         status.isPumpActive = false;  // Oznacz jako nieaktywną
         status.pumpStartTime = 0;  // Zeruj czas startu
         sensorPump.setValue("OFF");  // Aktualizuj status w HA
@@ -452,7 +453,7 @@ void updatePump() {
     // Sprawdź czy nie jest aktywna blokada bezpieczeństwa lub alarm braku wody
     if (status.pumpSafetyLock || status.waterAlarmActive) {
         if (status.isPumpActive) {
-            digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+            digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
             status.isPumpActive = false;  // Oznacz jako nieaktywną
             status.pumpStartTime = 0;  // Zeruj czas startu
             sensorPump.setValue("OFF");  // Aktualizuj status w HA
@@ -464,7 +465,7 @@ void updatePump() {
     // Jeśli woda osiągnęła poziom, a pompa pracuje, 
     // wyłącz ją aby zapobiec przelaniu
     if (!waterPresent && status.isPumpActive) {
-        digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+        digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
         status.isPumpActive = false;  // Oznacz jako nieaktywną
         status.pumpStartTime = 0;  // Zeruj czas startu
         status.isPumpDelayActive = false;  // Wyłącz opóźnienie
@@ -485,7 +486,7 @@ void updatePump() {
     // Po upływie opóźnienia, włącz pompę
     if (status.isPumpDelayActive && !status.isPumpActive) {
         if (millis() - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
-            digitalWrite(PIN_PUMP, HIGH);  // Włącz pompę
+            digitalWrite(POMPA_PIN, HIGH);  // Włącz pompę
             status.isPumpActive = true;  // Oznacz jako aktywną
             status.pumpStartTime = millis();  // Zapisz czas startu
             status.isPumpDelayActive = false;  // Wyłącz opóźnienie
@@ -684,7 +685,7 @@ void firstUpdateHA() {
     
     // Ustaw początkowe stany na podstawie pomiaru
     status.waterAlarmActive = (initialDistance >= ODLEGLOSC_PUSTY);
-    status.waterReserveActive = (initialDistance >= DISTANCE_RESERVE);
+    status.waterReserveActive = (initialDistance >= REZERWA_ODLEGLOSC);
     
     // Wymuś stan OFF na początku
     sensorAlarm.setValue("OFF");
@@ -730,7 +731,7 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
     
     if (state) {  // Włączanie trybu serwisowego
         if (status.isPumpActive) {
-            digitalWrite(PIN_PUMP, LOW);  // Wyłączenie pompy
+            digitalWrite(POMPA_PIN, LOW);  // Wyłączenie pompy
             status.isPumpActive = false;  // Reset flagi aktywności
             status.pumpStartTime = 0;  // Reset czasu startu
             sensorPump.setValue("OFF");  // Aktualizacja stanu w HA
@@ -883,7 +884,7 @@ void updateWaterLevel() {
     waterHeight = constrain(waterHeight, 0, ODLEGLOSC_PUSTY - ODLEGLOSC_PELNY);
     
     // Obliczenie objętości w litrach (wszystko w mm)
-    float radius = TANK_DIAMETER / 2.0;
+    float radius = SREDNICA_ZBIORNIKA / 2.0;
     volume = PI * (radius * radius) * waterHeight / 1000000.0; // mm³ na litry
     
     // Aktualizacja sensorów pomiarowych
@@ -947,7 +948,7 @@ void handleButton() {
                     
                     // Jeśli włączono tryb serwisowy podczas pracy pompy
                     if (status.isServiceMode && status.isPumpActive) {
-                        digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+                        digitalWrite(POMPA_PIN, LOW);  // Wyłącz pompę
                         status.isPumpActive = false;  // Reset flagi aktywności
                         status.pumpStartTime = 0;  // Reset czasu startu
                         sensorPump.setValue("OFF");  // Aktualizacja w HA
