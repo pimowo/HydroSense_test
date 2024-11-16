@@ -1,125 +1,121 @@
-// Biblioteki związane z obsługą komunikacji
-#include <ESP8266WiFi.h>  // Obsługa WiFi dla ESP8266
-#include <PubSubClient.h>  // MQTT - protokół komunikacji z serwerem MQTT
-#include <ArduinoHA.h>  // Biblioteka do integracji z Home Assistant
-#include <ArduinoOTA.h>  // Obsługa aktualizacji OTA (Over-The-Air)
-#include <EEPROM.h>  // Obsługa pamięci EEPROM, wykorzystywana do przechowywania danych na stałe
-#include <CRC32.h>  // Biblioteka CRC32 - używana do weryfikacji integralności danych
-#include <NTPClient.h>
-#include <WiFiUdp.h>
-#include <Time.h>
-#include <TimeLib.h>
+// --- Biblioteki
 
-// Definicje dla NTP
+#include <ESP8266WiFi.h>   // Obsługa WiFi dla ESP8266
+#include <PubSubClient.h>  // MQTT - protokół komunikacji z serwerem MQTT
+#include <ArduinoHA.h>     // Biblioteka do integracji z Home Assistant
+#include <ArduinoOTA.h>    // Obsługa aktualizacji OTA (Over-The-Air)
+#include <EEPROM.h>        // Obsługa pamięci EEPROM, używana do przechowywania danych na stałe
+#include <CRC32.h>         // Biblioteka CRC32 - używana do weryfikacji integralności danych
+#include <NTPClient.h>     // Obsługa klienta NTP (Network Time Protocol)
+#include <WiFiUdp.h>       // Obsługa komunikacji UDP
+#include <Time.h>          // Obsługa funkcji związanych z czasem
+#include <TimeLib.h>       // Dodatkowe funkcje związane z czasem
+
+// --- Definicje stałych i zmiennych globalnych
+
+// Definicje dla NTP (Network Time Protocol)
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
 // Definicje interwałów czasowych
-#define TIME_UPDATE_INTERVAL 3600000  // 1 godzina w milisekundach
-#define STATS_UPDATE_INTERVAL 60000   // 1 minuta w milisekundach
+#define TIME_UPDATE_INTERVAL 3600000  // Interwał aktualizacji czasu (1 godzina w milisekundach)
+#define STATS_UPDATE_INTERVAL 60000   // Interwał aktualizacji statystyk (1 minuta w milisekundach)
 
 // Zmienne do śledzenia czasu
-unsigned long lastTimeUpdate = 0;
-unsigned long lastStatsUpdate = 0;
+unsigned long lastTimeUpdate = 0;   // Ostatnia aktualizacja czasu
+unsigned long lastStatsUpdate = 0;  // Ostatnia aktualizacja statystyk
 
 // Strefa czasowa dla Polski (UTC+1 lub UTC+2 w czasie letnim)
-const long utcOffsetInSeconds = 3600; // 3600 dla UTC+1, 7200 dla UTC+2
-
-// Struktura konfiguracji
-struct Config {
-    uint8_t version;  // Wersja konfiguracji
-    bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
-    char checksum;  // Suma kontrolna
-};
+const long utcOffsetInSeconds = 3600; // Przesunięcie czasowe w sekundach (3600 dla UTC+1)
 
 // Stałe konfiguracyjne
-const uint8_t CONFIG_VERSION = 1;
-const int EEPROM_SIZE = sizeof(Config);
-
-// Globalna instancja konfiguracji
-Config config;
+const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
+const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM
+//Config config;                           // Globalna instancja konfiguracji
 
 // Konfiguracja WiFi i MQTT
-const char* WIFI_SSID = "pimowo";  // Nazwa sieci WiFi
+const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
 const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
-const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
-const char* MQTT_USER = "hydrosense";  // Użytkownik MQTT
-const char* MQTT_PASSWORD = "hydrosense";  // Hasło MQTT
+const char* MQTT_SERVER = "192.168.1.14";          // Adres IP serwera MQTT (Home Assistant)
+const char* MQTT_USER = "hydrosense";              // Użytkownik MQTT
+const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
 
 // Konfiguracja pinów ESP8266
-#define PIN_ULTRASONIC_TRIG D6 // Pin TRIG czujnika ultradźwiękowego
-#define PIN_ULTRASONIC_ECHO D7 // Pin ECHO czujnika ultradźwiękowego
+#define PIN_ULTRASONIC_TRIG D6  // Pin TRIG czujnika ultradźwiękowego
+#define PIN_ULTRASONIC_ECHO D7  // Pin ECHO czujnika ultradźwiękowego
 
-#define PIN_WATER_LEVEL D5 // Pin czujnika poziomu wody w akwarium
-#define PIN_PUMP D1 // Pin sterowania pompą
-#define PIN_BUZZER D2 // Pin buzzera do alarmów dźwiękowych
-#define PIN_BUTTON D3 // Pin przycisku do kasowania alarmów
+#define PIN_WATER_LEVEL D5      // Pin czujnika poziomu wody w akwarium
+#define POMPA_PIN D1             // Pin sterowania pompą
+#define BUZZER_PIN D2           // Pin buzzera do alarmów dźwiękowych
+#define PRZYCISK_PIN D3           // Pin przycisku do kasowania alarmów
 
 // Stałe czasowe (wszystkie wartości w milisekundach)
-const unsigned long ULTRASONIC_TIMEOUT = 50;  // Timeout pomiaru w ms
-const unsigned long MEASUREMENT_INTERVAL = 10000;  // Interwał między pomiarami w ms
-const unsigned long WIFI_CHECK_INTERVAL = 5000;  // Czas między sprawdzeniami WiFi w ms
-const unsigned long WATCHDOG_TIMEOUT = 8000;  // Timeout dla watchdoga w ms
-const unsigned long PUMP_MAX_WORK_TIME = 300000;  // Maksymalny czas pracy pompy (5 minut)
-const unsigned long PUMP_DELAY_TIME = 60000;  // Opóźnienie ponownego załączenia pompy (1 minuta)
-const unsigned long SENSOR_READ_INTERVAL = 5000;  // Częstotliwość odczytu czujnika (5 sekund)
-const unsigned long MQTT_RETRY_INTERVAL = 5000;  // Czas między próbami połączenia MQTT (5 sekund)
-const unsigned long WIFI_RETRY_INTERVAL = 10000;  // Czas między próbami połączenia WiFi (10 sekund)
-const unsigned long BUTTON_DEBOUNCE_TIME = 50;  // Czas debouncingu przycisku (50ms)
-const unsigned long LONG_PRESS_TIME = 1000;  // Czas długiego naciśnięcia przycisku (1 sekunda)
-const unsigned long SOUND_ALERT_INTERVAL = 60000; // 1 minuta w milisekundach
+const unsigned long ULTRASONIC_TIMEOUT = 50;       // Timeout pomiaru czujnika ultradźwiękowego
+const unsigned long MEASUREMENT_INTERVAL = 10000;  // Interwał między pomiarami
+const unsigned long WIFI_CHECK_INTERVAL = 5000;    // Interwał sprawdzania połączenia WiFi
+const unsigned long WATCHDOG_TIMEOUT = 8000;       // Timeout dla watchdoga
+const unsigned long PUMP_MAX_WORK_TIME = 300000;   // Maksymalny czas pracy pompy (5 minut)
+const unsigned long PUMP_DELAY_TIME = 60000;       // Opóźnienie ponownego załączenia pompy (1 minuta)
+const unsigned long SENSOR_READ_INTERVAL = 5000;   // Częstotliwość odczytu czujnika
+const unsigned long MQTT_RETRY_INTERVAL = 5000;    // Interwał prób połączenia MQTT
+const unsigned long WIFI_RETRY_INTERVAL = 10000;   // Interwał prób połączenia WiFi
+const unsigned long BUTTON_DEBOUNCE_TIME = 50;     // Czas debouncingu przycisku
+const unsigned long LONG_PRESS_TIME = 1000;        // Czas długiego naciśnięcia przycisku
+const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnałami dźwiękowymi
 
 // Konfiguracja EEPROM
-#define EEPROM_SIZE 512  // Rozmiar używanej pamięci EEPROM w bajtach
-
-// Adresy w pamięci EEPROM
-#define EEPROM_SOUND_STATE_ADDR 0  // Adres przechowywania stanu dźwięku (1 bajt)
+#define EEPROM_SIZE 512              // Rozmiar używanej pamięci EEPROM
+#define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
 // Konfiguracja zbiornika i pomiarów
-const int DISTANCE_WHEN_FULL = 65.0;  // pełny zbiornik - mm
-const int DISTANCE_WHEN_EMPTY = 510.0;  // pusty zbiornik - mm
-const int DISTANCE_RESERVE = 450.0;  // dystans dla rezerwy - mm
-const int HYSTERESIS = 10.0;  // histereza - mm
-const int TANK_DIAMETER = 150;  // Średnica zbiornika - mm
-const int MEASUREMENTS_COUNT = 3;  // liczba pomiarów do uśrednienia
-const int PUMP_DELAY = 5;  // opóźnienie włączenia pompy - sekundy
-const int PUMP_WORK_TIME = 60;  // czas pracy pompy - sekundy
+const int ODLEGLOSC_PELNY = 65.0;    // Dystans dla pełnego zbiornika (w mm)
+const int ODLEGLOSC_PUSTY = 510.0;  // Dystans dla pustego zbiornika (w mm)
+const int REZERWA_ODLEGLOSC = 450.0;     // Dystans dla rezerwy (w mm)
+const int HYSTERESIS = 10.0;            // Histereza (w mm)
+const int SREDNICA_ZBIORNIKA = 150;          // Średnica zbiornika (w mm)
+const int MEASUREMENTS_COUNT = 3;       // Liczba pomiarów do uśrednienia
+const int PUMP_DELAY = 5;               // Opóźnienie włączenia pompy (w sekundach)
+const int PUMP_WORK_TIME = 60;          // Czas pracy pompy (w sekundach)
 
-float currentDistance = 0;
-float volume = 0;  // Dodajemy też zmienną volume jako globalną
-unsigned long lastDebounceTime = 0;  // ostatni czas zmiany stanu przycisku
+float aktualnaOdleglosc = 0;              // Aktualny dystans
+//float objetosc = 0;                       // Objętość wody
+unsigned long ostatniCzasDebounce = 0;     // Ostatni czas zmiany stanu przycisku
 
 // Obiekty do komunikacji
-WiFiClient client; // Klient połączenia WiFi
-HADevice device("HydroSense"); // Definicja urządzenia dla Home Assistant
-HAMqtt mqtt(client, device); // Klient MQTT dla Home Assistant
+WiFiClient client;              // Klient połączenia WiFi
+HADevice device("HydroSense");  // Definicja urządzenia dla Home Assistant
+HAMqtt mqtt(client, device);    // Klient MQTT dla Home Assistant
 
 // Sensory pomiarowe
-HASensor sensorDistance("water_level"); // Odległość od lustra wody w mm
-HASensor sensorLevel("water_level_percent"); // Poziom wody w zbiorniku w procentach
-HASensor sensorVolume("water_volume"); // Objętość wody w litrach
+HASensor sensorDistance("water_level");                   // Odległość od lustra wody (w mm)
+HASensor sensorLevel("water_level_percent");              // Poziom wody w zbiorniku (w procentach)
+HASensor sensorVolume("water_volume");                    // Objętość wody (w litrach)
 
 // Sensory statusu
-HASensor sensorPump("pump"); // Status pracy pompy (ON/OFF)
-HASensor sensorWater("water"); // Status czujnika poziomu w akwarium (ON=niski/OFF=ok)
+HASensor sensorPump("pump");                              // Status pracy pompy (ON/OFF)
+HASensor sensorWater("water");                            // Status czujnika poziomu w akwarium (ON=niski/OFF=ok)
 
 // Sensory alarmowe
-HASensor sensorAlarm("water_alarm"); // Alarm braku wody w zbiorniku dolewki
-HASensor sensorReserve("water_reserve"); // Alarm rezerwy w zbiorniku dolewki
+HASensor sensorAlarm("water_alarm");                      // Alarm braku wody w zbiorniku dolewki
+HASensor sensorReserve("water_reserve");                  // Alarm rezerwy w zbiorniku dolewki
 
 // Przełączniki
-HASwitch switchPump("pump_alarm"); // Przełącznik resetowania blokady pompy
-HASwitch switchService("service_mode"); // Przełącznik trybu serwisowego
-HASwitch switchSound("sound_switch"); // Przełącznik dźwięku alarmu            
+HASwitch switchPump("pump_alarm");                        // Przełącznik resetowania blokady pompy
+HASwitch switchService("service_mode");                   // Przełącznik trybu serwisowego
+HASwitch switchSound("sound_switch");                     // Przełącznik dźwięku alarmu
 
-HASensor sensorDailyPumpRuns("daily_pump_runs", true);
-HASensor sensorDailyPumpTime("daily_pump_time", true);
-HASensor sensorDailyWaterUsed("daily_water_used", true);
+// Statystyki
+HASensor sensorDailyPumpRuns("daily_pump_runs", true);    // Dzienne uruchomienia pompy
+HASensor sensorDailyPumpTime("daily_pump_time", true);    // Dzienne czas pracy pompy
+HASensor sensorDailyWaterUsed("daily_water_used", true);  // Dzienne zużycie wody
+
+// --- Deklaracje funkcji i struktury
 
 // Status systemu
 struct {
 bool isPumpActive = false; // Status pracy pompy
     unsigned long pumpStartTime = 0; // Czas startu pompy
+    float waterLevelBeforePump = 0;       // Poziom wody przed startem pompy
     bool isPumpDelayActive = false; // Status opóźnienia przed startem pompy
     unsigned long pumpDelayStartTime = 0; // Czas rozpoczęcia opóźnienia pompy
     bool pumpSafetyLock = false; // Blokada bezpieczeństwa pompy
@@ -129,7 +125,16 @@ bool isPumpActive = false; // Status pracy pompy
     bool isServiceMode = false; // Status trybu serwisowego
     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
     unsigned long lastSoundAlert = 0;  //
-} status;
+}; 
+//status;
+
+// eeprom
+struct Config {
+    uint8_t version;        // Wersja konfiguracji
+    bool soundEnabled;      // Status dźwięku (włączony/wyłączony)
+    char checksum;          // Suma kontrolna
+}; 
+//Config config;
 
 // Struktura dla obsługi przycisku
 struct ButtonState {
@@ -138,28 +143,8 @@ struct ButtonState {
     unsigned long releasedTime = 0; // Czas puszczenia przycisku
     bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia
     bool isInitialized = false; 
-} buttonState;
-
-// Obliczanie sumy kontrolnej
-char calculateChecksum(const Config& cfg) {
-    const byte* p = (const byte*)(&cfg);
-    char sum = 0;
-    for (int i = 0; i < sizeof(Config) - 1; i++) {
-        sum ^= p[i];
-    }
-    return sum;
-}
-
-// Definicje dla różnych typów alarmów
-enum AlarmType {
-    ALARM_PUMP_START,
-    ALARM_PUMP_STOP,
-    ALARM_WATER_LOW,
-    ALARM_WATER_HIGH
-};
-
-// Deklaracja funkcji (dodaj to po enum AlarmType)
-void playAlarm(AlarmType type);  // Deklaracja prototypu funkcji
+}; 
+//buttonState;
 
 // Struktura dla dźwięków alarmowych
 struct AlarmTone {
@@ -176,6 +161,42 @@ const AlarmTone alarmTones[] = {
     {1500, 200, 2, 300},      // ALARM_WATER_RESERVE
     {800, 100, 1, 0},         // ALARM_PUMP_START
     {600, 200, 1, 0}          // ALARM_PUMP_STOP
+};
+
+// Definicje dla różnych typów alarmów
+enum AlarmType {
+    ALARM_PUMP_START,
+    ALARM_PUMP_STOP,
+    ALARM_WATER_LOW,
+    ALARM_WATER_HIGH
+};
+
+// Struktura dla statystyk
+struct PumpStatistics {
+    // Dzienne statystyki
+    uint16_t dailyPumpRuns;
+    uint32_t dailyPumpWorkTime;    // w sekundach
+    float dailyWaterUsed;          // w litrach
+    
+    // Tygodniowe statystyki
+    uint16_t weeklyPumpRuns;
+    uint32_t weeklyPumpWorkTime;
+    float weeklyWaterUsed;
+    
+    // Miesięczne statystyki
+    uint16_t monthlyPumpRuns;
+    uint32_t monthlyPumpWorkTime;
+    float monthlyWaterUsed;
+    
+    // Całkowite statystyki
+    uint32_t totalPumpRuns;
+    uint32_t totalPumpWorkTime;
+    float totalWaterUsed;
+    
+    // Znaczniki czasowe ostatnich resetów
+    time_t lastDailyReset;
+    time_t lastWeeklyReset;
+    time_t lastMonthlyReset;
 };
 
 // Struktura dla statystyk
@@ -209,25 +230,15 @@ struct PumpStatistics {
 // Globalna instancja statystyk
 PumpStatistics pumpStats = {0};
 
-// Zmienne do śledzenia stanu pompy
-unsigned long pumpStartTime = 0;      // Czas startu pompy
-float waterLevelBeforePump = 0;       // Poziom wody przed startem pompy
+// --- EEPROM
 
-// Zapis konfiguracji
-void saveConfig() {
+// Ustawienia domyślne
+void setDefaultConfig() {
     config.version = CONFIG_VERSION;
-    config.checksum = calculateChecksum(config);
+    config.soundEnabled = true;  // Domyślnie dźwięk włączony
     
-    EEPROM.begin(EEPROM_SIZE);
-    EEPROM.put(0, config);
-    bool success = EEPROM.commit();
-    
-    if (success) {
-        Serial.printf("Konfiguracja zapisana. Stan dźwięku: %s\n",
-                     config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
-    } else {
-        Serial.println(F("Błąd zapisu konfiguracji!"));
-    }
+    saveConfig();
+    Serial.println(F("Utworzono domyślną konfigurację"));
 }
 
 // Wczytywanie konfiguracji
@@ -257,125 +268,36 @@ bool loadConfig() {
     return true;
 }
 
-// Ustawienia domyślne
-void setDefaultConfig() {
+// Zapis konfiguracji
+void saveConfig() {
     config.version = CONFIG_VERSION;
-    config.soundEnabled = true;  // Domyślnie dźwięk włączony
+    config.checksum = calculateChecksum(config);
     
-    saveConfig();
-    Serial.println(F("Utworzono domyślną konfigurację"));
-}
-
-void resetDailyStatistics() {
-    pumpStats.dailyPumpRuns = 0;
-    pumpStats.dailyPumpWorkTime = 0;
-    pumpStats.dailyWaterUsed = 0;
-    pumpStats.lastDailyReset = timeClient.getEpochTime();
-}
-
-void resetWeeklyStatistics() {
-    pumpStats.weeklyPumpRuns = 0;
-    pumpStats.weeklyPumpWorkTime = 0;
-    pumpStats.weeklyWaterUsed = 0;
-    pumpStats.lastWeeklyReset = timeClient.getEpochTime();
-}
-
-void resetMonthlyStatistics() {
-    pumpStats.monthlyPumpRuns = 0;
-    pumpStats.monthlyPumpWorkTime = 0;
-    pumpStats.monthlyWaterUsed = 0;
-    pumpStats.lastMonthlyReset = timeClient.getEpochTime();
-}
-
-void updateHAStatistics() {
-    char value[16];
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.put(0, config);
+    bool success = EEPROM.commit();
     
-    // Konwersja liczby uruchomień pompy na string
-    itoa(pumpStats.dailyPumpRuns, value, 10);
-    sensorDailyPumpRuns.setValue(value);
-    
-    // Konwersja czasu pracy pompy na string (w minutach)
-    itoa(pumpStats.dailyPumpWorkTime / 60, value, 10);
-    sensorDailyPumpTime.setValue(value);
-    
-    // Konwersja zużycia wody na string
-    dtostrf(pumpStats.dailyWaterUsed, 4, 2, value);
-    sensorDailyWaterUsed.setValue(value);
-}
-
-// Deklaracja getCurrentWaterLevel
-float getCurrentWaterLevel() {
-    int distance = measureDistance();
-    return calculateWaterLevel(distance);
-}
-
-// Funkcja sprawdzająca resety statystyk
-void checkStatisticsReset() {
-    time_t now = timeClient.getEpochTime();
-    struct tm* timeinfo = localtime(&now);
-    
-    // Reset dzienny o północy
-    if (timeinfo->tm_hour == 0 && timeinfo->tm_min == 0) {
-        if (now - pumpStats.lastDailyReset >= 86400) { // 24 godziny
-            resetDailyStatistics();
-        }
-    }
-    
-    // Reset tygodniowy w niedzielę o północy
-    if (timeinfo->tm_wday == 0 && timeinfo->tm_hour == 0 && timeinfo->tm_min == 0) {
-        if (now - pumpStats.lastWeeklyReset >= 604800) { // 7 dni
-            resetWeeklyStatistics();
-        }
-    }
-    
-    // Reset miesięczny pierwszego dnia miesiąca o północy
-    if (timeinfo->tm_mday == 1 && timeinfo->tm_hour == 0 && timeinfo->tm_min == 0) {
-        if (now - pumpStats.lastMonthlyReset >= 2592000) { // 30 dni
-            resetMonthlyStatistics();
-        }
+    if (success) {
+        Serial.printf("Konfiguracja zapisana. Stan dźwięku: %s\n",
+                     config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
+    } else {
+        Serial.println(F("Błąd zapisu konfiguracji!"));
     }
 }
 
-// Funkcja do aktualizacji statystyk przy włączeniu pompy
-void onPumpStart() {
-    pumpStats.dailyPumpRuns++;
-    pumpStats.weeklyPumpRuns++;
-    pumpStats.monthlyPumpRuns++;
-    pumpStats.totalPumpRuns++;
-    
-    pumpStartTime = millis();
-    waterLevelBeforePump = getCurrentWaterLevel();
-    
-    // Sygnał dźwiękowy startu pompy
-    playAlarm(ALARM_PUMP_START);
+// Obliczanie sumy kontrolnej
+char calculateChecksum(const Config& cfg) {
+    const byte* p = (const byte*)(&cfg);
+    char sum = 0;
+    for (int i = 0; i < sizeof(Config) - 1; i++) {
+        sum ^= p[i];
+    }
+    return sum;
 }
 
-// Funkcja do aktualizacji statystyk przy wyłączeniu pompy
-void onPumpStop() {
-    unsigned long pumpWorkTime = (millis() - pumpStartTime) / 1000; // czas w sekundach
-    float waterUsed = calculateWaterUsed(waterLevelBeforePump, getCurrentWaterLevel());
-    
-    pumpStats.dailyPumpWorkTime += pumpWorkTime;
-    pumpStats.weeklyPumpWorkTime += pumpWorkTime;
-    pumpStats.monthlyPumpWorkTime += pumpWorkTime;
-    pumpStats.totalPumpWorkTime += pumpWorkTime;
-    
-    pumpStats.dailyWaterUsed += waterUsed;
-    pumpStats.weeklyWaterUsed += waterUsed;
-    pumpStats.monthlyWaterUsed += waterUsed;
-    pumpStats.totalWaterUsed += waterUsed;
-    
-    // Sygnał dźwiękowy zatrzymania pompy
-    playAlarm(ALARM_PUMP_STOP);
-}
+// --- Deklaracje funkcji alarmów
 
-// Funkcja do obliczania zużytej wody
-float calculateWaterUsed(float beforeLevel, float afterLevel) {
-    // Zakładając, że poziomy są w procentach i znamy objętość zbiornika
-    const float CONTAINER_VOLUME = 20.0; // Objętość zbiornika w litrach - do dostosowania
-    return (beforeLevel - afterLevel) * CONTAINER_VOLUME / 100.0;
-}
-
+// Uruchomienie alarmu
 void playAlarm(AlarmType type) {
     // Sprawdź czy dźwięk jest włączony
     if (!config.soundEnabled) {
@@ -385,427 +307,96 @@ void playAlarm(AlarmType type) {
     // Parametry dźwięku dla różnych typów alarmów
     switch (type) {
         case ALARM_PUMP_START:
-            tone(PIN_BUZZER, 2000, 100);  // Wysoki dźwięk, krótki
+            tone(BUZZER_PIN, 2000, 100);  // Wysoki dźwięk, krótki
             break;
             
         case ALARM_PUMP_STOP:
-            tone(PIN_BUZZER, 1000, 200);  // Niższy dźwięk, dłuższy
+            tone(BUZZER_PIN, 1000, 200);  // Niższy dźwięk, dłuższy
             break;
             
         case ALARM_WATER_LOW:
             // Dwa krótkie sygnały
-            tone(PIN_BUZZER, 2500, 100);
+            tone(BUZZER_PIN, 2500, 100);
             delay(150);
-            tone(PIN_BUZZER, 2500, 100);
+            tone(BUZZER_PIN, 2500, 100);
             break;
             
         case ALARM_WATER_HIGH:
             // Jeden długi sygnał
-            tone(PIN_BUZZER, 3000, 500);
+            tone(BUZZER_PIN, 3000, 500);
             break;
     }
 }
 
-// Konfiguracja i zarządzanie połączeniem WiFi
-void setupWiFi() {
-    // Zmienne statyczne zachowujące wartość między wywołaniami
-    static unsigned long lastWiFiCheck = 0;  // Czas ostatniej próby połączenia
-    static bool wifiInitiated = false;  // Flaga pierwszej inicjalizacji WiFi
-    
-    ESP.wdtFeed();  // Reset watchdoga
-    
-    // Pierwsza inicjalizacja WiFi
-    if (!wifiInitiated) {
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  // Rozpoczęcie połączenia z siecią
-        wifiInitiated = true;  // Ustawienie flagi inicjalizacji
-        return;
-    }
-    
-    // Sprawdzenie stanu połączenia
-    if (WiFi.status() != WL_CONNECTED) {  // Jeśli nie połączono z siecią
-        if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {  // Sprawdź czy minął interwał
-            Serial.print(".");  // Wskaźnik aktywności
-            lastWiFiCheck = millis();  // Aktualizacja czasu ostatniej próby
-            if (WiFi.status() == WL_DISCONNECTED) {  // Jeśli sieć jest dostępna ale rozłączona
-                WiFi.reconnect();  // Próba ponownego połączenia
-            }
-        }
-    }
+// Krótki sygnał dźwiękowy
+void playShortWarningSound() {
+    tone(BUZZER_PIN, 2000, 100); // Krótki sygnał dźwiękowy (częstotliwość 2000Hz, czas 100ms)
 }
 
-/**
- * Funkcja nawiązująca połączenie z serwerem MQTT (Home Assistant)
- * 
- * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
- */
-bool connectMQTT() {   
-    if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        Serial.println("\nBŁĄD POŁĄCZENIA MQTT!");
-        return false;
-    }
-    
-    Serial.println("MQTT połączono pomyślnie!");
-    return true;
-}
-
-// Funkcja konfigurująca Home Assistant
-void setupHA() {
- // Konfiguracja urządzenia dla Home Assistant
-    device.setName("HydroSense");                  // Nazwa urządzenia
-    device.setModel("HS ESP8266");                 // Model urządzenia
-    device.setManufacturer("PMW");                 // Producent
-    device.setSoftwareVersion("15.11.24");         // Wersja oprogramowania
-
-    // Konfiguracja sensorów pomiarowych w HA
-    sensorDistance.setName("Pomiar odległości");
-    sensorDistance.setIcon("mdi:ruler");           // Ikona linijki
-    sensorDistance.setUnitOfMeasurement("mm");     // Jednostka - milimetry
-    
-    sensorLevel.setName("Poziom wody");
-    sensorLevel.setIcon("mdi:cup-water");      // Ikona poziomu wody
-    sensorLevel.setUnitOfMeasurement("%");         // Jednostka - procenty
-    
-    sensorVolume.setName("Objętość wody");
-    sensorVolume.setIcon("mdi:cup-water");             // Ikona wody
-    sensorVolume.setUnitOfMeasurement("L");        // Jednostka - litry
-    
-    // Konfiguracja sensorów statusu w HA
-    sensorPump.setName("Status pompy");
-    sensorPump.setIcon("mdi:water-pump");          // Ikona pompy
-    
-    sensorWater.setName("Czujnik wody");
-    sensorWater.setIcon("mdi:electric-switch");              // Ikona wody
-    
-    // Konfiguracja sensorów alarmowych w HA
-    sensorAlarm.setName("Brak wody");
-    sensorAlarm.setIcon("mdi:alarm-light");        // Ikona alarmu wody
-
-    sensorReserve.setName("Rezerwa wody");
-    sensorReserve.setIcon("mdi:alarm-light-outline");    // Ikona ostrzeżenia
-    
-    // Konfiguracja przełączników w HA
-    switchService.setName("Serwis");
-    switchService.setIcon("mdi:tools");            // Ikona narzędzi
-    switchService.onCommand(onServiceSwitchCommand);// Funkcja obsługi zmiany stanu
-    switchService.setState(status.isServiceMode);   // Stan początkowy
-    // Inicjalizacja stanu - domyślnie wyłączony
-    status.isServiceMode = false;
-    switchService.setState(false, true); // force update przy starcie
-
-    switchSound.setName("Dźwięk");
-    switchSound.setIcon("mdi:volume-high");        // Ikona głośnika
-    switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
-    switchSound.setState(status.soundEnabled);      // Stan początkowy
-    
-    switchPump.setName("Alarm pompy");
-    switchPump.setIcon("mdi:alert");               // Ikona alarmu
-    switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
-
-    // Dodanie nowych sensorów
-    sensorDailyPumpRuns.setName("Dzisiejsze uruchomienia pompy");
-    sensorDailyPumpRuns.setIcon("mdi:water-pump");
-    sensorDailyPumpRuns.setUnitOfMeasurement("razy");
-    
-    sensorDailyPumpTime.setName("Dzisiejszy czas pracy pompy");
-    sensorDailyPumpTime.setIcon("mdi:timer");
-    sensorDailyPumpTime.setUnitOfMeasurement("min");
-    
-    sensorDailyWaterUsed.setName("Dzisiejsze zużycie wody");
-    sensorDailyWaterUsed.setIcon("mdi:water");
-    sensorDailyWaterUsed.setUnitOfMeasurement("L");
-}
-
-void setupPin() {
-    // Konfiguracja kierunków pinów i stanów początkowych
-    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);          // Wyjście - trigger czujnika ultradźwiękowego
-    pinMode(PIN_ULTRASONIC_ECHO, INPUT);           // Wejście - echo czujnika ultradźwiękowego
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że TRIG jest LOW na starcie
-    
-    pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);        // Wejście z podciąganiem - czujnik poziomu
-    pinMode(PIN_BUTTON, INPUT_PULLUP);             // Wejście z podciąganiem - przycisk
-    pinMode(PIN_BUZZER, OUTPUT);                   // Wyjście - buzzer
-    digitalWrite(PIN_BUZZER, LOW);                 // Wyłączenie buzzera
-    pinMode(PIN_PUMP, OUTPUT);                     // Wyjście - pompa
-    digitalWrite(PIN_PUMP, LOW);                   // Wyłączenie pompy
-}
-
-void welcomeMelody() {
-    // Prosta melodia powitalna
-    tone(PIN_BUZZER, 1397, 100);  // F6
-    delay(150);
-    tone(PIN_BUZZER, 1568, 100);  // G6
-    delay(150);
-    tone(PIN_BUZZER, 1760, 150);  // A6
-    delay(200);
-}
-
-void firstUpdateHA() {
-    // Wykonaj pierwszy pomiar i ustaw stany
-    float initialDistance = measureDistance();
-    
-    // Ustaw początkowe stany na podstawie pomiaru
-    status.waterAlarmActive = (initialDistance >= DISTANCE_WHEN_EMPTY);
-    status.waterReserveActive = (initialDistance >= DISTANCE_RESERVE);
-    
-    // Wymuś stan OFF na początku
-    sensorAlarm.setValue("OFF");
-    sensorReserve.setValue("OFF");
-    switchSound.setState(false);  // Dodane - wymuś stan początkowy
-    mqtt.loop();
-    
-    // Ustawienie końcowych stanów i wysyłka do HA
-    sensorAlarm.setValue(status.waterAlarmActive ? "ON" : "OFF");
-    sensorReserve.setValue(status.waterReserveActive ? "ON" : "OFF");
-    switchSound.setState(status.soundEnabled);  // Dodane - ustaw aktualny stan dźwięku
-    mqtt.loop();
-}
-
-// Funkcja obliczająca poziom wody w zbiorniku dolewki w procentach
-//  
-// @param distance - zmierzona odległość od czujnika do lustra wody w mm
-// @return int - poziom wody w procentach (0-100%)
-// Wzór: ((EMPTY - distance) / (EMPTY - FULL)) * 100
-int calculateWaterLevel(int distance) {
-    // Ograniczenie wartości do zakresu pomiarowego
-    if (distance < DISTANCE_WHEN_FULL) distance = DISTANCE_WHEN_FULL;  // Nie mniej niż przy pełnym
-    if (distance > DISTANCE_WHEN_EMPTY) distance = DISTANCE_WHEN_EMPTY;  // Nie więcej niż przy pustym
-    
-    // Obliczenie procentowe poziomu wody
-    float percentage = (float)(DISTANCE_WHEN_EMPTY - distance) /  // Różnica: pusty - aktualny
-                      (float)(DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL) *  // Różnica: pusty - pełny
-                      100.0;  // Przeliczenie na procenty
-    
-    return (int)percentage;  // Zwrot wartości całkowitej
-}
-
-/**
- * Funkcja obsługująca przełączanie trybu serwisowego z poziomu Home Assistant
- * 
- * @param state - nowy stan przełącznika (true = włączony, false = wyłączony)
- * @param sender - wskaźnik do obiektu przełącznika HA wywołującego funkcję
- * 
- * Działanie:
- * Przy włączaniu (state = true):
- * - Aktualizuje flagę trybu serwisowego
- * - Resetuje stan przycisku fizycznego
- * - Aktualizuje stan w Home Assistant
- * - Jeśli pompa pracowała:
- *   - Wyłącza pompę
- *   - Resetuje liczniki czasu pracy
- *   - Aktualizuje status w HA
- * 
- * Przy wyłączaniu (state = false):
- * - Wyłącza tryb serwisowy
- * - Aktualizuje stan w Home Assistant
- * - Umożliwia normalną pracę pompy według czujnika poziomu
- * - Resetuje stan opóźnienia pompy
- */
-void onServiceSwitchCommand(bool state, HASwitch* sender) {
-    status.isServiceMode = state;  // Ustawienie flagi trybu serwisowego
-    buttonState.lastState = HIGH;  // Reset stanu przycisku
-    
-    // Aktualizacja stanu w Home Assistant
-    switchService.setState(state);  // Synchronizacja stanu przełącznika
-    
-    if (state) {  // Włączanie trybu serwisowego
-        if (status.isPumpActive) {
-            digitalWrite(PIN_PUMP, LOW);  // Wyłączenie pompy
-            status.isPumpActive = false;  // Reset flagi aktywności
-            status.pumpStartTime = 0;  // Reset czasu startu
-            sensorPump.setValue("OFF");  // Aktualizacja stanu w HA
-        }
-    } else {  // Wyłączanie trybu serwisowego
-        // Reset stanu opóźnienia pompy aby umożliwić normalne uruchomienie
-        status.isPumpDelayActive = false;
-        status.pumpDelayStartTime = 0;
-        // Normalny tryb pracy - pompa uruchomi się automatycznie 
-        // jeśli czujnik poziomu wykryje wodę
-    }
-    
-    Serial.printf("Tryb serwisowy: %s (przez HA)\n", 
-                  state ? "WŁĄCZONY" : "WYŁĄCZONY");
-}
-
-/**
- * Funkcja obsługująca przełączanie dźwięku alarmu z poziomu Home Assistant
- * 
- * @param state - nowy stan przełącznika (true = włączony, false = wyłączony)
- * @param sender - wskaźnik do obiektu przełącznika HA wywołującego funkcję
- * 
- * Działanie:
- * - Aktualizuje flagę stanu dźwięku
- * - Zapisuje nowy stan do pamięci EEPROM (trwałej)
- * - Aktualizuje stan w Home Assistant
- */
-void onSoundSwitchCommand(bool state, HASwitch* sender) {   
-    status.soundEnabled = state;  // Aktualizuj status lokalny
-    config.soundEnabled = state;  // Aktualizuj konfigurację
-    saveConfig();  // Zapisz do EEPROM
-    
-    // Aktualizuj stan w Home Assistant
-    switchSound.setState(state, true);  // force update
-    
-    Serial.printf("Zmieniono stan dźwięku na: %s\n", 
-                  state ? "WŁĄCZONY" : "WYŁĄCZONY");
-}
-
-/**
- * Funkcja obsługująca fizyczny przycisk na urządzeniu
- * 
- * Obsługuje dwa tryby naciśnięcia:
- * - Krótkie (< 1s): przełącza tryb serwisowy
- * - Długie (≥ 1s): kasuje blokadę bezpieczeństwa pompy
- */
-// void handleButton() {
-void handleButton() {
-    static unsigned long lastDebounceTime = 0;
-    static bool lastReading = HIGH;
-    const unsigned long DEBOUNCE_DELAY = 50;  // 50ms debounce
-
-    bool reading = digitalRead(PIN_BUTTON);
-
-    // Jeśli odczyt się zmienił, zresetuj timer debounce
-    if (reading != lastReading) {
-        lastDebounceTime = millis();
-    }
-    
-    // Kontynuuj tylko jeśli minął czas debounce
-    if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
-        // Jeśli stan się faktycznie zmienił po debounce
-        if (reading != buttonState.lastState) {
-            buttonState.lastState = reading;
-            
-            if (reading == LOW) {  // Przycisk naciśnięty
-                buttonState.pressedTime = millis();
-                buttonState.isLongPressHandled = false;  // Reset flagi długiego naciśnięcia
-            } else {  // Przycisk zwolniony
-                buttonState.releasedTime = millis();
-                
-                // Sprawdzenie czy to było krótkie naciśnięcie
-                if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
-                    // Przełącz tryb serwisowy
-                    status.isServiceMode = !status.isServiceMode;
-                    switchService.setState(status.isServiceMode, true);  // force update w HA
-                    
-                    // Log zmiany stanu
-                    Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
-                                status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
-                    
-                    // Jeśli włączono tryb serwisowy podczas pracy pompy
-                    if (status.isServiceMode && status.isPumpActive) {
-                        digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
-                        status.isPumpActive = false;  // Reset flagi aktywności
-                        status.pumpStartTime = 0;  // Reset czasu startu
-                        sensorPump.setValue("OFF");  // Aktualizacja w HA
-                    }
-                }
-            }
-        }
-        
-        // Obsługa długiego naciśnięcia (reset blokady pompy)
-        if (reading == LOW && !buttonState.isLongPressHandled) {
-            if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
-                ESP.wdtFeed();  // Reset przy długim naciśnięciu
-                status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
-                switchPump.setState(false, true);  // force update w HA
-                buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
-                Serial.println("Alarm pompy skasowany");
-            }
-        }
-    }
-    
-    lastReading = reading;  // Zapisz ostatni odczyt dla następnego porównania
-    yield();  // Oddaj sterowanie systemowi
-}
-
-void shortAlertBeep() {
-    tone(PIN_BUZZER, 2000, 100);  // Częstotliwość 2000Hz, czas 100ms
-}
-
+// Sprawdzenie warunków alarmowych
 void checkAlarmConditions() {
+    static unsigned long lastAlarmTime = 0;  // Zmienna statyczna do przechowywania czasu ostatniego alarmu
+    unsigned long currentTime = millis();  // Aktualny czas
+
     // Sprawdź czy minęła minuta od ostatniego alarmu
-    if (millis() - status.lastSoundAlert >= SOUND_ALERT_INTERVAL) {
+    if (currentTime - status.lastSoundAlert >= SOUND_ALERT_INTERVAL) {
         // Sprawdź czy dźwięk jest włączony i czy występuje któryś z alarmów
         if (status.soundEnabled && (status.waterAlarmActive || status.pumpSafetyLock)) {
-            shortAlertBeep();
-            status.lastSoundAlert = millis();
             
-            // Debug info
-            Serial.println(F("Alarm dźwiękowy - przyczyna:"));
-            if (status.waterAlarmActive) Serial.println(F("- Brak wody"));
-            if (status.pumpSafetyLock) Serial.println(F("- Alarm pompy"));
+            // Sprawdź czy minęło wystarczająco dużo czasu od ostatniego alarmu
+            if (currentTime - lastAlarmTime >= 1000) {  // 1000 ms = 1 sekunda
+                playShortWarningSound();
+                status.lastSoundAlert = currentTime;
+                lastAlarmTime = currentTime;  // Zaktualizuj czas ostatniego alarmu
+                
+                // Debug info
+                Serial.println(F("Alarm dźwiękowy - przyczyna:"));
+                if (status.waterAlarmActive) Serial.println(F("- Brak wody"));
+                if (status.pumpSafetyLock) Serial.println(F("- Alarm pompy"));
+            }
         }
     }
 }
 
-// Funkcja wykonuje pomiar odległości za pomocą czujnika ultradźwiękowego HC-SR04
-// Zwraca:
-// - zmierzoną odległość w milimetrach
-// - (-1) w przypadku błędu lub przekroczenia czasu odpowiedzi
-int measureDistance() {
-    // Generowanie impulsu wyzwalającego (trigger)
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że pin jest w stanie niskim
-    delayMicroseconds(5);  // Krótka pauza dla stabilizacji
-    digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);  // Wysłanie impulsu 10µs
-    delayMicroseconds(10);  // Czekaj 10µs
-    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Zakończ impuls
-
-    // Oczekiwanie na początek sygnału echo
-    // Timeout 100ms chroni przed zawieszeniem jeśli czujnik nie odpowiada
-    unsigned long startWaiting = millis();
-    while (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
-        if (millis() - startWaiting > 100) {
-            Serial.println("Timeout - brak początku echa");
-            return -1;  // Błąd - brak odpowiedzi od czujnika
-        }
+void updateAlarmStates(float currentDistance) {
+    // --- Obsługa alarmu krytycznie niskiego poziomu wody ---
+    // Włącz alarm jeśli:
+    // - odległość jest większa lub równa max (zbiornik pusty)
+    // - alarm nie jest jeszcze aktywny
+    if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
+        status.waterAlarmActive = true;
+        sensorAlarm.setValue("ON");               
+        Serial.println("Brak wody ON");
+    } 
+    // Wyłącz alarm jeśli:
+    // - odległość spadła poniżej progu wyłączenia (z histerezą)
+    // - alarm jest aktywny
+    else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
+        status.waterAlarmActive = false;
+        sensorAlarm.setValue("OFF");
+        Serial.println("Brak wody OFF");
     }
 
-    // Pomiar czasu początku echa (w mikrosekundach)
-    // micros() zapewnia dokładniejszy pomiar niż millis()
-    unsigned long echoStartTime = micros();
-
-    // Oczekiwanie na koniec sygnału echo
-    // Timeout 20ms - teoretyczny max dla 3.4m to około 20ms
-    while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
-        if (micros() - echoStartTime > 20000) {
-            Serial.println("Timeout - zbyt długie echo");
-            return -1;  // Błąd - echo trwa zbyt długo
-        }
-    }
-
-    // Obliczenie czasu trwania echa (w mikrosekundach)
-    unsigned long duration = micros() - echoStartTime;
-
-    // Konwersja czasu na odległość
-    // Wzór: distance = (czas * prędkość dźwięku) / 2
-    // - czas w mikrosekundach
-    // - prędkość dźwięku = 343 m/s = 0.343 mm/µs
-    // - dzielimy przez 2 bo dźwięk pokonuje drogę w obie strony
-    int distance = (duration * 343) / 2000;
-
-    // Walidacja wyniku
-    // - min 20mm - minimalna dokładna odległość dla HC-SR04
-    // - max 1500mm - maksymalna użyteczna odległość dla zbiornika
-    if (distance >= 20 && distance <= 1500) {
-        return distance;
-    }
-
-    return -1;  // Wynik poza zakresem pomiarowym
-}
-
-// Funkcja obsługuje zdarzenie resetu alarmu pompy
-// Jest wywoływana gdy użytkownik zmieni stan przełącznika alarmu w interfejsie HA
-// 
-// Parametry:
-// - state: stan przełącznika (true = alarm aktywny, false = reset alarmu)
-// - sender: wskaźnik do obiektu przełącznika w HA (niewykorzystywany)
-void onPumpAlarmCommand(bool state, HASwitch* sender) {
-    // Reset blokady bezpieczeństwa pompy następuje tylko gdy przełącznik 
-    // zostanie ustawiony na false (wyłączony)
-    if (!state) {
-        status.pumpSafetyLock = false;  // Wyłącz blokadę bezpieczeństwa pompy
+    // --- Obsługa ostrzeżenia o rezerwie wody ---
+    // Włącz ostrzeżenie o rezerwie jeśli:
+    // - odległość osiągnęła próg rezerwy
+    // - ostrzeżenie nie jest jeszcze aktywne
+    if (currentDistance >= DISTANCE_RESERVE && !status.waterReserveActive) {
+        status.waterReserveActive = true;
+        sensorReserve.setValue("ON");
+        Serial.println("Rezerwa ON");
+    } 
+    // Wyłącz ostrzeżenie o rezerwie jeśli:
+    // - odległość spadła poniżej progu rezerwy (z histerezą)
+    // - ostrzeżenie jest aktywne
+    else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
+        status.waterReserveActive = false;
+        sensorReserve.setValue("OFF");
+        Serial.println("Rezerwa OFF");
     }
 }
+
+// --- Deklaracje funkcji pompy
 
 // Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
 void updatePump() {
@@ -896,42 +487,381 @@ void updatePump() {
     }
 }
 
-void updateAlarmStates(float currentDistance) {
-    // --- Obsługa alarmu krytycznie niskiego poziomu wody ---
-    // Włącz alarm jeśli:
-    // - odległość jest większa lub równa max (zbiornik pusty)
-    // - alarm nie jest jeszcze aktywny
-    if (currentDistance >= DISTANCE_WHEN_EMPTY && !status.waterAlarmActive) {
-        status.waterAlarmActive = true;
-        sensorAlarm.setValue("ON");               
-        Serial.println("Brak wody ON");
-    } 
-    // Wyłącz alarm jeśli:
-    // - odległość spadła poniżej progu wyłączenia (z histerezą)
-    // - alarm jest aktywny
-    else if (currentDistance < (DISTANCE_WHEN_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
-        status.waterAlarmActive = false;
-        sensorAlarm.setValue("OFF");
-        Serial.println("Brak wody OFF");
+// Wywoływana przy uruchomieniu pompy
+void onPumpStart() {
+    pumpStats.dailyPumpRuns++;
+    pumpStats.weeklyPumpRuns++;
+    pumpStats.monthlyPumpRuns++;
+    pumpStats.totalPumpRuns++;
+    
+    pumpStartTime = millis();
+    waterLevelBeforePump = getCurrentWaterLevel();
+    
+    // Sygnał dźwiękowy startu pompy
+    playAlarm(ALARM_PUMP_START);
+}
+
+// Wywoływana przy zatrzymaniu pompy
+void onPumpStop() {
+    unsigned long pumpWorkTime = (millis() - pumpStartTime) / 1000; // czas w sekundach
+    float waterUsed = calculateWaterUsed(waterLevelBeforePump, getCurrentWaterLevel());
+    
+    pumpStats.dailyPumpWorkTime += pumpWorkTime;
+    pumpStats.weeklyPumpWorkTime += pumpWorkTime;
+    pumpStats.monthlyPumpWorkTime += pumpWorkTime;
+    pumpStats.totalPumpWorkTime += pumpWorkTime;
+    
+    pumpStats.dailyWaterUsed += waterUsed;
+    pumpStats.weeklyWaterUsed += waterUsed;
+    pumpStats.monthlyWaterUsed += waterUsed;
+    pumpStats.totalWaterUsed += waterUsed;
+    
+    // Sygnał dźwiękowy zatrzymania pompy
+    playAlarm(ALARM_PUMP_STOP);
+}
+
+// Funkcja obsługuje zdarzenie resetu alarmu pompy
+// Jest wywoływana gdy użytkownik zmieni stan przełącznika alarmu w interfejsie HA
+// 
+// Parametry:
+// - state: stan przełącznika (true = alarm aktywny, false = reset alarmu)
+// - sender: wskaźnik do obiektu przełącznika w HA (niewykorzystywany)
+void onPumpAlarmCommand(bool state, HASwitch* sender) {
+    // Reset blokady bezpieczeństwa pompy następuje tylko gdy przełącznik 
+    // zostanie ustawiony na false (wyłączony)
+    if (!state) {
+        status.pumpSafetyLock = false;  // Wyłącz blokadę bezpieczeństwa pompy
+    }
+}
+
+// --- Deklaracje funkcji związanych z siecią
+
+// Konfiguracja i zarządzanie połączeniem WiFi
+void setupWiFi() {
+    // Zmienne statyczne zachowujące wartość między wywołaniami
+    static unsigned long lastWiFiCheck = 0;  // Czas ostatniej próby połączenia
+    static bool wifiInitiated = false;  // Flaga pierwszej inicjalizacji WiFi
+    
+    ESP.wdtFeed();  // Reset watchdoga
+    
+    // Pierwsza inicjalizacja WiFi
+    if (!wifiInitiated) {
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  // Rozpoczęcie połączenia z siecią
+        wifiInitiated = true;  // Ustawienie flagi inicjalizacji
+        return;
+    }
+    
+    // Sprawdzenie stanu połączenia
+    if (WiFi.status() != WL_CONNECTED) {  // Jeśli nie połączono z siecią
+        if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {  // Sprawdź czy minął interwał
+            Serial.print(".");  // Wskaźnik aktywności
+            lastWiFiCheck = millis();  // Aktualizacja czasu ostatniej próby
+            if (WiFi.status() == WL_DISCONNECTED) {  // Jeśli sieć jest dostępna ale rozłączona
+                WiFi.reconnect();  // Próba ponownego połączenia
+            }
+        }
+    }
+}
+
+/**
+ * Funkcja nawiązująca połączenie z serwerem MQTT (Home Assistant)
+ * 
+ * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
+ */
+bool connectMQTT() {   
+    if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+        Serial.println("\nBŁĄD POŁĄCZENIA MQTT!");
+        return false;
+    }
+    
+    Serial.println("MQTT połączono pomyślnie!");
+    return true;
+}
+
+// Funkcja konfigurująca Home Assistant
+void setupHA() {
+    // Konfiguracja urządzenia dla Home Assistant
+    device.setName("HydroSense");                  // Nazwa urządzenia
+    device.setModel("HS ESP8266");                 // Model urządzenia
+    device.setManufacturer("PMW");                 // Producent
+    device.setSoftwareVersion("15.11.24");         // Wersja oprogramowania
+
+    // Konfiguracja sensorów pomiarowych w HA
+    sensorDistance.setName("Pomiar odległości");
+    sensorDistance.setIcon("mdi:ruler");           // Ikona linijki
+    sensorDistance.setUnitOfMeasurement("mm");     // Jednostka - milimetry
+    
+    sensorLevel.setName("Poziom wody");
+    sensorLevel.setIcon("mdi:cup-water");      // Ikona poziomu wody
+    sensorLevel.setUnitOfMeasurement("%");         // Jednostka - procenty
+    
+    sensorVolume.setName("Objętość wody");
+    sensorVolume.setIcon("mdi:cup-water");             // Ikona wody
+    sensorVolume.setUnitOfMeasurement("L");        // Jednostka - litry
+    
+    // Konfiguracja sensorów statusu w HA
+    sensorPump.setName("Status pompy");
+    sensorPump.setIcon("mdi:water-pump");          // Ikona pompy
+    
+    sensorWater.setName("Czujnik wody");
+    sensorWater.setIcon("mdi:electric-switch");              // Ikona wody
+    
+    // Konfiguracja sensorów alarmowych w HA
+    sensorAlarm.setName("Brak wody");
+    sensorAlarm.setIcon("mdi:alarm-light");        // Ikona alarmu wody
+
+    sensorReserve.setName("Rezerwa wody");
+    sensorReserve.setIcon("mdi:alarm-light-outline");    // Ikona ostrzeżenia
+    
+    // Konfiguracja przełączników w HA
+    switchService.setName("Serwis");
+    switchService.setIcon("mdi:tools");            // Ikona narzędzi
+    switchService.onCommand(onServiceSwitchCommand);// Funkcja obsługi zmiany stanu
+    switchService.setState(status.isServiceMode);   // Stan początkowy
+    // Inicjalizacja stanu - domyślnie wyłączony
+    status.isServiceMode = false;
+    switchService.setState(false, true); // force update przy starcie
+
+    switchSound.setName("Dźwięk");
+    switchSound.setIcon("mdi:volume-high");        // Ikona głośnika
+    switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
+    switchSound.setState(status.soundEnabled);      // Stan początkowy
+    
+    switchPump.setName("Alarm pompy");
+    switchPump.setIcon("mdi:alert");               // Ikona alarmu
+    switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
+
+    // Dodanie nowych sensorów
+    sensorDailyPumpRuns.setName("Dzisiejsze uruchomienia pompy");
+    sensorDailyPumpRuns.setIcon("mdi:water-pump");
+    sensorDailyPumpRuns.setUnitOfMeasurement("razy");
+    
+    sensorDailyPumpTime.setName("Dzisiejszy czas pracy pompy");
+    sensorDailyPumpTime.setIcon("mdi:timer");
+    sensorDailyPumpTime.setUnitOfMeasurement("min");
+    
+    sensorDailyWaterUsed.setName("Dzisiejsze zużycie wody");
+    sensorDailyWaterUsed.setIcon("mdi:water");
+    sensorDailyWaterUsed.setUnitOfMeasurement("L");
+}
+
+// --- Deklaracje funkcji ogólnych
+
+// Konfiguracja kierunków pinów i stanów początkowych
+void setupPin() {
+    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);          // Wyjście - trigger czujnika ultradźwiękowego
+    pinMode(PIN_ULTRASONIC_ECHO, INPUT);           // Wejście - echo czujnika ultradźwiękowego
+    digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że TRIG jest LOW na starcie
+    
+    pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);        // Wejście z podciąganiem - czujnik poziomu
+    pinMode(PRZYCISK_PIN, INPUT_PULLUP);             // Wejście z podciąganiem - przycisk
+    pinMode(BUZZER_PIN, OUTPUT);                   // Wyjście - buzzer
+    digitalWrite(BUZZER_PIN, LOW);                 // Wyłączenie buzzera
+    pinMode(POMPA_PIN, OUTPUT);                     // Wyjście - pompa
+    digitalWrite(POMPA_PIN, LOW);                   // Wyłączenie pompy
+}
+
+// Melodia powitalna
+void welcomeMelody() {
+    tone(BUZZER_PIN, 1397, 100);  // F6
+    delay(150);
+    tone(BUZZER_PIN, 1568, 100);  // G6
+    delay(150);
+    tone(BUZZER_PIN, 1760, 150);  // A6
+    delay(200);
+}
+
+// Wykonaj pierwszy pomiar i ustaw stany
+void firstUpdateHA() {
+    float initialDistance = measureDistance();
+    
+    // Ustaw początkowe stany na podstawie pomiaru
+    status.waterAlarmActive = (initialDistance >= DISTANCE_WHEN_EMPTY);
+    status.waterReserveActive = (initialDistance >= DISTANCE_RESERVE);
+    
+    // Wymuś stan OFF na początku
+    sensorAlarm.setValue("OFF");
+    sensorReserve.setValue("OFF");
+    switchSound.setState(false);  // Dodane - wymuś stan początkowy
+    mqtt.loop();
+    
+    // Ustawienie końcowych stanów i wysyłka do HA
+    sensorAlarm.setValue(status.waterAlarmActive ? "ON" : "OFF");
+    sensorReserve.setValue(status.waterReserveActive ? "ON" : "OFF");
+    switchSound.setState(status.soundEnabled);  // Dodane - ustaw aktualny stan dźwięku
+    mqtt.loop();
+}
+
+/**
+ * Funkcja obsługująca przełączanie trybu serwisowego z poziomu Home Assistant
+ * 
+ * @param state - nowy stan przełącznika (true = włączony, false = wyłączony)
+ * @param sender - wskaźnik do obiektu przełącznika HA wywołującego funkcję
+ * 
+ * Działanie:
+ * Przy włączaniu (state = true):
+ * - Aktualizuje flagę trybu serwisowego
+ * - Resetuje stan przycisku fizycznego
+ * - Aktualizuje stan w Home Assistant
+ * - Jeśli pompa pracowała:
+ *   - Wyłącza pompę
+ *   - Resetuje liczniki czasu pracy
+ *   - Aktualizuje status w HA
+ * 
+ * Przy wyłączaniu (state = false):
+ * - Wyłącza tryb serwisowy
+ * - Aktualizuje stan w Home Assistant
+ * - Umożliwia normalną pracę pompy według czujnika poziomu
+ * - Resetuje stan opóźnienia pompy
+ */
+void onServiceSwitchCommand(bool state, HASwitch* sender) {
+    status.isServiceMode = state;  // Ustawienie flagi trybu serwisowego
+    buttonState.lastState = HIGH;  // Reset stanu przycisku
+    
+    // Aktualizacja stanu w Home Assistant
+    switchService.setState(state);  // Synchronizacja stanu przełącznika
+    
+    if (state) {  // Włączanie trybu serwisowego
+        if (status.isPumpActive) {
+            digitalWrite(PIN_PUMP, LOW);  // Wyłączenie pompy
+            status.isPumpActive = false;  // Reset flagi aktywności
+            status.pumpStartTime = 0;  // Reset czasu startu
+            sensorPump.setValue("OFF");  // Aktualizacja stanu w HA
+        }
+    } else {  // Wyłączanie trybu serwisowego
+        // Reset stanu opóźnienia pompy aby umożliwić normalne uruchomienie
+        status.isPumpDelayActive = false;
+        status.pumpDelayStartTime = 0;
+        // Normalny tryb pracy - pompa uruchomi się automatycznie 
+        // jeśli czujnik poziomu wykryje wodę
+    }
+    
+    Serial.printf("Tryb serwisowy: %s (przez HA)\n", 
+                  state ? "WŁĄCZONY" : "WYŁĄCZONY");
+}
+
+// Pobranie aktualnego poziomu wody
+/**
+ * @brief Wykonuje pomiar odległości za pomocą czujnika ultradźwiękowego i oblicza aktualny poziom wody.
+ * 
+ * Funkcja najpierw wykonuje pomiar odległości za pomocą czujnika ultradźwiękowego HC-SR04,
+ * zapisuje wynik pomiaru do zmiennej, a następnie oblicza poziom wody na podstawie tej wartości.
+ * 
+ * @return Poziom wody w jednostkach używanych przez funkcję calculateWaterLevel.
+ *         Zwraca wartość obliczoną przez funkcję calculateWaterLevel, która przelicza odległość na poziom wody.
+ */
+float getCurrentWaterLevel() {
+    int distance = measureDistance();  // Pobranie wyniku pomiaru
+    float waterLevel = calculateWaterLevel(distance);  // Obliczenie poziomu wody na podstawie wyniku pomiaru
+    return waterLevel;  // Zwrócenie obliczonego poziomu wody
+}
+
+// Obliczenie zużycia wody
+float calculateWaterUsed(float beforeLevel, float afterLevel) {
+    // Zakładając, że poziomy są w procentach i znamy objętość zbiornika
+    const float CONTAINER_VOLUME = 20.0; // Objętość zbiornika w litrach - do dostosowania
+    return (beforeLevel - afterLevel) * CONTAINER_VOLUME / 100.0;
+}
+
+// Pomiar odległości
+// Funkcja wykonuje pomiar odległości za pomocą czujnika ultradźwiękowego HC-SR04
+// Zwraca:
+//   - zmierzoną odległość w milimetrach (mediana z kilku pomiarów)
+//   - (-1) w przypadku błędu lub przekroczenia czasu odpowiedzi
+int measureDistance() {
+    int measurements[MEASUREMENTS_COUNT];  // Tablica do przechowywania pomiarów
+
+    for (int i = 0; i < MEASUREMENTS_COUNT; i++) {
+        // Generowanie impulsu wyzwalającego (trigger)
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że pin jest w stanie niskim
+        delayMicroseconds(5);  // Krótka pauza dla stabilizacji
+        digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);  // Wysłanie impulsu 10µs
+        delayMicroseconds(10);  // Czekaj 10µs
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Zakończ impuls
+
+        // Oczekiwanie na początek sygnału echo
+        // Timeout 100ms chroni przed zawieszeniem jeśli czujnik nie odpowiada
+        unsigned long startWaiting = millis();
+        while (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
+            if (millis() - startWaiting > 100) {
+                Serial.println("Timeout - brak początku echa");
+                return -1;  // Błąd - brak odpowiedzi od czujnika
+            }
+        }
+
+        // Pomiar czasu początku echa (w mikrosekundach)
+        unsigned long echoStartTime = micros();
+
+        // Oczekiwanie na koniec sygnału echo
+        // Timeout 20ms - teoretyczny max dla 3.4m to około 20ms
+        while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
+            if (micros() - echoStartTime > 20000) {
+                Serial.println("Timeout - zbyt długie echo");
+                return -1;  // Błąd - echo trwa zbyt długo
+            }
+        }
+
+        // Obliczenie czasu trwania echa (w mikrosekundach)
+        unsigned long duration = micros() - echoStartTime;
+
+        // Konwersja czasu na odległość
+        int distance = (duration * 343) / 2000;
+
+        // Walidacja wyniku
+        if (distance >= 20 && distance <= 1500) {
+            measurements[i] = distance;  // Zapis poprawnego pomiaru
+        } else {
+            measurements[i] = -1;  // Zapis błędnego pomiaru
+        }
+
+        delay(50);  // Krótka przerwa między pomiarami
     }
 
-    // --- Obsługa ostrzeżenia o rezerwie wody ---
-    // Włącz ostrzeżenie o rezerwie jeśli:
-    // - odległość osiągnęła próg rezerwy
-    // - ostrzeżenie nie jest jeszcze aktywne
-    if (currentDistance >= DISTANCE_RESERVE && !status.waterReserveActive) {
-        status.waterReserveActive = true;
-        sensorReserve.setValue("ON");
-        Serial.println("Rezerwa ON");
-    } 
-    // Wyłącz ostrzeżenie o rezerwie jeśli:
-    // - odległość spadła poniżej progu rezerwy (z histerezą)
-    // - ostrzeżenie jest aktywne
-    else if (currentDistance < (DISTANCE_RESERVE - HYSTERESIS) && status.waterReserveActive) {
-        status.waterReserveActive = false;
-        sensorReserve.setValue("OFF");
-        Serial.println("Rezerwa OFF");
+    // Sortowanie pomiarów rosnąco
+    for (int i = 0; i < MEASUREMENTS_COUNT - 1; i++) {
+        for (int j = 0; j < MEASUREMENTS_COUNT - i - 1; j++) {
+            if (measurements[j] > measurements[j + 1]) {
+                int temp = measurements[j];
+                measurements[j] = measurements[j + 1];
+                measurements[j + 1] = temp;
+            }
+        }
     }
+
+    // Obliczenie mediany z pomiarów
+    if (MEASUREMENTS_COUNT % 2 == 0) {
+        // Jeśli liczba pomiarów jest parzysta, zwróć średnią z dwóch środkowych wartości
+        int midIndex = MEASUREMENTS_COUNT / 2;
+        if (measurements[midIndex - 1] == -1 || measurements[midIndex] == -1) {
+            return -1;  // Jeśli środkowe wartości są błędne, zwróć błąd
+        }
+        return (measurements[midIndex - 1] + measurements[midIndex]) / 2;
+    } else {
+        // Jeśli liczba pomiarów jest nieparzysta, zwróć środkową wartość
+        int midIndex = MEASUREMENTS_COUNT / 2;
+        if (measurements[midIndex] == -1) {
+            return -1;  // Jeśli środkowa wartość jest błędna, zwróć błąd
+        }
+        return measurements[midIndex];
+    }
+}
+
+// Funkcja obliczająca poziom wody w zbiorniku dolewki w procentach
+//  
+// @param distance - zmierzona odległość od czujnika do lustra wody w mm
+// @return int - poziom wody w procentach (0-100%)
+// Wzór: ((EMPTY - distance) / (EMPTY - FULL)) * 100
+int calculateWaterLevel(int distance) {
+    // Ograniczenie wartości do zakresu pomiarowego
+    if (distance < DISTANCE_WHEN_FULL) distance = DISTANCE_WHEN_FULL;  // Nie mniej niż przy pełnym
+    if (distance > DISTANCE_WHEN_EMPTY) distance = DISTANCE_WHEN_EMPTY;  // Nie więcej niż przy pustym
+    
+    // Obliczenie procentowe poziomu wody
+    float percentage = (float)(DISTANCE_WHEN_EMPTY - distance) /  // Różnica: pusty - aktualny
+                      (float)(DISTANCE_WHEN_EMPTY - DISTANCE_WHEN_FULL) *  // Różnica: pusty - pełny
+                      100.0;  // Przeliczenie na procenty
+    
+    return (int)percentage;  // Zwrot wartości całkowitej
 }
 
 void updateWaterLevel() {
@@ -965,7 +895,170 @@ void updateWaterLevel() {
     }
 }
 
-// Funkcja inicjalizacyjna - wykonywana jednorazowo przy starcie urządzenia
+// Obsługa przycisku
+/**
+ * Funkcja obsługująca fizyczny przycisk na urządzeniu
+ * 
+ * Obsługuje dwa tryby naciśnięcia:
+ * - Krótkie (< 1s): przełącza tryb serwisowy
+ * - Długie (≥ 1s): kasuje blokadę bezpieczeństwa pompy
+ */
+// void handleButton() {
+void handleButton() {
+    static unsigned long lastDebounceTime = 0;
+    static bool lastReading = HIGH;
+    const unsigned long DEBOUNCE_DELAY = 50;  // 50ms debounce
+
+    bool reading = digitalRead(PIN_BUTTON);
+
+    // Jeśli odczyt się zmienił, zresetuj timer debounce
+    if (reading != lastReading) {
+        lastDebounceTime = millis();
+    }
+    
+    // Kontynuuj tylko jeśli minął czas debounce
+    if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+        // Jeśli stan się faktycznie zmienił po debounce
+        if (reading != buttonState.lastState) {
+            buttonState.lastState = reading;
+            
+            if (reading == LOW) {  // Przycisk naciśnięty
+                buttonState.pressedTime = millis();
+                buttonState.isLongPressHandled = false;  // Reset flagi długiego naciśnięcia
+            } else {  // Przycisk zwolniony
+                buttonState.releasedTime = millis();
+                
+                // Sprawdzenie czy to było krótkie naciśnięcie
+                if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
+                    // Przełącz tryb serwisowy
+                    status.isServiceMode = !status.isServiceMode;
+                    switchService.setState(status.isServiceMode, true);  // force update w HA
+                    
+                    // Log zmiany stanu
+                    Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
+                                status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
+                    
+                    // Jeśli włączono tryb serwisowy podczas pracy pompy
+                    if (status.isServiceMode && status.isPumpActive) {
+                        digitalWrite(PIN_PUMP, LOW);  // Wyłącz pompę
+                        status.isPumpActive = false;  // Reset flagi aktywności
+                        status.pumpStartTime = 0;  // Reset czasu startu
+                        sensorPump.setValue("OFF");  // Aktualizacja w HA
+                    }
+                }
+            }
+        }
+        
+        // Obsługa długiego naciśnięcia (reset blokady pompy)
+        if (reading == LOW && !buttonState.isLongPressHandled) {
+            if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
+                ESP.wdtFeed();  // Reset przy długim naciśnięciu
+                status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
+                switchPump.setState(false, true);  // force update w HA
+                buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
+                Serial.println("Alarm pompy skasowany");
+            }
+        }
+    }
+    
+    lastReading = reading;  // Zapisz ostatni odczyt dla następnego porównania
+    yield();  // Oddaj sterowanie systemowi
+}
+
+// 
+void playShortWarningSound() {
+    tone(BUZZER_PIN, 2000, 100);  // Częstotliwość 2000Hz, czas 100ms
+}
+
+void resetDailyStatistics() {
+    pumpStats.dailyPumpRuns = 0;
+    pumpStats.dailyPumpWorkTime = 0;
+    pumpStats.dailyWaterUsed = 0;
+    pumpStats.lastDailyReset = timeClient.getEpochTime();
+}
+
+void resetWeeklyStatistics() {
+    pumpStats.weeklyPumpRuns = 0;
+    pumpStats.weeklyPumpWorkTime = 0;
+    pumpStats.weeklyWaterUsed = 0;
+    pumpStats.lastWeeklyReset = timeClient.getEpochTime();
+}
+
+void resetMonthlyStatistics() {
+    pumpStats.monthlyPumpRuns = 0;
+    pumpStats.monthlyPumpWorkTime = 0;
+    pumpStats.monthlyWaterUsed = 0;
+    pumpStats.lastMonthlyReset = timeClient.getEpochTime();
+}
+
+// Sprawdzenie i reset statystyk
+void checkStatisticsReset() {
+    time_t now = timeClient.getEpochTime();
+    struct tm* timeinfo = localtime(&now);
+    
+    // Reset dzienny o północy
+    if (timeinfo->tm_hour == 0 && timeinfo->tm_min == 0) {
+        if (now - pumpStats.lastDailyReset >= 86400) { // 24 godziny
+            resetDailyStatistics();
+        }
+    }
+    
+    // Reset tygodniowy w niedzielę o północy
+    if (timeinfo->tm_wday == 0 && timeinfo->tm_hour == 0 && timeinfo->tm_min == 0) {
+        if (now - pumpStats.lastWeeklyReset >= 604800) { // 7 dni
+            resetWeeklyStatistics();
+        }
+    }
+    
+    // Reset miesięczny pierwszego dnia miesiąca o północy
+    if (timeinfo->tm_mday == 1 && timeinfo->tm_hour == 0 && timeinfo->tm_min == 0) {
+        if (now - pumpStats.lastMonthlyReset >= 2592000) { // 30 dni
+            resetMonthlyStatistics();
+        }
+    }
+}
+
+// Aktualizacja statystyk Home Assistant
+void updateHAStatistics() {
+    char value[16];
+    
+    // Konwersja liczby uruchomień pompy na string
+    itoa(pumpStats.dailyPumpRuns, value, 10);
+    sensorDailyPumpRuns.setValue(value);
+    
+    // Konwersja czasu pracy pompy na string (w minutach)
+    itoa(pumpStats.dailyPumpWorkTime / 60, value, 10);
+    sensorDailyPumpTime.setValue(value);
+    
+    // Konwersja zużycia wody na string
+    dtostrf(pumpStats.dailyWaterUsed, 4, 2, value);
+    sensorDailyWaterUsed.setValue(value);
+}
+
+/**
+ * Funkcja obsługująca przełączanie dźwięku alarmu z poziomu Home Assistant
+ * 
+ * @param state - nowy stan przełącznika (true = włączony, false = wyłączony)
+ * @param sender - wskaźnik do obiektu przełącznika HA wywołującego funkcję
+ * 
+ * Działanie:
+ * - Aktualizuje flagę stanu dźwięku
+ * - Zapisuje nowy stan do pamięci EEPROM (trwałej)
+ * - Aktualizuje stan w Home Assistant
+ */
+void onSoundSwitchCommand(bool state, HASwitch* sender) {   
+    status.soundEnabled = state;  // Aktualizuj status lokalny
+    config.soundEnabled = state;  // Aktualizuj konfigurację
+    saveConfig();  // Zapisz do EEPROM
+    
+    // Aktualizuj stan w Home Assistant
+    switchSound.setState(state, true);  // force update
+    
+    Serial.printf("Zmieniono stan dźwięku na: %s\n", 
+                  state ? "WŁĄCZONY" : "WYŁĄCZONY");
+}
+
+// --- Setup
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
@@ -1029,9 +1122,10 @@ void setup() {
     
     if (status.soundEnabled) {
         //welcomeMelody();
-    }
+    }  
 }
 
+// --- Pętla główna
 void loop() {
     unsigned long currentMillis = millis();
     static unsigned long lastMQTTRetry = 0;
