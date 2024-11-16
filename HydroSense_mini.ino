@@ -635,11 +635,9 @@ void setupHA() {
     // Statystyki
     sensorDailyPumpRuns.setName("Uruchomienia pompy - dzień");
     sensorDailyPumpRuns.setIcon("mdi:water-pump");
-    //sensorDailyPumpRuns.setUnitOfMeasurement("razy");
     
     sensorDailyPumpTime.setName("Czas pracy pompy - dzień");
     sensorDailyPumpTime.setIcon("mdi:timer");
-    sensorDailyPumpTime.setUnitOfMeasurement("min");
     
     sensorDailyWaterUsed.setName("Zużycie wody - dzień");
     sensorDailyWaterUsed.setIcon("mdi:water");
@@ -648,11 +646,9 @@ void setupHA() {
     // Tygodniowe statystyki
     sensorWeeklyPumpRuns.setName("Uruchomienia pompy - tydzień");
     sensorWeeklyPumpRuns.setIcon("mdi:water-pump");
-    //sensorWeeklyPumpRuns.setUnitOfMeasurement("razy");
     
     sensorWeeklyPumpTime.setName("Czas pracy pompy - tydzień");
     sensorWeeklyPumpTime.setIcon("mdi:timer");
-    sensorWeeklyPumpTime.setUnitOfMeasurement("min");
     
     sensorWeeklyWaterUsed.setName("Zużycie wody - tydzień");
     sensorWeeklyWaterUsed.setIcon("mdi:water");
@@ -661,11 +657,9 @@ void setupHA() {
     // Miesięczne statystyki
     sensorMonthlyPumpRuns.setName("Uruchomienia pompy - miesiąc");
     sensorMonthlyPumpRuns.setIcon("mdi:water-pump");
-    //sensorMonthlyPumpRuns.setUnitOfMeasurement("razy");
     
     sensorMonthlyPumpTime.setName("Czas pracy pompy - miesiąc");
     sensorMonthlyPumpTime.setIcon("mdi:timer");
-    sensorMonthlyPumpTime.setUnitOfMeasurement("min");
     
     sensorMonthlyWaterUsed.setName("Zużycie wody - miesiąc");
     sensorMonthlyWaterUsed.setIcon("mdi:water");
@@ -673,15 +667,15 @@ void setupHA() {
 }
 
 // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
-void configOTA();
-    ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
-    ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
-
+void configOTA() {
+    ArduinoOTA.setHostname("HydroSense");
+    ArduinoOTA.setPassword("hydrosense");
+    
     ArduinoOTA.onStart([]() {
         String type;
         if (ArduinoOTA.getCommand() == U_FLASH) {
             type = "sketch";
-        } else {  // U_FS
+        } else {
             type = "filesystem";
         }
         Serial.println("Start updating " + type);
@@ -689,10 +683,10 @@ void configOTA();
     
     ArduinoOTA.onEnd([]() {
         Serial.println("\nKoniec OTA");
-        WiFi.disconnect(true);      // Rozłącz WiFi
-        mqtt.disconnect();          // Rozłącz MQTT
-        delay(100);                 // Krótkie opóźnienie
-        ESP.eraseConfig();         // Wyczyść konfigurację ESP
+        WiFi.disconnect(true);
+        mqtt.disconnect();
+        delay(100);
+        ESP.eraseConfig();
     });
     
     ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
