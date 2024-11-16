@@ -339,15 +339,15 @@ void updateAlarmStates(float currentDistance) {
 // Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
 void updatePump() {
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
-    sensorWaterPresence.setValue(waterPresent ? "ON" : "OFF");
+    sensorWater.setValue(waterPresent ? "ON" : "OFF");
     
     // Jeśli nie ma wody, wyłącz pompę
     if (!waterPresent && status.isPumpActive) {
-        digitalWrite(PIN_PUMP, LOW);
+        digitalWrite(POMPA_PIN, LOW);
         status.isPumpActive = false;
         status.pumpStartTime = 0;
         status.isPumpDelayActive = false;
-        sensorPumpStatus.setValue("OFF");
+        sensorPump.setValue("OFF");
         return;
     }
     
@@ -361,21 +361,21 @@ void updatePump() {
     // Sprawdź czy minął czas opóźnienia
     if (status.isPumpDelayActive && !status.isPumpActive) {
         if (millis() - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
-            digitalWrite(PIN_PUMP, HIGH);
+            digitalWrite(POMPA_PIN, HIGH);
             status.isPumpActive = true;
             status.pumpStartTime = millis();
             status.isPumpDelayActive = false;
-            sensorPumpStatus.setValue("ON");
+            sensorPump.setValue("ON");
         }
     }
     
     // Sprawdź czas pracy pompy
     if (status.isPumpActive) {
         if (millis() - status.pumpStartTime >= (PUMP_WORK_TIME * 1000)) {
-            digitalWrite(PIN_PUMP, LOW);
+            digitalWrite(POMPA_PIN, LOW);
             status.isPumpActive = false;
             status.pumpStartTime = 0;
-            sensorPumpStatus.setValue("OFF");
+            sensorPump.setValue("OFF");
         }
     }
 }
@@ -844,7 +844,6 @@ void handleButton() {
                         status.isPumpActive = false;  // Reset flagi aktywności
                         status.pumpStartTime = 0;  // Reset czasu startu
                         sensorPump.setValue("OFF");  // Aktualizacja w HA
-                        onPumpStop();
                     }
                 }
             }
@@ -864,25 +863,6 @@ void handleButton() {
     
     lastReading = reading;  // Zapisz ostatni odczyt dla następnego porównania
     yield();  // Oddaj sterowanie systemowi
-}
-
-// Czas
-time_t getCurrentTime() {
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
-        Serial.println(F("Failed to obtain time"));
-        return 0;
-    }
-    return mktime(&timeinfo);
-}
-
-// Funkcja pomocnicza do wyświetlania czasu (przydatna przy debugowaniu)
-void printDateTime(time_t t) {
-    char buf[32];
-    sprintf(buf, "%.2d-%.2d-%.2d %.2d:%.2d:%.2d",
-        year(t), month(t), day(t),
-        hour(t), minute(t), second(t));
-    Serial.println(buf);
 }
 
 /**
