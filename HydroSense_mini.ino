@@ -246,6 +246,20 @@ float volume = 0;
 unsigned long pumpStartTime = 0;
 float waterLevelBeforePump = 0;
 
+// Deklaracje funkcji
+void onPumpStart();
+void onPumpStop();
+float getCurrentWaterLevel();
+int measureDistance();
+float calculateWaterLevel(int distance);
+float calculateWaterUsed(float beforeVolume, float afterVolume);
+void safeIncrementStats(unsigned long workTime, float waterUsed);
+void updateHAStatistics();
+void formatTimeForHA(char* buffer, size_t size, uint32_t seconds);
+void onServiceSwitchCommand(bool state, HASwitch* sender);
+void onSoundSwitchCommand(bool state, HASwitch* sender);
+time_t getCurrentTime();
+
 // --- EEPROM
 
 // Ustawienia domyślne
@@ -514,7 +528,7 @@ void updatePump() {
     if (status.isPumpActive) {
         unsigned long currentTime = millis();
         if (currentTime < status.pumpStartTime ||  // przepełnienie
-            (currentTime - status.pumpStartTime) >= (PUMP_WORK_TIME * 1000))
+            (currentTime - status.pumpStartTime) >= (PUMP_WORK_TIME * 1000)) {
             digitalWrite(POMPA_PIN, HIGH);  // Włącz pompę
             status.isPumpActive = true;  // Oznacz jako aktywną
             status.pumpStartTime = millis();  // Zapisz czas startu
@@ -1079,7 +1093,7 @@ void handleButton() {
 
 // 
 void resetStatistics(const char* period) {
-    time_t local = getLocalTime();
+    time_t local = getCurrentTime();
     
     if (strcmp(period, "daily") == 0) {
         pumpStats.dailyPumpRuns = 0;
@@ -1145,7 +1159,7 @@ void safeIncrementStats(unsigned long workTime, float waterUsed) {
 
 // Sprawdzenie i reset statystyk
 void checkStatisticsReset() {
-    time_t now = getLocalTime();
+    time_t now = getCurrentTime();
     struct tm *timeinfo = localtime(&now);
     struct tm *lastDailyReset = localtime(&pumpStats.lastDailyReset);
     struct tm *lastWeeklyReset = localtime(&pumpStats.lastWeeklyReset);
@@ -1235,7 +1249,7 @@ void updateHAStatistics() {
 }
 
 // Czas
-time_t getLocalTime() {
+time_t getCurrentTime() {
     time_t now;
     time(&now);
     return now;  // Czas jest już lokalny dzięki konfiguracji strefy czasowej
