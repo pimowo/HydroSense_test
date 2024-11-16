@@ -177,28 +177,21 @@ enum AlarmType {
 };
 
 // Struktura dla statystyk
+// Zredukuj rozmiar PumpStatistics używając mniejszych typów danych
 struct PumpStatistics {
-    // Dzienne statystyki
-    uint16_t dailyPumpRuns;
-    uint32_t dailyPumpWorkTime;    // w sekundach
-    float dailyWaterUsed;          // w litrach
+    // Zmień uint16_t na uint8_t dla małych liczb
+    uint8_t dailyPumpRuns;
+    uint16_t dailyPumpWorkTime;    // sekundy
+    uint8_t dailyWaterUsed;        // litry
     
-    // Tygodniowe statystyki
-    uint16_t weeklyPumpRuns;
-    uint32_t weeklyPumpWorkTime;
-    float weeklyWaterUsed;
+    uint8_t weeklyPumpRuns;
+    uint16_t weeklyPumpWorkTime;
+    uint8_t weeklyWaterUsed;
     
-    // Miesięczne statystyki
-    uint16_t monthlyPumpRuns;
-    uint32_t monthlyPumpWorkTime;
-    float monthlyWaterUsed;
-    
-    // Całkowite statystyki
-    // uint32_t totalPumpRuns;
-    // uint32_t totalPumpWorkTime;
-    // float totalWaterUsed;
-    
-    // Znaczniki czasowe ostatnich resetów
+    uint8_t monthlyPumpRuns;
+    uint16_t monthlyPumpWorkTime;
+    uint8_t monthlyWaterUsed;
+        
     time_t lastDailyReset;
     time_t lastWeeklyReset;
     time_t lastMonthlyReset;
@@ -267,19 +260,29 @@ bool loadConfig() {
 }
 
 // Zapis konfiguracji
+// void saveConfig() {
+//     config.version = CONFIG_VERSION;
+//     config.checksum = calculateChecksum(config);
+    
+//     EEPROM.begin(EEPROM_SIZE);
+//     EEPROM.put(0, config);
+//     bool success = EEPROM.commit();
+    
+//     if (success) {
+//         Serial.printf("Konfiguracja zapisana. Stan dźwięku: %s\n",
+//                      config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
+//     } else {
+//         Serial.println(F("Błąd zapisu konfiguracji!"));
+//     }
+// }
+
+// Zapis do EEPROM
 void saveConfig() {
-    config.version = CONFIG_VERSION;
-    config.checksum = calculateChecksum(config);
-    
-    EEPROM.begin(EEPROM_SIZE);
-    EEPROM.put(0, config);
-    bool success = EEPROM.commit();
-    
-    if (success) {
-        Serial.printf("Konfiguracja zapisana. Stan dźwięku: %s\n",
-                     config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
-    } else {
-        Serial.println(F("Błąd zapisu konfiguracji!"));
+    static Config lastConfig;
+    if (memcmp(&lastConfig, &config, sizeof(Config)) != 0) {
+        EEPROM.put(0, config);
+        EEPROM.commit();
+        memcpy(&lastConfig, &config, sizeof(Config));
     }
 }
 
