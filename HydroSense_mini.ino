@@ -238,6 +238,20 @@ struct PumpStatistics {
 };
 PumpStatistics pumpStats = {0};
 
+struct Status {
+    bool soundEnabled;
+    bool waterAlarmActive;
+    bool waterReserveActive;
+    bool isPumpActive;
+    bool isPumpDelayActive;
+    bool pumpSafetyLock;
+    bool isServiceMode;
+    unsigned long pumpStartTime;
+    unsigned long pumpDelayStartTime;
+    unsigned long lastSoundAlert;
+};
+Status status;
+
 // --- EEPROM
 
 // Ustawienia domyślne
