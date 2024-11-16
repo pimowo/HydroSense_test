@@ -11,17 +11,6 @@
 
 // --- Definicje stałych i zmiennych globalnych
 
-// Definicje interwałów czasowych
-#define TIME_UPDATE_INTERVAL 3600000  // Interwał aktualizacji czasu (1 godzina w milisekundach)
-#define STATS_UPDATE_INTERVAL 60000   // Interwał aktualizacji statystyk (1 minuta w milisekundach)
-
-// Zmienne do śledzenia czasu
-unsigned long lastTimeUpdate = 0;   // Ostatnia aktualizacja czasu
-unsigned long lastStatsUpdate = 0;  // Ostatnia aktualizacja statystyk
-
-// Strefa czasowa dla Polski (UTC+1 lub UTC+2 w czasie letnim)
-const long utcOffsetInSeconds = 3600; // Przesunięcie czasowe w sekundach (3600 dla UTC+1)                  
-
 // Konfiguracja WiFi i MQTT
 const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
 const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
@@ -875,8 +864,7 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     // Aktualizuj stan w Home Assistant
     switchSound.setState(state, true);  // force update
     
-    Serial.printf("Zmieniono stan dźwięku na: %s\n", 
-                  state ? "WŁĄCZONY" : "WYŁĄCZONY");
+    Serial.printf("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // --- Setup
@@ -908,23 +896,6 @@ void setup() {
 
     configOTA();
 
-    // Konfiguracja czasu
-    Serial.println("Konfiguracja czasu...");
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");    // Serwery NTP
-    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);       // Strefa czasowa dla Polski
-    tzset();
-
-    // Czekaj na synchronizację czasu
-    Serial.print("Oczekiwanie na synchronizację czasu");
-    time_t now = time(nullptr);
-    while (now < 24 * 3600) {
-        delay(500);
-        Serial.print(".");
-        ESP.wdtFeed();
-        now = time(nullptr);
-    }
-    Serial.println("\nCzas zsynchronizowany");
-
     // Próba połączenia MQTT
     Serial.println("Rozpoczynam połączenie MQTT...");
     connectMQTT();
@@ -943,7 +914,7 @@ void setup() {
     Serial.println("Setup zakończony pomyślnie!");
     
     if (status.soundEnabled) {
-        welcomeMelody();
+        //welcomeMelody();
     }  
 }
 
@@ -994,25 +965,5 @@ void loop() {
     if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
         updateWaterLevel();  // Pomiar i aktualizacja stanu wody
         lastMeasurement = currentMillis;
-    }
-
-    // STATYSTYKI I ZARZĄDZANIE CZASEM
-    
-    // Sprawdzanie resetów statystyk
-    static time_t lastTimeCheck = 0;
-    time_t now = time(nullptr);
-    
-    // Sprawdzaj resety co minutę
-    if (now - lastTimeCheck >= 60) {
-        lastTimeCheck = now;
-        
-        // Debug - wyświetl aktualny czas
-        #ifdef DEBUG
-        struct tm timeinfo;
-        localtime_r(&now, &timeinfo);
-        Serial.printf("Aktualny czas: %04d-%02d-%02d %02d:%02d:%02d\n",
-                     timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
-                     timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-        #endif
     }
 }
