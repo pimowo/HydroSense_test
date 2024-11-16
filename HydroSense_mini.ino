@@ -1,30 +1,3 @@
-/*
-START
-  |
-  v
-Sprawdź tryb serwisowy ----> [Aktywny] ---> STOP
-  |
-  v [Nieaktywny]
-Sprawdź blokady bezpieczeństwa ----> [Aktywne] ---> STOP
-  |
-  v [Nieaktywne]
-Sprawdź poziom wody
-  |
-  v
-[Potrzeba dolania?]
-  |
-  |---> [TAK] ---> Aktywuj opóźnienie (PUMP_DELAY)
-  |                  |
-  |                  v
-  |                [Po opóźnieniu] ---> Włącz pompę --> Monitoruj czas pracy
-  |                                                           |
-  |                                                           v
-  |                                                     [Przekroczony] ---> Wyłącz pompę
-  |                                                                        + Aktywuj blokadę
-  |
-  |---> [NIE] ---> STOP (Pompa pozostaje wyłączona)
-*/
-
 // --- Biblioteki
 
 #include <Arduino.h>
@@ -35,9 +8,6 @@ Sprawdź poziom wody
 #include <EEPROM.h>        // Obsługa pamięci EEPROM, używana do przechowywania danych na stałe
 #include <CRC32.h>         // Biblioteka CRC32 - używana do weryfikacji integralności danych
 #include <WiFiUdp.h>       // Obsługa komunikacji UDP
-#include <Time.h>          // Obsługa funkcji związanych z czasem
-#include <TimeLib.h>       // Dodatkowe funkcje związane z czasem
-#include <sys/time.h>      // Dla funkcji czasowych
 
 // --- Definicje stałych i zmiennych globalnych
 
@@ -93,10 +63,8 @@ const int HYSTERESIS = 10.0;            // Histereza (w mm)
 const int SREDNICA_ZBIORNIKA = 150;          // Średnica zbiornika (w mm)
 const int MEASUREMENTS_COUNT = 3;       // Liczba pomiarów do uśrednienia
 const int PUMP_DELAY = 5;               // Opóźnienie włączenia pompy (w sekundach)
-const int PUMP_WORK_TIME = 60;          // Czas pracy pompy (w sekundach)
 
 float aktualnaOdleglosc = 0;              // Aktualny dystans
-//float objetosc = 0;                       // Objętość wody
 unsigned long ostatniCzasDebounce = 0;     // Ostatni czas zmiany stanu przycisku
 
 // Obiekty do komunikacji
@@ -121,21 +89,6 @@ HASensor sensorReserve("water_reserve");                  // Alarm rezerwy w zbi
 HASwitch switchPump("pump_alarm");                        // Przełącznik resetowania blokady pompy
 HASwitch switchService("service_mode");                   // Przełącznik trybu serwisowego
 HASwitch switchSound("sound_switch");                     // Przełącznik dźwięku alarmu
-
-// Dzienne statystyki
-HASensor sensorDailyPumpRuns("daily_pump_runs", true);    // Dzienne uruchomienia pompy
-HASensor sensorDailyPumpTime("daily_pump_time", true);    // Dzienne czas pracy pompy
-HASensor sensorDailyWaterUsed("daily_water_used", true);  // Dzienne zużycie wody
-
-// Tygodniowe statystyki
-HASensor sensorWeeklyPumpRuns("weekly_pump_runs", true);    // Tygodniowe uruchomienia pompy
-HASensor sensorWeeklyPumpTime("weekly_pump_time", true);    // Tygodniowy czas pracy pompy
-HASensor sensorWeeklyWaterUsed("weekly_water_used", true);  // Tygodniowe zużycie wody
-
-// Miesięczne statystyki
-HASensor sensorMonthlyPumpRuns("monthly_pump_runs", true);    // Miesięczne uruchomienia pompy
-HASensor sensorMonthlyPumpTime("monthly_pump_time", true);    // Miesięczny czas pracy pompy
-HASensor sensorMonthlyWaterUsed("monthly_water_used", true);  // Miesięczne zużycie wody
 
 // --- Deklaracje funkcji i struktury
 
@@ -199,30 +152,6 @@ enum AlarmType {
     ALARM_WATER_HIGH
 };
 
-// Struktura dla statystyk
-struct PumpStatistics {
-    // Dzienne statystyki
-    uint8_t dailyPumpRuns;      
-    uint16_t dailyPumpWorkTime; 
-    uint8_t dailyWaterUsed;     
-    
-    // Tygodniowe statystyki
-    uint8_t weeklyPumpRuns;     
-    uint16_t weeklyPumpWorkTime;
-    uint8_t weeklyWaterUsed;    
-    
-    // Miesięczne statystyki
-    uint8_t monthlyPumpRuns;    
-    uint16_t monthlyPumpWorkTime;
-    uint8_t monthlyWaterUsed;   
-    
-    // Znaczniki czasu resetów
-    time_t lastDailyReset;
-    time_t lastWeeklyReset;
-    time_t lastMonthlyReset;
-};
-PumpStatistics pumpStats = {0};
-
 struct Status {
     bool soundEnabled;
     bool waterAlarmActive;
@@ -245,20 +174,6 @@ float currentDistance = 0;
 float volume = 0;
 unsigned long pumpStartTime = 0;
 float waterLevelBeforePump = 0;
-
-// Deklaracje funkcji
-void onPumpStart();
-void onPumpStop();
-float getCurrentWaterLevel();
-int measureDistance();
-//float calculateWaterLevel(int distance);
-float calculateWaterUsed(float beforeVolume, float afterVolume);
-void safeIncrementStats(unsigned long workTime, float waterUsed);
-void updateHAStatistics();
-void formatTimeForHA(char* buffer, size_t size, uint32_t seconds);
-void onServiceSwitchCommand(bool state, HASwitch* sender);
-void onSoundSwitchCommand(bool state, HASwitch* sender);
-time_t getCurrentTime();
 
 // --- EEPROM
 
@@ -297,23 +212,6 @@ bool loadConfig() {
                  config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     return true;
 }
-
-// Zapis konfiguracji
-// void saveConfig() {
-//     config.version = CONFIG_VERSION;
-//     config.checksum = calculateChecksum(config);
-    
-//     EEPROM.begin(EEPROM_SIZE);
-//     EEPROM.put(0, config);
-//     bool success = EEPROM.commit();
-    
-//     if (success) {
-//         Serial.printf("Konfiguracja zapisana. Stan dźwięku: %s\n",
-//                      config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
-//     } else {
-//         Serial.println(F("Błąd zapisu konfiguracji!"));
-//     }
-// }
 
 // Zapis do EEPROM
 void saveConfig() {
@@ -440,177 +338,46 @@ void updateAlarmStates(float currentDistance) {
 
 // Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
 void updatePump() {
-    // Zabezpieczenie przed przepełnieniem licznika millis()
-    if (millis() < status.pumpStartTime) {
-        status.pumpStartTime = millis();
-    }
-    
-    if (millis() < status.pumpDelayStartTime) {
-        status.pumpDelayStartTime = millis();
-    }
-    
-    // Odczyt stanu czujnika poziomu wody
-    // LOW = brak wody - należy uzupełnić
-    // HIGH = woda obecna - stan normalny
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
-    sensorWater.setValue(waterPresent ? "ON" : "OFF");
+    sensorWaterPresence.setValue(waterPresent ? "ON" : "OFF");
     
-    // --- ZABEZPIECZENIE 1: Tryb serwisowy ---
-    if (status.isServiceMode) {
-        if (status.isPumpActive) {
-            digitalWrite(POMPA_PIN, LOW);
-            status.isPumpActive = false;
-            status.pumpStartTime = 0;
-            sensorPump.setValue("OFF");
-            onPumpStop();
-        }
-        return;
-    }
-
-    // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
-    if (status.isPumpActive && (millis() - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
-        digitalWrite(POMPA_PIN, LOW);
-        status.isPumpActive = false;
-        status.pumpStartTime = 0;
-        sensorPump.setValue("OFF");
-        onPumpStop();
-        status.pumpSafetyLock = true;
-        switchPump.setState(true);
-        Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
-        return;
-    }
-    
-    // --- ZABEZPIECZENIE 3: Blokady bezpieczeństwa ---
-    if (status.pumpSafetyLock || status.waterAlarmActive) {
-        if (status.isPumpActive) {
-            digitalWrite(POMPA_PIN, LOW);
-            status.isPumpActive = false;
-            status.pumpStartTime = 0;
-            sensorPump.setValue("OFF");
-            onPumpStop();
-        }
-        return;
-    }
-    
-    // --- ZABEZPIECZENIE 4: Ochrona przed przepełnieniem ---
+    // Jeśli nie ma wody, wyłącz pompę
     if (!waterPresent && status.isPumpActive) {
-        digitalWrite(POMPA_PIN, LOW);
+        digitalWrite(PIN_PUMP, LOW);
         status.isPumpActive = false;
         status.pumpStartTime = 0;
         status.isPumpDelayActive = false;
-        sensorPump.setValue("OFF");
-        onPumpStop();
+        sensorPumpStatus.setValue("OFF");
         return;
     }
     
-    // --- LOGIKA WŁĄCZANIA POMPY ---
+    // Jeśli jest woda i pompa nie jest aktywna, rozpocznij odliczanie
     if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
         status.isPumpDelayActive = true;
         status.pumpDelayStartTime = millis();
         return;
     }
     
-    // Po upływie opóźnienia, włącz pompę
+    // Sprawdź czy minął czas opóźnienia
     if (status.isPumpDelayActive && !status.isPumpActive) {
         if (millis() - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
-            digitalWrite(POMPA_PIN, HIGH);
+            digitalWrite(PIN_PUMP, HIGH);
             status.isPumpActive = true;
             status.pumpStartTime = millis();
             status.isPumpDelayActive = false;
-            sensorPump.setValue("ON");
-            onPumpStart();
+            sensorPumpStatus.setValue("ON");
         }
     }
-}
-
-// Wywoływana przy uruchomieniu pompy
-void onPumpStart() {
-    static bool isStarting = false;
-    if (isStarting) return;  // Zabezpieczenie przed rekurencją
     
-    isStarting = true;
-    waterLevelBeforePump = getCurrentWaterLevel();
-    
-    // Aktualizacja liczników tylko jeśli pompa faktycznie startuje
+    // Sprawdź czas pracy pompy
     if (status.isPumpActive) {
-        pumpStats.dailyPumpRuns++;
-        pumpStats.weeklyPumpRuns++;
-        pumpStats.monthlyPumpRuns++;
-    }
-    
-    isStarting = false;
-}
-
-// Wywoływana przy zatrzymaniu pompy
-void onPumpStop() {
-    static bool isStopping = false;
-    if (isStopping) return;  // Zabezpieczenie przed rekurencją
-    
-    isStopping = true;
-    
-    if (status.isPumpActive) {  // Tylko jeśli pompa faktycznie pracowała
-        unsigned long workTime;
-        if (millis() < status.pumpStartTime) {
-            workTime = ((ULONG_MAX - status.pumpStartTime) + millis()) / 1000;
-        } else {
-            workTime = (millis() - status.pumpStartTime) / 1000;
-        }
-        
-        float currentLevel = getCurrentWaterLevel();
-        float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
-        
-        if (workTime > 0 && waterUsed > 0) {
-            safeIncrementStats(workTime, waterUsed);
-            updateHAStatistics();
+        if (millis() - status.pumpStartTime >= (PUMP_WORK_TIME * 1000)) {
+            digitalWrite(PIN_PUMP, LOW);
+            status.isPumpActive = false;
+            status.pumpStartTime = 0;
+            sensorPumpStatus.setValue("OFF");
         }
     }
-    
-    isStopping = false;
-}
-
-// Wywoływana przy uruchomieniu pompy
-void onPumpStart() {
-    static bool isStarting = false;
-    if (isStarting) return;  // Zabezpieczenie przed rekurencją
-    
-    isStarting = true;
-    waterLevelBeforePump = getCurrentWaterLevel();
-    
-    // Aktualizacja liczników tylko jeśli pompa faktycznie startuje
-    if (status.isPumpActive && !status.isPumpDelayActive) {
-        pumpStats.dailyPumpRuns++;
-        pumpStats.weeklyPumpRuns++;
-        pumpStats.monthlyPumpRuns++;
-    }
-    
-    isStarting = false;
-}
-
-// Wywoływana przy zatrzymaniu pompy
-void onPumpStop() {
-    static bool isStopping = false;
-    if (isStopping) return;  // Zabezpieczenie przed rekurencją
-    
-    isStopping = true;
-    
-    if (status.isPumpActive) {  // Tylko jeśli pompa faktycznie pracowała
-        unsigned long workTime;
-        if (millis() < status.pumpStartTime) {
-            workTime = ((ULONG_MAX - status.pumpStartTime) + millis()) / 1000;
-        } else {
-            workTime = (millis() - status.pumpStartTime) / 1000;
-        }
-        
-        float currentLevel = getCurrentWaterLevel();
-        float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
-        
-        if (workTime > 0 && waterUsed > 0) {
-            safeIncrementStats(workTime, waterUsed);
-            updateHAStatistics();
-        }
-    }
-    
-    isStopping = false;
 }
 
 // Funkcja obsługuje zdarzenie resetu alarmu pompy
@@ -723,39 +490,6 @@ void setupHA() {
     switchPump.setName("Alarm pompy");
     switchPump.setIcon("mdi:alert");               // Ikona alarmu
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
-
-    // Statystyki
-    sensorDailyPumpRuns.setName("Uruchomienia pompy - dzień");
-    sensorDailyPumpRuns.setIcon("mdi:water-pump");
-    
-    sensorDailyPumpTime.setName("Czas pracy pompy - dzień");
-    sensorDailyPumpTime.setIcon("mdi:timer");
-    
-    sensorDailyWaterUsed.setName("Zużycie wody - dzień");
-    sensorDailyWaterUsed.setIcon("mdi:water");
-    sensorDailyWaterUsed.setUnitOfMeasurement("L");
-
-    // Tygodniowe statystyki
-    sensorWeeklyPumpRuns.setName("Uruchomienia pompy - tydzień");
-    sensorWeeklyPumpRuns.setIcon("mdi:water-pump");
-    
-    sensorWeeklyPumpTime.setName("Czas pracy pompy - tydzień");
-    sensorWeeklyPumpTime.setIcon("mdi:timer");
-    
-    sensorWeeklyWaterUsed.setName("Zużycie wody - tydzień");
-    sensorWeeklyWaterUsed.setIcon("mdi:water");
-    sensorWeeklyWaterUsed.setUnitOfMeasurement("L");
-    
-    // Miesięczne statystyki
-    sensorMonthlyPumpRuns.setName("Uruchomienia pompy - miesiąc");
-    sensorMonthlyPumpRuns.setIcon("mdi:water-pump");
-    
-    sensorMonthlyPumpTime.setName("Czas pracy pompy - miesiąc");
-    sensorMonthlyPumpTime.setIcon("mdi:timer");
-    
-    sensorMonthlyWaterUsed.setName("Zużycie wody - miesiąc");
-    sensorMonthlyWaterUsed.setIcon("mdi:water");
-    sensorMonthlyWaterUsed.setUnitOfMeasurement("L");
 }
 
 // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
@@ -1132,163 +866,6 @@ void handleButton() {
     yield();  // Oddaj sterowanie systemowi
 }
 
-// 
-void resetStatistics(const char* period) {
-    time_t local = getCurrentTime();
-    
-    if (strcmp(period, "daily") == 0) {
-        pumpStats.dailyPumpRuns = 0;
-        pumpStats.dailyPumpWorkTime = 0;
-        pumpStats.dailyWaterUsed = 0;
-        pumpStats.lastDailyReset = local;
-        
-        Serial.println(F("Resetowanie statystyk dziennych"));
-    } 
-    else if (strcmp(period, "weekly") == 0) {
-        pumpStats.weeklyPumpRuns = 0;
-        pumpStats.weeklyPumpWorkTime = 0;
-        pumpStats.weeklyWaterUsed = 0;
-        pumpStats.lastWeeklyReset = local;
-        
-        Serial.println(F("Resetowanie statystyk tygodniowych"));
-    } 
-    else if (strcmp(period, "monthly") == 0) {
-        pumpStats.monthlyPumpRuns = 0;
-        pumpStats.monthlyPumpWorkTime = 0;
-        pumpStats.monthlyWaterUsed = 0;
-        pumpStats.lastMonthlyReset = local;
-        
-        Serial.println(F("Resetowanie statystyk miesięcznych"));
-    }
-}
-
-// Sprawdzenie i reset statystyk
-void safeIncrementStats(unsigned long workTime, float waterUsed) {
-    // Dzienne statystyki
-    if (pumpStats.dailyPumpRuns < UINT8_MAX) {
-        pumpStats.dailyPumpRuns++;
-    }
-    if (pumpStats.dailyPumpWorkTime + workTime <= UINT16_MAX) {
-        pumpStats.dailyPumpWorkTime += workTime;
-    }
-    if (waterUsed > 0 && pumpStats.dailyWaterUsed + waterUsed <= UINT8_MAX) {
-        pumpStats.dailyWaterUsed += (uint8_t)waterUsed;
-    }
-
-    // Tygodniowe statystyki
-    if (pumpStats.weeklyPumpRuns < UINT8_MAX) {
-        pumpStats.weeklyPumpRuns++;
-    }
-    if (pumpStats.weeklyPumpWorkTime + workTime <= UINT16_MAX) {
-        pumpStats.weeklyPumpWorkTime += workTime;
-    }
-    if (waterUsed > 0 && pumpStats.weeklyWaterUsed + waterUsed <= UINT8_MAX) {
-        pumpStats.weeklyWaterUsed += (uint8_t)waterUsed;
-    }
-
-    // Miesięczne statystyki
-    if (pumpStats.monthlyPumpRuns < UINT8_MAX) {
-        pumpStats.monthlyPumpRuns++;
-    }
-    if (pumpStats.monthlyPumpWorkTime + workTime <= UINT16_MAX) {
-        pumpStats.monthlyPumpWorkTime += workTime;
-    }
-    if (waterUsed > 0 && pumpStats.monthlyWaterUsed + waterUsed <= UINT8_MAX) {
-        pumpStats.monthlyWaterUsed += (uint8_t)waterUsed;
-    }
-}
-
-// Sprawdzenie i reset statystyk
-void checkStatisticsReset() {
-    time_t now = getCurrentTime();
-    struct tm *timeinfo = localtime(&now);
-    struct tm *lastDailyReset = localtime(&pumpStats.lastDailyReset);
-    struct tm *lastWeeklyReset = localtime(&pumpStats.lastWeeklyReset);
-    struct tm *lastMonthlyReset = localtime(&pumpStats.lastMonthlyReset);
-
-    // Debug info
-    #ifdef DEBUG
-    Serial.println(F("Checking statistics reset:"));
-    Serial.print(F("Current time: "));
-    printDateTime(now);
-    Serial.print(F("Last daily reset: "));
-    printDateTime(pumpStats.lastDailyReset);
-    #endif
-    
-    // Reset dzienny - sprawdź czy zmienił się dzień
-    if (timeinfo->tm_mday != lastDailyReset->tm_mday || 
-        timeinfo->tm_mon != lastDailyReset->tm_mon ||
-        timeinfo->tm_year != lastDailyReset->tm_year) {
-        
-        #ifdef DEBUG
-        Serial.println(F("Performing daily reset"));
-        #endif
-        
-        resetStatistics("daily");
-    }
-    
-    // Reset tygodniowy - sprawdź czy jest niedziela i czy ostatni reset nie był dziś
-    if (timeinfo->tm_wday == 0 && // 0 = niedziela
-        (lastWeeklyReset->tm_mday != timeinfo->tm_mday || 
-         lastWeeklyReset->tm_mon != timeinfo->tm_mon ||
-         lastWeeklyReset->tm_year != timeinfo->tm_year)) {
-        
-        #ifdef DEBUG
-        Serial.println(F("Performing weekly reset"));
-        #endif
-        
-        resetStatistics("weekly");
-    }
-    
-    // Reset miesięczny - sprawdź czy zmienił się miesiąc
-    if (timeinfo->tm_mon != lastMonthlyReset->tm_mon ||
-        timeinfo->tm_year != lastMonthlyReset->tm_year) {
-        
-        #ifdef DEBUG
-        Serial.println(F("Performing monthly reset"));
-        #endif
-        
-        resetStatistics("monthly");
-    }
-}
-
-// Aktualizacja statystyk Home Assistant
-void updateHAStatistics() {
-    char value[16];
-    
-    // Konwersja liczby uruchomień pompy
-    itoa(pumpStats.dailyPumpRuns, value, 10);
-    sensorDailyPumpRuns.setValue(value);
-    
-    // Formatowanie czasu pracy pompy
-    formatTimeForHA(value, sizeof(value), pumpStats.dailyPumpWorkTime);
-    sensorDailyPumpTime.setValue(value);
-    
-    // Konwersja zużycia wody
-    dtostrf(pumpStats.dailyWaterUsed, 4, 2, value);
-    sensorDailyWaterUsed.setValue(value);
-    
-    // Formatowanie czasu dla statystyk tygodniowych
-    formatTimeForHA(value, sizeof(value), pumpStats.weeklyPumpWorkTime);
-    sensorWeeklyPumpTime.setValue(value);
-    
-    itoa(pumpStats.weeklyPumpRuns, value, 10);
-    sensorWeeklyPumpRuns.setValue(value);
-    
-    dtostrf(pumpStats.weeklyWaterUsed, 4, 2, value);
-    sensorWeeklyWaterUsed.setValue(value);
-    
-    // Formatowanie czasu dla statystyk miesięcznych
-    formatTimeForHA(value, sizeof(value), pumpStats.monthlyPumpWorkTime);
-    sensorMonthlyPumpTime.setValue(value);
-    
-    itoa(pumpStats.monthlyPumpRuns, value, 10);
-    sensorMonthlyPumpRuns.setValue(value);
-    
-    dtostrf(pumpStats.monthlyWaterUsed, 4, 2, value);
-    sensorMonthlyWaterUsed.setValue(value);
-}
-
 // Czas
 time_t getCurrentTime() {
     struct tm timeinfo;
@@ -1306,16 +883,6 @@ void printDateTime(time_t t) {
         year(t), month(t), day(t),
         hour(t), minute(t), second(t));
     Serial.println(buf);
-}
-
-//
-void formatTimeForHA(char* buffer, size_t size, uint32_t seconds) {
-    // Konwersja sekund na godziny i minuty
-    uint16_t hours = seconds / 3600;
-    uint16_t minutes = (seconds % 3600) / 60;
-    
-    // Formatowanie w formacie HH:MM
-    snprintf(buffer, size, "%02d:%02d", hours, minutes);
 }
 
 /**
@@ -1489,7 +1056,6 @@ void loop() {
     
     // Sprawdzaj resety co minutę
     if (now - lastTimeCheck >= 60) {
-        checkStatisticsReset();
         lastTimeCheck = now;
         
         // Debug - wyświetl aktualny czas
@@ -1500,21 +1066,5 @@ void loop() {
                      timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
                      timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
         #endif
-    }
-    
-    // Aktualizacja statystyk Home Assistant (co minutę)
-    if (currentMillis - lastStatsUpdate >= 60000) {
-        updateHAStatistics();
-        lastStatsUpdate = currentMillis;
-        
-        // Synchronizacja czasu (co godzinę)
-        static time_t lastSync = 0;
-        if (now - lastSync >= 3600) {
-            configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-            lastSync = now;
-            #ifdef DEBUG
-            Serial.println("Wykonano synchronizację czasu");
-            #endif
-        }
     }
 }
