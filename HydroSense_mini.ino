@@ -519,23 +519,55 @@ void updatePump() {
     // i pompa nie pracuje oraz nie trwa odliczanie opóźnienia,
     // rozpocznij procedurę opóźnionego startu pompy
     if (!waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
-        status.isPumpDelayActive = true;  // Aktywuj opóźnienie
-        status.pumpDelayStartTime = millis();  // Zapisz czas rozpoczęcia opóźnienia
+        status.isPumpDelayActive = true;
+        status.pumpDelayStartTime = millis();
         return;
     }
     
-    // Sprawdź czy możemy włączyć pompę po opóźnieniu
+    // Sprawdzenie opóźnienia przed włączeniem
     if (status.isPumpDelayActive && !status.isPumpActive) {
         unsigned long currentTime = millis();
-        unsigned long delayTime = currentTime - status.pumpDelayStartTime;
+        unsigned long elapsedDelay;
         
-        if (currentTime < status.pumpDelayStartTime || delayTime >= (PUMP_DELAY * 1000)) {
-            digitalWrite(POMPA_PIN, HIGH);  // Włącz pompę
+        // Bezpieczne obliczenie czasu opóźnienia
+        if (currentTime < status.pumpDelayStartTime) {
+            elapsedDelay = (ULONG_MAX - status.pumpDelayStartTime) + currentTime;
+        } else {
+            elapsedDelay = currentTime - status.pumpDelayStartTime;
+        }
+        
+        // Sprawdź czy minęło wymagane opóźnienie
+        if (elapsedDelay >= (PUMP_DELAY * 1000)) {
+            digitalWrite(POMPA_PIN, HIGH);
             status.isPumpActive = true;
             status.pumpStartTime = millis();
             status.isPumpDelayActive = false;
             sensorPump.setValue("ON");
             onPumpStart();
+        }
+        return;
+    }
+
+    // Sprawdzenie czasu pracy pompy
+    if (status.isPumpActive) {
+        unsigned long currentTime = millis();
+        unsigned long workTime;
+        
+        // Bezpieczne obliczenie czasu pracy
+        if (currentTime < status.pumpStartTime) {
+            workTime = (ULONG_MAX - status.pumpStartTime) + currentTime;
+        } else {
+            workTime = currentTime - status.pumpStartTime;
+        }
+        
+        // Wyłącz pompę po przekroczeniu czasu pracy
+        if (workTime >= (PUMP_WORK_TIME * 1000)) {
+            digitalWrite(POMPA_PIN, LOW);
+            status.isPumpActive = false;
+            status.isPumpDelayActive = false;
+            status.pumpStartTime = 0;
+            sensorPump.setValue("OFF");
+            onPumpStop();
         }
     }
 }
