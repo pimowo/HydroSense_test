@@ -450,6 +450,7 @@ void updatePump() {
             status.isPumpActive = false;  // Oznacz jako nieaktywną
             status.pumpStartTime = 0;  // Zeruj czas startu
             sensorPump.setValue("OFF");  // Aktualizuj status w HA
+            onPumpStop();
         }
         return;
     }
@@ -465,6 +466,7 @@ void updatePump() {
             status.isPumpActive = false;  // Oznacz jako nieaktywną
             status.pumpStartTime = 0;  // Zeruj czas startu
             sensorPump.setValue("OFF");  // Aktualizuj status w HA
+            onPumpStop();
             status.pumpSafetyLock = true;  // Aktywuj blokadę bezpieczeństwa
             switchPump.setState(true);  // Aktywuj przełącznik alarmu w HA
             Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
@@ -480,6 +482,7 @@ void updatePump() {
             status.isPumpActive = false;  // Oznacz jako nieaktywną
             status.pumpStartTime = 0;  // Zeruj czas startu
             sensorPump.setValue("OFF");  // Aktualizuj status w HA
+            onPumpStop();
         }
         return;
     }
@@ -493,6 +496,7 @@ void updatePump() {
         status.pumpStartTime = 0;  // Zeruj czas startu
         status.isPumpDelayActive = false;  // Wyłącz opóźnienie
         sensorPump.setValue("OFF");  // Aktualizuj status w HA
+        onPumpStop();
         return;
     }
     
@@ -500,15 +504,17 @@ void updatePump() {
     // Jeśli brakuje wody w akwarium (czujnik niezanurzony - LOW) 
     // i pompa nie pracuje oraz nie trwa odliczanie opóźnienia,
     // rozpocznij procedurę opóźnionego startu pompy
-    if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
+    if (!waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
         status.isPumpDelayActive = true;  // Aktywuj opóźnienie
         status.pumpDelayStartTime = millis();  // Zapisz czas rozpoczęcia opóźnienia
         return;
     }
     
     // Po upływie opóźnienia, włącz pompę
-    if (status.isPumpDelayActive && !status.isPumpActive) {
-        if (millis() - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
+    if (status.isPumpActive) {
+        unsigned long currentTime = millis();
+        if (currentTime < status.pumpStartTime ||  // przepełnienie
+            (currentTime - status.pumpStartTime) >= (PUMP_WORK_TIME * 1000))
             digitalWrite(POMPA_PIN, HIGH);  // Włącz pompę
             status.isPumpActive = true;  // Oznacz jako aktywną
             status.pumpStartTime = millis();  // Zapisz czas startu
@@ -525,8 +531,9 @@ void onPumpStart() {
     pumpStats.weeklyPumpRuns++;
     pumpStats.monthlyPumpRuns++;
     
-    pumpStartTime = millis();
+    // używaj zmiennej ze struktury status
     waterLevelBeforePump = getCurrentWaterLevel();
+    // pumpStartTime jest już ustawiony w updatePump()
 }
 
 // Wywoływana przy zatrzymaniu pompy
@@ -818,6 +825,7 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
             status.isPumpActive = false;  // Reset flagi aktywności
             status.pumpStartTime = 0;  // Reset czasu startu
             sensorPump.setValue("OFF");  // Aktualizacja stanu w HA
+            onPumpStop();
         }
     } else {  // Wyłączanie trybu serwisowego
         // Reset stanu opóźnienia pompy aby umożliwić normalne uruchomienie
@@ -950,7 +958,7 @@ int calculateWaterLevel(int distance) {
 
 //
 float calculateWaterUsed(float beforeVolume, float afterVolume) {
-    if (beforeVolume < 0 || afterVolume < 0) return 0;
+    if (beforeVolume < 0 || afterVolume < 0) return 0;  // dodaj zabezpieczenie
     float difference = beforeVolume - afterVolume;
     return difference > 0 ? difference : 0;
 }
@@ -1047,6 +1055,7 @@ void handleButton() {
                         status.isPumpActive = false;  // Reset flagi aktywności
                         status.pumpStartTime = 0;  // Reset czasu startu
                         sensorPump.setValue("OFF");  // Aktualizacja w HA
+                        onPumpStop();
                     }
                 }
             }
