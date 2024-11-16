@@ -7,23 +7,12 @@
 #include <PubSubClient.h>  // MQTT - protokół komunikacji z serwerem MQTT
 #include <EEPROM.h>        // Obsługa pamięci EEPROM, używana do przechowywania danych na stałe
 #include <CRC32.h>         // Biblioteka CRC32 - używana do weryfikacji integralności danych
-//#include <NTPClient.h>     // Obsługa klienta NTP (Network Time Protocol)
 #include <WiFiUdp.h>       // Obsługa komunikacji UDP
 #include <Time.h>          // Obsługa funkcji związanych z czasem
 #include <TimeLib.h>       // Dodatkowe funkcje związane z czasem
 #include <sys/time.h>      // Dla funkcji czasowych
 
 // --- Definicje stałych i zmiennych globalnych
-
-// Definicje dla NTP (Network Time Protocol)
-//WiFiUDP ntpUDP;
-//NTPClient timeClient(ntpUDP, "pool.ntp.org");
-// Zasady dla czasu środkowoeuropejskiego (CET/CEST)
-// Czas letni (CEST) = UTC + 2
-// Czas zimowy (CET) = UTC + 1
-//TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};  // Czas letni (UTC + 2)
-//TimeChangeRule CET = {"CET", Last, Sun, Oct, 3, 60};     // Czas zimowy (UTC + 1)
-//Timezone CE(CEST, CET);
 
 // Definicje interwałów czasowych
 #define TIME_UPDATE_INTERVAL 3600000  // Interwał aktualizacji czasu (1 godzina w milisekundach)
