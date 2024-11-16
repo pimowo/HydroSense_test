@@ -11,12 +11,19 @@
 #include <WiFiUdp.h>       // Obsługa komunikacji UDP
 #include <Time.h>          // Obsługa funkcji związanych z czasem
 #include <TimeLib.h>       // Dodatkowe funkcje związane z czasem
+#include <Timezone.h>      // https://github.com/JChristensen/Timezone
 
 // --- Definicje stałych i zmiennych globalnych
 
 // Definicje dla NTP (Network Time Protocol)
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org");
+// Zasady dla czasu środkowoeuropejskiego (CET/CEST)
+// Czas letni (CEST) = UTC + 2
+// Czas zimowy (CET) = UTC + 1
+TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};  // Czas letni (UTC + 2)
+TimeChangeRule CET = {"CET", Last, Sun, Oct, 3, 60};     // Czas zimowy (UTC + 1)
+Timezone CE(CEST, CET);
 
 // Definicje interwałów czasowych
 #define TIME_UPDATE_INTERVAL 3600000  // Interwał aktualizacji czasu (1 godzina w milisekundach)
@@ -177,20 +184,18 @@ enum AlarmType {
 };
 
 // Struktura dla statystyk
-// Zredukuj rozmiar PumpStatistics używając mniejszych typów danych
 struct PumpStatistics {
-    // Zmień uint16_t na uint8_t dla małych liczb
-    uint8_t dailyPumpRuns;
-    uint16_t dailyPumpWorkTime;    // sekundy
-    uint8_t dailyWaterUsed;        // litry
+    uint16_t dailyPumpRuns;        // max 65535 uruchomień
+    uint32_t dailyPumpWorkTime;    // max ~49 dni w sekundach
+    uint16_t dailyWaterUsed;       // max 65535 litrów
     
-    uint8_t weeklyPumpRuns;
-    uint16_t weeklyPumpWorkTime;
-    uint8_t weeklyWaterUsed;
+    uint16_t weeklyPumpRuns;
+    uint32_t weeklyPumpWorkTime;
+    uint16_t weeklyWaterUsed;
     
-    uint8_t monthlyPumpRuns;
-    uint16_t monthlyPumpWorkTime;
-    uint8_t monthlyWaterUsed;
+    uint16_t monthlyPumpRuns;
+    uint32_t monthlyPumpWorkTime;
+    uint16_t monthlyWaterUsed;
         
     time_t lastDailyReset;
     time_t lastWeeklyReset;
@@ -493,32 +498,30 @@ void onPumpStart() {
     pumpStats.dailyPumpRuns++;
     pumpStats.weeklyPumpRuns++;
     pumpStats.monthlyPumpRuns++;
-    //pumpStats.totalPumpRuns++;
     
     pumpStartTime = millis();
     waterLevelBeforePump = getCurrentWaterLevel();
-    
-    // Sygnał dźwiękowy startu pompy
-    playAlarm(ALARM_PUMP_START);
 }
 
 // Wywoływana przy zatrzymaniu pompy
 void onPumpStop() {
-    unsigned long pumpWorkTime = (millis() - pumpStartTime) / 1000; // czas w sekundach
-    float waterUsed = calculateWaterUsed(waterLevelBeforePump, getCurrentWaterLevel());
+    unsigned long stopTime = millis();
+    unsigned long workTime = (stopTime - status.pumpStartTime) / 1000; // czas w sekundach
     
-    pumpStats.dailyPumpWorkTime += pumpWorkTime;
-    pumpStats.weeklyPumpWorkTime += pumpWorkTime;
-    pumpStats.monthlyPumpWorkTime += pumpWorkTime;
-    //pumpStats.totalPumpWorkTime += pumpWorkTime;
+    // Oblicz zużycie wody
+    float currentLevel = getCurrentWaterLevel();
+    float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
     
-    pumpStats.dailyWaterUsed += waterUsed;
-    pumpStats.weeklyWaterUsed += waterUsed;
-    pumpStats.monthlyWaterUsed += waterUsed;
-    //pumpStats.totalWaterUsed += waterUsed;
+    // Bezpiecznie zaktualizuj statystyki
+    safeIncrementStats(workTime, waterUsed);
     
-    // Sygnał dźwiękowy zatrzymania pompy
-    playAlarm(ALARM_PUMP_STOP);
+    // Aktualizuj stan pompy
+    status.isPumpActive = false;
+    status.pumpStartTime = 0;
+    switchPump.setState(false);
+    
+    // Aktualizuj wyświetlanie w HA
+    updateHAStatistics();
 }
 
 // Funkcja obsługuje zdarzenie resetu alarmu pompy
@@ -1028,41 +1031,122 @@ void handleButton() {
 
 // 
 void resetStatistics(const char* period) {
+    time_t local = getLocalTime();
+    
     if (strcmp(period, "daily") == 0) {
-        pumpStats.dailyPumpRuns = 0;  // Resetowanie dziennej liczby uruchomień pompy
-        pumpStats.dailyPumpWorkTime = 0;  // Resetowanie dziennego czasu pracy pompy
-        pumpStats.dailyWaterUsed = 0;  // Resetowanie dziennego zużycia wody
-        pumpStats.lastDailyReset = timeClient.getEpochTime();  // Ustawianie czasu ostatniego dziennego resetu
-    } else if (strcmp(period, "weekly") == 0) {
-        pumpStats.weeklyPumpRuns = 0;  // Resetowanie tygodniowej liczby uruchomień pompy
-        pumpStats.weeklyPumpWorkTime = 0;  // Resetowanie tygodniowego czasu pracy pompy
-        pumpStats.weeklyWaterUsed = 0;  // Resetowanie tygodniowego zużycia wody
-        pumpStats.lastWeeklyReset = timeClient.getEpochTime();  // Ustawianie czasu ostatniego tygodniowego resetu
-    } else if (strcmp(period, "monthly") == 0) {
-        pumpStats.monthlyPumpRuns = 0;  // Resetowanie miesięcznej liczby uruchomień pompy
-        pumpStats.monthlyPumpWorkTime = 0;  // Resetowanie miesięcznego czasu pracy pompy
-        pumpStats.monthlyWaterUsed = 0;  // Resetowanie miesięcznego zużycia wody
-        pumpStats.lastMonthlyReset = timeClient.getEpochTime();  // Ustawianie czasu ostatniego miesięcznego resetu
+        pumpStats.dailyPumpRuns = 0;
+        pumpStats.dailyPumpWorkTime = 0;
+        pumpStats.dailyWaterUsed = 0;
+        pumpStats.lastDailyReset = local;
+        
+        Serial.println(F("Resetowanie statystyk dziennych"));
+    } 
+    else if (strcmp(period, "weekly") == 0) {
+        pumpStats.weeklyPumpRuns = 0;
+        pumpStats.weeklyPumpWorkTime = 0;
+        pumpStats.weeklyWaterUsed = 0;
+        pumpStats.lastWeeklyReset = local;
+        
+        Serial.println(F("Resetowanie statystyk tygodniowych"));
+    } 
+    else if (strcmp(period, "monthly") == 0) {
+        pumpStats.monthlyPumpRuns = 0;
+        pumpStats.monthlyPumpWorkTime = 0;
+        pumpStats.monthlyWaterUsed = 0;
+        pumpStats.lastMonthlyReset = local;
+        
+        Serial.println(F("Resetowanie statystyk miesięcznych"));
     }
 }
 
 // Sprawdzenie i reset statystyk
+void safeIncrementStats(unsigned long workTime, float waterUsed) {
+    // Zabezpieczenie przed przepełnieniem liczników dziennych
+    if (pumpStats.dailyPumpRuns < UINT16_MAX) {
+        pumpStats.dailyPumpRuns++;
+    }
+    if (pumpStats.dailyPumpWorkTime + workTime <= UINT32_MAX) {
+        pumpStats.dailyPumpWorkTime += workTime;
+    }
+    if (pumpStats.dailyWaterUsed + waterUsed <= UINT16_MAX) {
+        pumpStats.dailyWaterUsed += (uint16_t)waterUsed;
+    }
+    
+    // Zabezpieczenie przed przepełnieniem liczników tygodniowych
+    if (pumpStats.weeklyPumpRuns < UINT16_MAX) {
+        pumpStats.weeklyPumpRuns++;
+    }
+    if (pumpStats.weeklyPumpWorkTime + workTime <= UINT32_MAX) {
+        pumpStats.weeklyPumpWorkTime += workTime;
+    }
+    if (pumpStats.weeklyWaterUsed + waterUsed <= UINT16_MAX) {
+        pumpStats.weeklyWaterUsed += (uint16_t)waterUsed;
+    }
+    
+    // Zabezpieczenie przed przepełnieniem liczników miesięcznych
+    if (pumpStats.monthlyPumpRuns < UINT16_MAX) {
+        pumpStats.monthlyPumpRuns++;
+    }
+    if (pumpStats.monthlyPumpWorkTime + workTime <= UINT32_MAX) {
+        pumpStats.monthlyPumpWorkTime += workTime;
+    }
+    if (pumpStats.monthlyWaterUsed + waterUsed <= UINT16_MAX) {
+        pumpStats.monthlyWaterUsed += (uint16_t)waterUsed;
+    }
+}
+
 // Sprawdzenie i reset statystyk
 void checkStatisticsReset() {
-    unsigned long currentTime = timeClient.getEpochTime();
+    time_t utc = timeClient.getEpochTime();
+    time_t local = getLocalTime();
     
-    // Sprawdzenie, czy minął dzień
-    if (currentTime - pumpStats.lastDailyReset >= 86400) {
+    struct tm *timeinfo = localtime(&local);
+    struct tm *lastDailyReset = localtime(&pumpStats.lastDailyReset);
+    struct tm *lastWeeklyReset = localtime(&pumpStats.lastWeeklyReset);
+    struct tm *lastMonthlyReset = localtime(&pumpStats.lastMonthlyReset);
+
+    // Debug info
+    #ifdef DEBUG
+    Serial.println(F("Checking statistics reset:"));
+    Serial.print(F("Current time: "));
+    printDateTime(local);
+    Serial.print(F("Last daily reset: "));
+    printDateTime(pumpStats.lastDailyReset);
+    #endif
+    
+    // Reset dzienny - sprawdź czy zmienił się dzień
+    if (timeinfo->tm_mday != lastDailyReset->tm_mday || 
+        timeinfo->tm_mon != lastDailyReset->tm_mon ||
+        timeinfo->tm_year != lastDailyReset->tm_year) {
+        
+        #ifdef DEBUG
+        Serial.println(F("Performing daily reset"));
+        #endif
+        
         resetStatistics("daily");
     }
     
-    // Sprawdzenie, czy minął tydzień
-    if (currentTime - pumpStats.lastWeeklyReset >= 604800) {
+    // Reset tygodniowy - sprawdź czy jest niedziela i czy ostatni reset nie był dziś
+    if (timeinfo->tm_wday == 0 && // 0 = niedziela
+        (lastWeeklyReset->tm_mday != timeinfo->tm_mday || 
+         lastWeeklyReset->tm_mon != timeinfo->tm_mon ||
+         lastWeeklyReset->tm_year != timeinfo->tm_year)) {
+        
+        #ifdef DEBUG
+        Serial.println(F("Performing weekly reset"));
+        #endif
+        
         resetStatistics("weekly");
     }
     
-    // Sprawdzenie, czy minął miesiąc
-    if (currentTime - pumpStats.lastMonthlyReset >= 2592000) {
+    // Reset miesięczny - sprawdź czy zmienił się miesiąc
+    if (timeinfo->tm_mon != lastMonthlyReset->tm_mon ||
+        timeinfo->tm_year != lastMonthlyReset->tm_year) {
+        
+        #ifdef DEBUG
+        Serial.println(F("Performing monthly reset"));
+        #endif
+        
         resetStatistics("monthly");
     }
 }
@@ -1071,47 +1155,61 @@ void checkStatisticsReset() {
 void updateHAStatistics() {
     char value[16];
     
-    // Konwersja liczby uruchomień pompy na string (dziennie)
+    // Konwersja liczby uruchomień pompy
     itoa(pumpStats.dailyPumpRuns, value, 10);
     sensorDailyPumpRuns.setValue(value);
     
-    // Konwersja czasu pracy pompy na string (dziennie w godzinach i minutach)
-    int dailyHours = pumpStats.dailyPumpWorkTime / 3600;
-    int dailyMinutes = (pumpStats.dailyPumpWorkTime % 3600) / 60;
-    snprintf(value, sizeof(value), "%02d:%02d", dailyHours, dailyMinutes);
+    // Formatowanie czasu pracy pompy
+    formatTimeForHA(value, sizeof(value), pumpStats.dailyPumpWorkTime);
     sensorDailyPumpTime.setValue(value);
     
-    // Konwersja dziennego zużycia wody na string
+    // Konwersja zużycia wody
     dtostrf(pumpStats.dailyWaterUsed, 4, 2, value);
     sensorDailyWaterUsed.setValue(value);
-
-    // Konwersja liczby uruchomień pompy na string (tygodniowo)
+    
+    // Formatowanie czasu dla statystyk tygodniowych
+    formatTimeForHA(value, sizeof(value), pumpStats.weeklyPumpWorkTime);
+    sensorWeeklyPumpTime.setValue(value);
+    
     itoa(pumpStats.weeklyPumpRuns, value, 10);
     sensorWeeklyPumpRuns.setValue(value);
     
-    // Konwersja czasu pracy pompy na string (tygodniowo w godzinach i minutach)
-    int weeklyHours = pumpStats.weeklyPumpWorkTime / 3600;
-    int weeklyMinutes = (pumpStats.weeklyPumpWorkTime % 3600) / 60;
-    snprintf(value, sizeof(value), "%02d:%02d", weeklyHours, weeklyMinutes);
-    sensorWeeklyPumpTime.setValue(value);
-    
-    // Konwersja tygodniowego zużycia wody na string
     dtostrf(pumpStats.weeklyWaterUsed, 4, 2, value);
     sensorWeeklyWaterUsed.setValue(value);
-
-    // Konwersja liczby uruchomień pompy na string (miesięcznie)
+    
+    // Formatowanie czasu dla statystyk miesięcznych
+    formatTimeForHA(value, sizeof(value), pumpStats.monthlyPumpWorkTime);
+    sensorMonthlyPumpTime.setValue(value);
+    
     itoa(pumpStats.monthlyPumpRuns, value, 10);
     sensorMonthlyPumpRuns.setValue(value);
     
-    // Konwersja czasu pracy pompy na string (miesięcznie w godzinach i minutach)
-    int monthlyHours = pumpStats.monthlyPumpWorkTime / 3600;
-    int monthlyMinutes = (pumpStats.monthlyPumpWorkTime % 3600) / 60;
-    snprintf(value, sizeof(value), "%02d:%02d", monthlyHours, monthlyMinutes);
-    sensorMonthlyPumpTime.setValue(value);
-    
-    // Konwersja miesięcznego zużycia wody na string
     dtostrf(pumpStats.monthlyWaterUsed, 4, 2, value);
     sensorMonthlyWaterUsed.setValue(value);
+}
+
+// Czas
+time_t getLocalTime() {
+    return CE.toLocal(timeClient.getEpochTime());
+}
+
+// Funkcja pomocnicza do wyświetlania czasu (przydatna przy debugowaniu)
+void printDateTime(time_t t) {
+    char buf[32];
+    sprintf(buf, "%.2d-%.2d-%.2d %.2d:%.2d:%.2d",
+        year(t), month(t), day(t),
+        hour(t), minute(t), second(t));
+    Serial.println(buf);
+}
+
+//
+void formatTimeForHA(char* buffer, size_t size, uint32_t seconds) {
+    // Konwersja sekund na godziny i minuty
+    uint16_t hours = seconds / 3600;
+    uint16_t minutes = (seconds % 3600) / 60;
+    
+    // Formatowanie w formacie HH:MM
+    snprintf(buffer, size, "%02d:%02d", hours, minutes);
 }
 
 /**
@@ -1162,6 +1260,8 @@ void setup() {
     }
     Serial.println("\nPołączono z WiFi");
 
+    configOTA();
+
     // Próba połączenia MQTT
     Serial.println("Rozpoczynam połączenie MQTT...");
     connectMQTT();
@@ -1187,10 +1287,11 @@ void setup() {
         delay(500);
     }
     
-    // Reset statystyk
-    // resetDailyStatistics();
-    // resetWeeklyStatistics();
-    // resetMonthlyStatistics();
+    // Inicjalizacja z aktualnym czasem lokalnym
+    time_t local = getLocalTime();
+    pumpStats.lastDailyReset = local;
+    pumpStats.lastWeeklyReset = local;
+    pumpStats.lastMonthlyReset = local;
 
     Serial.println("Setup zakończony pomyślnie!");
     
@@ -1222,8 +1323,6 @@ void loop() {
         return;         // Powrót do początku pętli po próbie połączenia
     }
     
-    configOTA();
-
     // Zarządzanie połączeniem MQTT
     if (!mqtt.isConnected()) {
         if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
@@ -1253,11 +1352,10 @@ void loop() {
     // STATYSTYKI I ZARZĄDZANIE CZASEM
     
     // Aktualizacja czasu i resetowanie statystyk (co godzinę)
-    if (currentMillis - lastTimeUpdate >= 3600000) {
-        if (timeClient.update()) {
-            lastTimeUpdate = currentMillis;
-            checkStatisticsReset();
-        }
+    // Aktualizacja czasu
+    if (millis() - lastTimeUpdate >= TIME_UPDATE_INTERVAL) {
+        timeClient.update();
+        lastTimeUpdate = millis();
     }
     
     // Aktualizacja statystyk Home Assistant (co minutę)
