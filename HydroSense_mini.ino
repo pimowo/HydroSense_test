@@ -185,18 +185,22 @@ enum AlarmType {
 
 // Struktura dla statystyk
 struct PumpStatistics {
-    uint16_t dailyPumpRuns;        // max 65535 uruchomień
-    uint32_t dailyPumpWorkTime;    // max ~49 dni w sekundach
-    uint16_t dailyWaterUsed;       // max 65535 litrów
+    // Dzienne statystyki
+    uint8_t dailyPumpRuns;      // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
+    uint16_t dailyPumpWorkTime; // było uint32_t, teraz uint16_t (oszczędność 2 bajty)
+    uint8_t dailyWaterUsed;     // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
     
-    uint16_t weeklyPumpRuns;
-    uint32_t weeklyPumpWorkTime;
-    uint16_t weeklyWaterUsed;
+    // Tygodniowe statystyki
+    uint8_t weeklyPumpRuns;     // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
+    uint16_t weeklyPumpWorkTime;// było uint32_t, teraz uint16_t (oszczędność 2 bajty)
+    uint8_t weeklyWaterUsed;    // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
     
-    uint16_t monthlyPumpRuns;
-    uint32_t monthlyPumpWorkTime;
-    uint16_t monthlyWaterUsed;
-        
+    // Miesięczne statystyki
+    uint8_t monthlyPumpRuns;    // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
+    uint16_t monthlyPumpWorkTime;// było uint32_t, teraz uint16_t (oszczędność 2 bajty)
+    uint8_t monthlyWaterUsed;   // było uint16_t, teraz uint8_t (oszczędność 1 bajt)
+    
+    // Znaczniki czasu resetów
     time_t lastDailyReset;
     time_t lastWeeklyReset;
     time_t lastMonthlyReset;
@@ -505,22 +509,17 @@ void onPumpStart() {
 
 // Wywoływana przy zatrzymaniu pompy
 void onPumpStop() {
-    unsigned long stopTime = millis();
-    unsigned long workTime = (stopTime - status.pumpStartTime) / 1000; // czas w sekundach
-    
-    // Oblicz zużycie wody
+    unsigned long workTime = (millis() - pumpStartTime) / 1000;  // czas w sekundach
     float currentLevel = getCurrentWaterLevel();
+    
+    // Oblicz faktyczne zużycie wody
     float waterUsed = calculateWaterUsed(waterLevelBeforePump, currentLevel);
     
-    // Bezpiecznie zaktualizuj statystyki
-    safeIncrementStats(workTime, waterUsed);
+    // Dodaj do statystyk tylko jeśli faktycznie zużyto wodę
+    if (waterUsed > 0) {
+        safeIncrementStats(workTime, waterUsed);
+    }
     
-    // Aktualizuj stan pompy
-    status.isPumpActive = false;
-    status.pumpStartTime = 0;
-    switchPump.setState(false);
-    
-    // Aktualizuj wyświetlanie w HA
     updateHAStatistics();
 }
 
@@ -928,6 +927,12 @@ int calculateWaterLevel(int distance) {
     return (int)percentage;  // Zwrot wartości całkowitej
 }
 
+//
+float calculateWaterUsed(float beforeVolume, float afterVolume) {
+    return beforeVolume - afterVolume; // bezpośrednie odjęcie objętości
+}
+
+//
 void updateWaterLevel() {
     currentDistance = measureDistance();
     if (currentDistance < 0) return; // błąd pomiaru
@@ -943,6 +948,14 @@ void updateWaterLevel() {
     float radius = SREDNICA_ZBIORNIKA / 2.0;
     volume = PI * (radius * radius) * waterHeight / 1000000.0; // mm³ na litry
     
+    // Jeśli objętość się zmieniła, aktualizujemy statystyki
+    if (volume != previousVolume) {
+        float waterUsed = calculateWaterUsed(previousVolume, volume);
+        if (waterUsed > 0) {  // tylko gdy faktycznie ubyło wody
+            safeIncrementStats(0, waterUsed);
+        }
+    }
+
     // Aktualizacja sensorów pomiarowych
     sensorDistance.setValue(String((int)currentDistance).c_str());
     sensorLevel.setValue(String(calculateWaterLevel(currentDistance)).c_str());
@@ -1062,35 +1075,35 @@ void resetStatistics(const char* period) {
 // Sprawdzenie i reset statystyk
 void safeIncrementStats(unsigned long workTime, float waterUsed) {
     // Zabezpieczenie przed przepełnieniem liczników dziennych
-    if (pumpStats.dailyPumpRuns < UINT16_MAX) {
+    if (pumpStats.dailyPumpRuns < UINT8_MAX) {
         pumpStats.dailyPumpRuns++;
     }
-    if (pumpStats.dailyPumpWorkTime + workTime <= UINT32_MAX) {
+    if (pumpStats.dailyPumpWorkTime + workTime <= UINT16_MAX) {
         pumpStats.dailyPumpWorkTime += workTime;
     }
-    if (pumpStats.dailyWaterUsed + waterUsed <= UINT16_MAX) {
-        pumpStats.dailyWaterUsed += (uint16_t)waterUsed;
+    if (waterUsed > 0 && pumpStats.dailyWaterUsed + waterUsed <= UINT8_MAX) {
+        pumpStats.dailyWaterUsed += (uint8_t)waterUsed;
     }
     
     // Zabezpieczenie przed przepełnieniem liczników tygodniowych
-    if (pumpStats.weeklyPumpRuns < UINT16_MAX) {
+    if (pumpStats.weeklyPumpRuns < UINT8_MAX) {
         pumpStats.weeklyPumpRuns++;
     }
-    if (pumpStats.weeklyPumpWorkTime + workTime <= UINT32_MAX) {
+    if (pumpStats.weeklyPumpWorkTime + workTime <= UINT16_MAX) {
         pumpStats.weeklyPumpWorkTime += workTime;
     }
-    if (pumpStats.weeklyWaterUsed + waterUsed <= UINT16_MAX) {
+    if (pumpStats.weeklyWaterUsed + waterUsed <= UINT8_MAX) {
         pumpStats.weeklyWaterUsed += (uint16_t)waterUsed;
     }
     
     // Zabezpieczenie przed przepełnieniem liczników miesięcznych
-    if (pumpStats.monthlyPumpRuns < UINT16_MAX) {
+    if (pumpStats.monthlyPumpRuns < UINT8_MAX) {
         pumpStats.monthlyPumpRuns++;
     }
-    if (pumpStats.monthlyPumpWorkTime + workTime <= UINT32_MAX) {
+    if (pumpStats.monthlyPumpWorkTime + workTime <= UINT16_MAX) {
         pumpStats.monthlyPumpWorkTime += workTime;
     }
-    if (pumpStats.monthlyWaterUsed + waterUsed <= UINT16_MAX) {
+    if (pumpStats.monthlyWaterUsed + waterUsed <= UINT8_MAX) {
         pumpStats.monthlyWaterUsed += (uint16_t)waterUsed;
     }
 }
