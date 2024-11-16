@@ -192,9 +192,9 @@ struct PumpStatistics {
     uint16_t monthlyPumpWorkTime;
     uint8_t monthlyWaterUsed;
         
-    time_t lastDailyReset;
-    time_t lastWeeklyReset;
-    time_t lastMonthlyReset;
+    // time_t lastDailyReset;
+    // time_t lastWeeklyReset;
+    // time_t lastMonthlyReset;
 };
 PumpStatistics pumpStats = {0};
 
@@ -585,7 +585,7 @@ void setupHA() {
     device.setName("HydroSense");                  // Nazwa urządzenia
     device.setModel("HS ESP8266");                 // Model urządzenia
     device.setManufacturer("PMW");                 // Producent
-    device.setSoftwareVersion("15.11.24");         // Wersja oprogramowania
+    device.setSoftwareVersion("16.11.24");         // Wersja oprogramowania
 
     // Konfiguracja sensorów pomiarowych w HA
     sensorDistance.setName("Pomiar odległości");
@@ -635,7 +635,7 @@ void setupHA() {
     // Statystyki
     sensorDailyPumpRuns.setName("Dzisiejsze uruchomienia pompy");
     sensorDailyPumpRuns.setIcon("mdi:water-pump");
-    sensorDailyPumpRuns.setUnitOfMeasurement("razy");
+    //sensorDailyPumpRuns.setUnitOfMeasurement("razy");
     
     sensorDailyPumpTime.setName("Dzisiejszy czas pracy pompy");
     sensorDailyPumpTime.setIcon("mdi:timer");
@@ -644,6 +644,32 @@ void setupHA() {
     sensorDailyWaterUsed.setName("Dzisiejsze zużycie wody");
     sensorDailyWaterUsed.setIcon("mdi:water");
     sensorDailyWaterUsed.setUnitOfMeasurement("L");
+
+    // Tygodniowe statystyki
+    sensorWeeklyPumpRuns.setName("Tygodniowe uruchomienia pompy");
+    sensorWeeklyPumpRuns.setIcon("mdi:water-pump");
+    //sensorWeeklyPumpRuns.setUnitOfMeasurement("razy");
+    
+    sensorWeeklyPumpTime.setName("Tygodniowy czas pracy pompy");
+    sensorWeeklyPumpTime.setIcon("mdi:timer");
+    sensorWeeklyPumpTime.setUnitOfMeasurement("min");
+    
+    sensorWeeklyWaterUsed.setName("Tygodniowe zużycie wody");
+    sensorWeeklyWaterUsed.setIcon("mdi:water");
+    sensorWeeklyWaterUsed.setUnitOfMeasurement("L");
+    
+    // Miesięczne statystyki
+    sensorMonthlyPumpRuns.setName("Miesięczne uruchomienia pompy");
+    sensorMonthlyPumpRuns.setIcon("mdi:water-pump");
+    //sensorMonthlyPumpRuns.setUnitOfMeasurement("razy");
+    
+    sensorMonthlyPumpTime.setName("Miesięczny czas pracy pompy");
+    sensorMonthlyPumpTime.setIcon("mdi:timer");
+    sensorMonthlyPumpTime.setUnitOfMeasurement("min");
+    
+    sensorMonthlyWaterUsed.setName("Miesięczne zużycie wody");
+    sensorMonthlyWaterUsed.setIcon("mdi:water");
+    sensorMonthlyWaterUsed.setUnitOfMeasurement("L");
 }
 
 // --- Deklaracje funkcji ogólnych
