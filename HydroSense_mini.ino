@@ -19,8 +19,8 @@ const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
 #define PIN_ULTRASONIC_TRIG D6  // Pin TRIG czujnika ultradźwiękowego
 #define PIN_ULTRASONIC_ECHO D7  // Pin ECHO czujnika ultradźwiękowego
 
-#define PIN_WATER_LEVEL D5      // Pin czujnika poziomu wody w akwarium
-#define POMPA_PIN D1             // Pin sterowania pompą
+#define PIN_WATER_LEVEL D5  // Pin czujnika poziomu wody w akwarium
+#define POMPA_PIN D1       // Pin sterowania pompą
 #define BUZZER_PIN D2           // Pin buzzera do alarmów dźwiękowych
 #define PRZYCISK_PIN D3           // Pin przycisku do kasowania alarmów
 
@@ -52,14 +52,17 @@ const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnała
     #define DEBUG_PRINTF(format, ...)
 #endif
 
-// Konfiguracja zbiornika i pomiarów
-const int ODLEGLOSC_PELNY = 65.0;    // Dystans dla pełnego zbiornika (w mm)
-const int ODLEGLOSC_PUSTY = 510.0;  // Dystans dla pustego zbiornika (w mm)
-const int REZERWA_ODLEGLOSC = 450.0;     // Dystans dla rezerwy (w mm)
-const int HYSTERESIS = 10.0;            // Histereza (w mm)
-const int SREDNICA_ZBIORNIKA = 150;          // Średnica zbiornika (w mm)
-const int MEASUREMENTS_COUNT = 3;       // Liczba pomiarów do uśrednienia
-const int PUMP_DELAY = 5;               // Opóźnienie włączenia pompy (w sekundach)
+// Stałe konfiguracyjne zbiornika
+// Wszystkie odległości w milimetrach od czujnika do powierzchni wody
+// Mniejsza odległość = wyższy poziom wody
+const int TANK_FULL = 65;      // Odległość gdy zbiornik jest pełny (mm)
+const int TANK_EMPTY = 510;    // Odległość gdy zbiornik jest pusty (mm)
+const int RESERVE_LEVEL = 450;  // Poziom rezerwy wody (mm)
+const int HYSTERESIS = 10; // Histereza przy zmianach poziomu (mm)
+const int TANK_DIAMETER = 150;  // Średnica zbiornika (mm)
+const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
+const int PUMP_DELAY = 5;      // Opóźnienie uruchomienia pompy (sekundy)
+const int PUMP_WORK_TIME = 15;  // Czas pracy pompy
 
 float aktualnaOdleglosc = 0;              // Aktualny dystans
 unsigned long ostatniCzasDebounce = 0;     // Ostatni czas zmiany stanu przycisku
@@ -248,7 +251,7 @@ void updateAlarmStates(float currentDistance) {
     // Włącz alarm jeśli:
     // - odległość jest większa lub równa max (zbiornik pusty)
     // - alarm nie jest jeszcze aktywny
-    if (currentDistance >= ODLEGLOSC_PUSTY && !status.waterAlarmActive) {
+    if (currentDistance >= TANK_EMPTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
         sensorAlarm.setValue("ON");               
         DEBUG_PRINT("Brak wody ON");
@@ -256,7 +259,7 @@ void updateAlarmStates(float currentDistance) {
     // Wyłącz alarm jeśli:
     // - odległość spadła poniżej progu wyłączenia (z histerezą)
     // - alarm jest aktywny
-    else if (currentDistance < (ODLEGLOSC_PUSTY - HYSTERESIS) && status.waterAlarmActive) {
+    else if (currentDistance < (TANK_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
         sensorAlarm.setValue("OFF");
         DEBUG_PRINT("Brak wody OFF");
@@ -266,7 +269,7 @@ void updateAlarmStates(float currentDistance) {
     // Włącz ostrzeżenie o rezerwie jeśli:
     // - odległość osiągnęła próg rezerwy
     // - ostrzeżenie nie jest jeszcze aktywne
-    if (currentDistance >= REZERWA_ODLEGLOSC && !status.waterReserveActive) {
+    if (currentDistance >= RESERVE_LEVEL && !status.waterReserveActive) {
         status.waterReserveActive = true;
         sensorReserve.setValue("ON");
         DEBUG_PRINT("Rezerwa ON");
@@ -274,7 +277,7 @@ void updateAlarmStates(float currentDistance) {
     // Wyłącz ostrzeżenie o rezerwie jeśli:
     // - odległość spadła poniżej progu rezerwy (z histerezą)
     // - ostrzeżenie jest aktywne
-    else if (currentDistance < (REZERWA_ODLEGLOSC - HYSTERESIS) && status.waterReserveActive) {
+    else if (currentDistance < (RESERVE_LEVEL - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
         sensorReserve.setValue("OFF");
         DEBUG_PRINT("Rezerwa OFF");
@@ -285,46 +288,87 @@ void updateAlarmStates(float currentDistance) {
 
 // Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
 void updatePump() {
+    // Odczyt stanu czujnika poziomu wody
+    // LOW = brak wody - należy uzupełnić
+    // HIGH = woda obecna - stan normalny
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
     sensorWater.setValue(waterPresent ? "ON" : "OFF");
+
+    // Zabezpieczenie przed przepełnieniem licznika millis()
+    unsigned long currentMillis = millis(); // Dodane: zapisanie aktualnego czasu
+
+    if (currentMillis < status.pumpStartTime) {
+        status.pumpStartTime = currentMillis;
+    }
     
-    // Jeśli nie ma wody, wyłącz pompę
-    if (!waterPresent && status.isPumpActive) {
-        digitalWrite(POMPA_PIN, LOW);
-        status.isPumpActive = false;
-        status.pumpStartTime = 0;
-        status.isPumpDelayActive = false;
-        sensorPump.setValue("OFF");
+    if (currentMillis < status.pumpDelayStartTime) {
+        status.pumpDelayStartTime = currentMillis;
+    }
+      
+    // --- ZABEZPIECZENIE 1: Tryb serwisowy ---
+    if (status.isServiceMode) {
+        if (status.isPumpActive) {
+            stopPump();
+        }
+        return;
+    }
+
+    // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
+    if (status.isPumpActive && (currentMillis - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
+        stopPump();
+        status.pumpSafetyLock = true;
+        switchPump.setState(true);
+        DEBUG_PRINT(F("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!"));
         return;
     }
     
-    // Jeśli jest woda i pompa nie jest aktywna, rozpocznij odliczanie
+    // --- ZABEZPIECZENIE 3: Blokady bezpieczeństwa ---
+    if (status.pumpSafetyLock || status.waterAlarmActive) {
+        if (status.isPumpActive) {
+            stopPump();
+        }
+        return;
+    }
+    
+    // --- ZABEZPIECZENIE 4: Ochrona przed przepełnieniem ---
+    if (!waterPresent && status.isPumpActive) {
+        stopPump();
+        status.isPumpDelayActive = false;
+        return;
+    }
+    
+    // --- LOGIKA WŁĄCZANIA POMPY ---
     if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
         status.isPumpDelayActive = true;
-        status.pumpDelayStartTime = millis();
+        status.pumpDelayStartTime = currentMillis;
         return;
     }
     
-    // Sprawdź czy minął czas opóźnienia
+    // Po upływie opóźnienia, włącz pompę
     if (status.isPumpDelayActive && !status.isPumpActive) {
-        if (millis() - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
-            digitalWrite(POMPA_PIN, HIGH);
-            status.isPumpActive = true;
-            status.pumpStartTime = millis();
-            status.isPumpDelayActive = false;
-            sensorPump.setValue("ON");
+        if (currentMillis - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
+            startPump();
         }
     }
-    
-    // Sprawdź czas pracy pompy
-    if (status.isPumpActive) {
-        if (millis() - status.pumpStartTime >= (PUMP_MAX_WORK_TIME * 1000)) {
-            digitalWrite(POMPA_PIN, LOW);
-            status.isPumpActive = false;
-            status.pumpStartTime = 0;
-            sensorPump.setValue("OFF");
-        }
-    }
+}
+
+// Ztrzymanie pompy
+void stopPump() {
+    digitalWrite(POMPA_PIN, LOW);
+    status.isPumpActive = false;
+    status.pumpStartTime = 0;
+    sensorPump.setValue("OFF");
+    DEBUG_PRINT(F("Pompa zatrzymana"));
+}
+
+// Uruchomienienie pompy
+void startPump() {
+    digitalWrite(POMPA_PIN, HIGH);
+    status.isPumpActive = true;
+    status.pumpStartTime = millis();
+    status.isPumpDelayActive = false;
+    sensorPump.setValue("ON");
+    DEBUG_PRINT(F("Pompa uruchomiona"));
 }
 
 // Funkcja obsługuje zdarzenie resetu alarmu pompy
@@ -391,7 +435,7 @@ void setupHA() {
     device.setName("HydroSense");                  // Nazwa urządzenia
     device.setModel("HS ESP8266");                 // Model urządzenia
     device.setManufacturer("PMW");                 // Producent
-    device.setSoftwareVersion("16.11.24");         // Wersja oprogramowania
+    device.setSoftwareVersion("17.11.24");         // Wersja oprogramowania
 
     // Konfiguracja sensorów pomiarowych w HA
     sensorDistance.setName("Pomiar odległości");
@@ -470,8 +514,8 @@ void firstUpdateHA() {
     float initialDistance = measureDistance();
     
     // Ustaw początkowe stany na podstawie pomiaru
-    status.waterAlarmActive = (initialDistance >= ODLEGLOSC_PUSTY);
-    status.waterReserveActive = (initialDistance >= REZERWA_ODLEGLOSC);
+    status.waterAlarmActive = (initialDistance >= TANK_EMPTY);
+    status.waterReserveActive = (initialDistance >= RESERVE_LEVEL);
     
     // Wymuś stan OFF na początku
     sensorAlarm.setValue("OFF");
@@ -556,9 +600,9 @@ float getCurrentWaterLevel() {
 //   - zmierzoną odległość w milimetrach (mediana z kilku pomiarów)
 //   - (-1) w przypadku błędu lub przekroczenia czasu odpowiedzi
 int measureDistance() {
-    int measurements[MEASUREMENTS_COUNT];  // Tablica do przechowywania pomiarów
+    int measurements[SENSOR_AVG_SAMPLES];  // Tablica do przechowywania pomiarów
 
-    for (int i = 0; i < MEASUREMENTS_COUNT; i++) {
+    for (int i = 0; i < SENSOR_AVG_SAMPLES; i++) {
         // Generowanie impulsu wyzwalającego (trigger)
         digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że pin jest w stanie niskim
         delayMicroseconds(5);  // Krótka pauza dla stabilizacji
@@ -605,8 +649,8 @@ int measureDistance() {
     }
 
     // Sortowanie pomiarów rosnąco
-    for (int i = 0; i < MEASUREMENTS_COUNT - 1; i++) {
-        for (int j = 0; j < MEASUREMENTS_COUNT - i - 1; j++) {
+    for (int i = 0; i < SENSOR_AVG_SAMPLES - 1; i++) {
+        for (int j = 0; j < SENSOR_AVG_SAMPLES - i - 1; j++) {
             if (measurements[j] > measurements[j + 1]) {
                 int temp = measurements[j];
                 measurements[j] = measurements[j + 1];
@@ -616,16 +660,16 @@ int measureDistance() {
     }
 
     // Obliczenie mediany z pomiarów
-    if (MEASUREMENTS_COUNT % 2 == 0) {
+    if (SENSOR_AVG_SAMPLES % 2 == 0) {
         // Jeśli liczba pomiarów jest parzysta, zwróć średnią z dwóch środkowych wartości
-        int midIndex = MEASUREMENTS_COUNT / 2;
+        int midIndex = SENSOR_AVG_SAMPLES / 2;
         if (measurements[midIndex - 1] == -1 || measurements[midIndex] == -1) {
             return -1;  // Jeśli środkowe wartości są błędne, zwróć błąd
         }
         return (measurements[midIndex - 1] + measurements[midIndex]) / 2;
     } else {
         // Jeśli liczba pomiarów jest nieparzysta, zwróć środkową wartość
-        int midIndex = MEASUREMENTS_COUNT / 2;
+        int midIndex = SENSOR_AVG_SAMPLES / 2;
         if (measurements[midIndex] == -1) {
             return -1;  // Jeśli środkowa wartość jest błędna, zwróć błąd
         }
@@ -640,12 +684,12 @@ int measureDistance() {
 // Wzór: ((EMPTY - distance) / (EMPTY - FULL)) * 100
 int calculateWaterLevel(int distance) {
     // Ograniczenie wartości do zakresu pomiarowego
-    if (distance < ODLEGLOSC_PELNY) distance = ODLEGLOSC_PELNY;  // Nie mniej niż przy pełnym
-    if (distance > ODLEGLOSC_PUSTY) distance = ODLEGLOSC_PUSTY;  // Nie więcej niż przy pustym
+    if (distance < TANK_FULL) distance = TANK_FULL;  // Nie mniej niż przy pełnym
+    if (distance > TANK_EMPTY) distance = TANK_EMPTY;  // Nie więcej niż przy pustym
     
     // Obliczenie procentowe poziomu wody
-    float percentage = (float)(ODLEGLOSC_PUSTY - distance) /  // Różnica: pusty - aktualny
-                      (float)(ODLEGLOSC_PUSTY - ODLEGLOSC_PELNY) *  // Różnica: pusty - pełny
+    float percentage = (float)(TANK_EMPTY - distance) /  // Różnica: pusty - aktualny
+                      (float)(TANK_EMPTY - TANK_FULL) *  // Różnica: pusty - pełny
                       100.0;  // Przeliczenie na procenty
     
     return (int)percentage;  // Zwrot wartości całkowitej
@@ -663,11 +707,11 @@ void updateWaterLevel() {
     updateAlarmStates(currentDistance);
 
     // Obliczenie objętości
-    float waterHeight = ODLEGLOSC_PUSTY - currentDistance;    
-    waterHeight = constrain(waterHeight, 0, ODLEGLOSC_PUSTY - ODLEGLOSC_PELNY);
+    float waterHeight = TANK_EMPTY - currentDistance;    
+    waterHeight = constrain(waterHeight, 0, TANK_EMPTY - TANK_FULL);
     
     // Obliczenie objętości w litrach (wszystko w mm)
-    float radius = SREDNICA_ZBIORNIKA / 2.0;
+    float radius = TANK_DIAMETER / 2.0;
     volume = PI * (radius * radius) * waterHeight / 1000000.0; // mm³ na litry
     
     // Aktualizacja sensorów pomiarowych
