@@ -122,13 +122,39 @@ struct Config {
     uint8_t version;  // Wersja konfiguracji
     bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
     char wifi_ssid[32];
-    char wifi_password[32];
+    char wifi_password[64];
     char mqtt_server[40];
     char mqtt_user[32];
     char mqtt_password[32];
+    int tank_full;
+    int tank_empty;
+    int reserve_level;
+    int hysteresis;
+    int tank_diameter;
+    int sensor_avg_samples;
+    int pump_delay;
+    int pump_work_time;
+    bool configured;  // flaga indicating if initial setup was done
     char checksum;  // Suma kontrolna
 };
 Config config;
+
+void setDefaultConfig() {
+    memset(&config, 0, sizeof(Config));
+    config.TANK_FULL = 50;           // Pełny zbiornik
+    config.TANK_EMPTY = 100;         // Pusty zbiornik
+    config.RESERVE_LEVEL = 90;       // Rezerwa
+    config.HYSTERESIS = 10;          // Histereza
+    config.TANK_DIAMETER = 100;      // Średnica zbiornika
+    config.SENSOR_AVG_SAMPLES = 3;   // Ilość próbek do mediany
+    config.PUMP_DELAY = 10;        // Opóźnienie załączenia pompy
+    config.PUMP_WORK_TIME = 60;   // CZas pracy pompy
+    config.configured = false;
+    strcpy(config.mqtt_server, "");
+    strcpy(config.mqtt_user, "");
+    strcpy(config.mqtt_password, "");
+    saveConfig();
+}
 
 // Struktura dla obsługi przycisku
 struct ButtonState {
@@ -886,28 +912,16 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
 }
 
 const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE HTML>
+<!DOCTYPE html>
 <html>
 <head>
     <title>HydroSense Configuration</title>
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body {
-            font-family: Arial, sans-serif;
+        body { 
+            font-family: Arial, sans-serif; 
             margin: 20px;
-            background-color: #f0f0f0;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #2196F3;
-            text-align: center;
         }
         .form-group {
             margin-bottom: 15px;
@@ -915,125 +929,114 @@ const char index_html[] PROGMEM = R"rawliteral(
         label {
             display: block;
             margin-bottom: 5px;
-            color: #333;
         }
         input {
             width: 100%;
             padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
             box-sizing: border-box;
         }
         button {
-            background-color: #2196F3;
+            background-color: #4CAF50;
             color: white;
-            padding: 10px 20px;
+            padding: 10px 15px;
             border: none;
-            border-radius: 4px;
             cursor: pointer;
-            width: 100%;
-            margin-top: 20px;
         }
         button:hover {
-            background-color: #1976D2;
+            background-color: #45a049;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>HydroSense</h1>
-        <form id="configForm">
-            <div class="form-group">
-                <label>WiFi SSID:</label>
-                <input type="text" id="wifi_ssid" name="wifi_ssid">
-            </div>
-            <div class="form-group">
-                <label>WiFi Password:</label>
-                <input type="password" id="wifi_password" name="wifi_password">
-            </div>
-            <div class="form-group">
-                <label>MQTT IP:</label>
-                <input type="text" id="mqtt_ip" name="mqtt_ip">
-            </div>
-            <div class="form-group">
-                <label>MQTT User:</label>
-                <input type="text" id="mqtt_user" name="mqtt_user">
-            </div>
-            <div class="form-group">
-                <label>MQTT Password:</label>
-                <input type="password" id="mqtt_password" name="mqtt_password">
-            </div>
-            <div class="form-group">
-                <label>Tank Full Level (cm):</label>
-                <input type="number" id="tank_full" name="tank_full">
-            </div>
-            <div class="form-group">
-                <label>Tank Empty Level (cm):</label>
-                <input type="number" id="tank_empty" name="tank_empty">
-            </div>
-            <div class="form-group">
-                <label>Reserve Level (cm):</label>
-                <input type="number" id="reserve_level" name="reserve_level">
-            </div>
-            <div class="form-group">
-                <label>Hysteresis (cm):</label>
-                <input type="number" id="hysteresis" name="hysteresis">
-            </div>
-            <div class="form-group">
-                <label>Tank Diameter (cm):</label>
-                <input type="number" id="tank_diameter" name="tank_diameter">
-            </div>
-            <div class="form-group">
-                <label>Sensor Average Samples:</label>
-                <input type="number" id="sensor_avg_samples" name="sensor_avg_samples">
-            </div>
-            <div class="form-group">
-                <label>Pump Delay (ms):</label>
-                <input type="number" id="pump_delay" name="pump_delay">
-            </div>
-            <div class="form-group">
-                <label>Pump Work Time (ms):</label>
-                <input type="number" id="pump_work_time" name="pump_work_time">
-            </div>
-            <button type="submit">Save Settings</button>
-        </form>
-    </div>
+    <h2>HydroSense Configuration</h2>
+    <form id="configForm">
+        <div class="form-group">
+            <label for="mqtt_server">MQTT Server:</label>
+            <input type="text" id="mqtt_server" name="mqtt_server">
+        </div>
+        <div class="form-group">
+            <label for="mqtt_user">MQTT User:</label>
+            <input type="text" id="mqtt_user" name="mqtt_user">
+        </div>
+        <div class="form-group">
+            <label for="mqtt_password">MQTT Password:</label>
+            <input type="password" id="mqtt_password" name="mqtt_password">
+        </div>
+        <div class="form-group">
+            <label for="tank_full">Tank Full Level (cm):</label>
+            <input type="number" id="tank_full" name="tank_full">
+        </div>
+        <div class="form-group">
+            <label for="tank_empty">Tank Empty Level (cm):</label>
+            <input type="number" id="tank_empty" name="tank_empty">
+        </div>
+        <div class="form-group">
+            <label for="reserve_level">Reserve Level (cm):</label>
+            <input type="number" id="reserve_level" name="reserve_level">
+        </div>
+        <div class="form-group">
+            <label for="hysteresis">Hysteresis (cm):</label>
+            <input type="number" id="hysteresis" name="hysteresis">
+        </div>
+        <div class="form-group">
+            <label for="tank_diameter">Tank Diameter (cm):</label>
+            <input type="number" id="tank_diameter" name="tank_diameter">
+        </div>
+        <div class="form-group">
+            <label for="sensor_avg_samples">Sensor Average Samples:</label>
+            <input type="number" id="sensor_avg_samples" name="sensor_avg_samples">
+        </div>
+        <div class="form-group">
+            <label for="pump_delay">Pump Delay (ms):</label>
+            <input type="number" id="pump_delay" name="pump_delay">
+        </div>
+        <div class="form-group">
+            <label for="pump_work_time">Pump Work Time (ms):</label>
+            <input type="number" id="pump_work_time" name="pump_work_time">
+        </div>
+        <button type="submit">Save Configuration</button>
+    </form>
 
     <script>
-        // Pobierz aktualne ustawienia przy ładowaniu strony
-        window.addEventListener('load', function() {
-            fetch('/settings')
+        // Pobierz aktualną konfigurację
+        fetch('/api/config')
             .then(response => response.json())
-            .then(data => {
-                Object.keys(data).forEach(key => {
+            .then(config => {
+                Object.keys(config).forEach(key => {
                     const element = document.getElementById(key);
-                    if (element) element.value = data[key];
+                    if (element) {
+                        element.value = config[key];
+                    }
                 });
             });
-        });
 
-        // Obsługa zapisywania ustawień
+        // Obsługa formularza
         document.getElementById('configForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            const formData = new FormData(this);
-            const data = {};
-            for (let [key, value] of formData.entries()) {
-                data[key] = value;
-            }
+            
+            const formData = {};
+            new FormData(e.target).forEach((value, key) => {
+                formData[key] = value;
+            });
 
-            fetch('/save', {
+            fetch('/api/config', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(data)
+                body: JSON.stringify(formData)
             })
             .then(response => response.json())
             .then(data => {
-                alert('Settings saved successfully!');
+                if (data.status === 'ok') {
+                    alert('Configuration saved successfully!');
+                } else {
+                    alert('Error saving configuration!');
+                }
             })
             .catch(error => {
-                alert('Error saving settings!');
+                alert('Error saving configuration!');
+                console.error('Error:', error);
             });
         });
     </script>
@@ -1042,57 +1045,86 @@ const char index_html[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 void setupServer() {
-    // Strona główna
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-        request->send(200, "text/html", index_html);
-    });
+    // Obsługa plików statycznych (HTML, CSS, JS)
+    server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html");
 
-    // Endpoint do pobierania ustawień
-    server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request){
-        AsyncResponseStream *response = request->beginResponseStream("application/json");
+    // Endpoint do pobierania konfiguracji
+    server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest *request) {
         DynamicJsonDocument doc(1024);
         
-        doc["wifi_ssid"] = config.wifi_ssid;
-        doc["mqtt_ip"] = config.mqtt_server;
+        doc["mqtt_server"] = config.mqtt_server;
         doc["mqtt_user"] = config.mqtt_user;
-        doc["tank_full"] = config.TANK_FULL;
-        doc["tank_empty"] = config.TANK_EMPTY;
-        doc["reserve_level"] = config.RESERVE_LEVEL;
-        doc["hysteresis"] = config.HYSTERESIS;
-        doc["tank_diameter"] = config.TANK_DIAMETER;
-        doc["sensor_avg_samples"] = config.SENSOR_AVG_SAMPLES;
-        doc["pump_delay"] = config.PUMP_DELAY;
-        doc["pump_work_time"] = config.PUMP_WORK_TIME;
-
-        serializeJson(doc, *response);
-        request->send(response);
+        doc["tank_full"] = config.tank_full;
+        doc["tank_empty"] = config.tank_empty;
+        doc["reserve_level"] = config.reserve_level;
+        doc["hysteresis"] = config.hysteresis;
+        doc["tank_diameter"] = config.tank_diameter;
+        doc["sensor_avg_samples"] = config.sensor_avg_samples;
+        doc["pump_delay"] = config.pump_delay;
+        doc["pump_work_time"] = config.pump_work_time;
+        
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
     });
 
-    // Endpoint do zapisywania ustawień
-    AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler("/save", [](AsyncWebServerRequest *request, JsonVariant &json) {
-        JsonObject jsonObj = json.as<JsonObject>();
-        
-        strlcpy(config.wifi_ssid, jsonObj["wifi_ssid"] | "", sizeof(config.wifi_ssid));
-        strlcpy(config.wifi_password, jsonObj["wifi_password"] | "", sizeof(config.wifi_password));
-        strlcpy(config.mqtt_server, jsonObj["mqtt_ip"] | "", sizeof(config.mqtt_server));
-        strlcpy(config.mqtt_user, jsonObj["mqtt_user"] | "", sizeof(config.mqtt_user));
-        strlcpy(config.mqtt_password, jsonObj["mqtt_password"] | "", sizeof(config.mqtt_password));
-        
-        config.TANK_FULL = jsonObj["tank_full"] | 0;
-        config.TANK_EMPTY = jsonObj["tank_empty"] | 0;
-        config.RESERVE_LEVEL = jsonObj["reserve_level"] | 0;
-        config.HYSTERESIS = jsonObj["hysteresis"] | 0;
-        config.TANK_DIAMETER = jsonObj["tank_diameter"] | 0;
-        config.SENSOR_AVG_SAMPLES = jsonObj["sensor_avg_samples"] | 0;
-        config.PUMP_DELAY = jsonObj["pump_delay"] | 0;
-        config.PUMP_WORK_TIME = jsonObj["pump_work_time"] | 0;
-
-        saveConfig();
-        
-        request->send(200, "application/json", "{\"status\":\"ok\"}");
-    });
+    // Handler do zapisywania konfiguracji
+    AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler(
+        "/api/config",
+        [](AsyncWebServerRequest *request, JsonVariant &json) {
+            if (json.is<JsonObject>()) {
+                JsonObject jsonObj = json.as<JsonObject>();
+                
+                if (jsonObj.containsKey("mqtt_server")) {
+                    strlcpy(config.mqtt_server, 
+                           jsonObj["mqtt_server"] | "", 
+                           sizeof(config.mqtt_server));
+                }
+                if (jsonObj.containsKey("mqtt_user")) {
+                    strlcpy(config.mqtt_user, 
+                           jsonObj["mqtt_user"] | "", 
+                           sizeof(config.mqtt_user));
+                }
+                if (jsonObj.containsKey("mqtt_password")) {
+                    strlcpy(config.mqtt_password, 
+                           jsonObj["mqtt_password"] | "", 
+                           sizeof(config.mqtt_password));
+                }
+                if (jsonObj.containsKey("tank_full")) {
+                    config.tank_full = jsonObj["tank_full"].as<int>();
+                }
+                if (jsonObj.containsKey("tank_empty")) {
+                    config.tank_empty = jsonObj["tank_empty"].as<int>();
+                }
+                if (jsonObj.containsKey("reserve_level")) {
+                    config.reserve_level = jsonObj["reserve_level"].as<int>();
+                }
+                if (jsonObj.containsKey("hysteresis")) {
+                    config.hysteresis = jsonObj["hysteresis"].as<int>();
+                }
+                if (jsonObj.containsKey("tank_diameter")) {
+                    config.tank_diameter = jsonObj["tank_diameter"].as<int>();
+                }
+                if (jsonObj.containsKey("sensor_avg_samples")) {
+                    config.sensor_avg_samples = jsonObj["sensor_avg_samples"].as<int>();
+                }
+                if (jsonObj.containsKey("pump_delay")) {
+                    config.pump_delay = jsonObj["pump_delay"].as<int>();
+                }
+                if (jsonObj.containsKey("pump_work_time")) {
+                    config.pump_work_time = jsonObj["pump_work_time"].as<int>();
+                }
+                
+                config.configured = true;
+                saveConfig();
+                request->send(200, "application/json", "{\"status\":\"ok\"}");
+            } else {
+                request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
+            }
+        }
+    );
+    
     server.addHandler(handler);
-
     server.begin();
 }
 
@@ -1103,10 +1135,10 @@ void setup() {
     DEBUG_PRINT("\nStarting HydroSense...");  // Komunikat startowy
     
     // Wczytaj konfigurację
-    if (!loadConfig()) {
-        DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
-        setDefaultConfig();
-    }
+    // if (!loadConfig()) {
+    //     DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
+    //     setDefaultConfig();
+    // }
     
     // Zastosuj wczytane ustawienia
     //status.soundEnabled = config.soundEnabled;
@@ -1124,33 +1156,35 @@ void setup() {
     // DEBUG_PRINT("\nPołączono z WiFi");
 
     // Sprawdź czy to pierwsze uruchomienie
+    // Inicjalizacja SPIFFS dla plików WWW
+    if(!SPIFFS.begin()){
+        Serial.println("An Error has occurred while mounting SPIFFS");
+        return;
+    }
+
+    // Wczytaj konfigurację lub ustaw wartości domyślne
     if (!loadConfig()) {
-        // Pierwsze uruchomienie - ustaw tryb AP
-        WiFi.softAP("HydroSense", "hydrosense");
-        Serial.println("Access Point Mode");
-        Serial.print("IP Address: ");
-        Serial.println(WiFi.softAPIP());
+        setDefaultConfig();
+        
+        // Utworzenie Access Point do konfiguracji
+        AsyncWiFiManager wifiManager(&server, &dns);
+        wifiManager.autoConnect("HydroSense_Setup");
     } else {
-        // Normalne uruchomienie - połącz z zapisaną siecią
+        // Połącz z zapisaną siecią WiFi
         WiFi.begin(config.wifi_ssid, config.wifi_password);
         
-        int attempts = 0;
-        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-            delay(500);
+        // Czekaj na połączenie
+        int i = 0;
+        while (WiFi.status() != WL_CONNECTED && i < 30) {
+            delay(1000);
             Serial.print(".");
-            attempts++;
+            i++;
         }
         
         if (WiFi.status() != WL_CONNECTED) {
-            // Jeśli nie można połączyć - przejdź w tryb AP
-            WiFi.softAP("HydroSense", "hydrosense");
-            Serial.println("\nFailed to connect - switching to AP mode");
-            Serial.print("IP Address: ");
-            Serial.println(WiFi.softAPIP());
-        } else {
-            Serial.println("\nConnected to WiFi");
-            Serial.print("IP Address: ");
-            Serial.println(WiFi.localIP());
+            // Jeśli nie udało się połączyć, uruchom tryb AP
+            AsyncWiFiManager wifiManager(&server, &dns);
+            wifiManager.autoConnect("HydroSense_Setup");
         }
     }
     
@@ -1166,10 +1200,11 @@ void setup() {
     if (loadConfig()) {        
         status.soundEnabled = config.soundEnabled;  // Synchronizuj stan dźwięku z wczytanej konfiguracji
     }
-    
-    firstUpdateHA();
+        
     status.lastSoundAlert = millis();
-    
+    firstUpdateHA();
+    setupServer();
+
     // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
     ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
     ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
