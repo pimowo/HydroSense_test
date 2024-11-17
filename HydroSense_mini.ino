@@ -179,7 +179,7 @@ void setDefaultConfig() {
     config.version = CONFIG_VERSION;
     config.soundEnabled = true;  // Domyślnie dźwięk włączony
     config.debugEnabled = true;  // Domyślnie włączone komunikaty
-    //config.checksum = calculateChecksum(config);
+    config.checksum = calculateChecksum(config);
 
     saveConfig();
     debugPrint(F("Utworzono domyślną konfigurację"));
@@ -491,15 +491,15 @@ void configOTA() {
     });
     
     ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-        Serial.printf("Postęp: %u%%\r", (progress / (total / 100)));
+        Serial.printf("Postęp: %u%%\n", (progress / (total / 100)));
     });
     
     ArduinoOTA.onError([](ota_error_t error) {
         Serial.printf("Error[%u]: ", error);
-        if (error == OTA_AUTH_ERROR) Serial.printf("Auth Failed");
-        else if (error == OTA_BEGIN_ERROR) Serial.printf("Begin Failed");
-        else if (error == OTA_CONNECT_ERROR) Serial.printf("Connect Failed");
-        else if (error == OTA_RECEIVE_ERROR) Serial.printf("Receive Failed");
+        if (error == OTA_AUTH_ERROR) Serial.printf("Auth Failed\n");
+        else if (error == OTA_BEGIN_ERROR) Serial.printf("Begin Failed\n");
+        else if (error == OTA_CONNECT_ERROR) Serial.printf("Connect Failed\n");
+        else if (error == OTA_RECEIVE_ERROR) Serial.printf("Receive Failed\n");
         else if (error == OTA_END_ERROR) debugPrint("End Failed");
     });
     
@@ -871,6 +871,7 @@ void setup() {
     
     // Zastosuj wczytane ustawienia
     status.soundEnabled = config.soundEnabled;
+    status.debugEnabled = config.debugEnabled;
     
     setupPin();
     
@@ -884,7 +885,7 @@ void setup() {
     }
     debugPrint("\nPołączono z WiFi");
 
-    configOTA();
+    //configOTA();
 
     // Próba połączenia MQTT
     debugPrint("Rozpoczynam połączenie MQTT...");
@@ -901,10 +902,15 @@ void setup() {
     firstUpdateHA();
     status.lastSoundAlert = millis();
     
+    // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
+    ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
+    ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
+    ArduinoOTA.begin();  // Uruchom OTA    
+    
     debugPrint("Setup zakończony pomyślnie!");
     
     if (status.soundEnabled) {
-        //welcomeMelody();
+        welcomeMelody();
     }  
 }
 
