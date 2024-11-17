@@ -499,14 +499,14 @@ void reconnectWiFi() {
  * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
  */
 bool connectMQTT() {
-    if (!mqtt.connected()) {
+    if (!mqtt.isConnected()) {  // Zmiana z connected() na isConnected()
         if (!mqtt.begin(config.mqtt_server, config.mqtt_port, config.mqtt_user, config.mqtt_password)) {
             Serial.println("Failed to connect to MQTT broker");
             return false;
         }
-    }    
+    }   
     DEBUG_PRINT("MQTT połączono pomyślnie!");
-    return true;
+    return mqtt.isConnected();  // Zmiana z connected() na isConnected()
 }
 
 // Funkcja konfigurująca Home Assistant
@@ -1051,7 +1051,8 @@ void setupServer() {
     });
 
     server.on("/api/config", HTTP_GET, []() {
-        StaticJsonDocument<1024> doc;
+        String response;
+        StaticJsonDocument<1024> doc;  // Use StaticJsonDocument for small JSON objects
         
         doc["mqtt_server"] = config.mqtt_server;
         doc["mqtt_user"] = config.mqtt_user;
@@ -1066,7 +1067,6 @@ void setupServer() {
         doc["pump_delay"] = config.PUMP_DELAY;
         doc["pump_work_time"] = config.PUMP_WORK_TIME;
         
-        String response;
         serializeJson(doc, response);
         server.send(200, "application/json", response);
     });
@@ -1075,9 +1075,9 @@ void setupServer() {
         if (server.hasArg("plain")) {
             String json = server.arg("plain");
             StaticJsonDocument<1024> doc;
-            DeserializationError error = deserializeJson(doc, json);
+            DeserializationError err = deserializeJson(doc, json);
             
-            if (!error) {
+            if (!err) {
                 bool needsSave = false;
                 
                 if (doc.containsKey("mqtt_server")) {
@@ -1209,12 +1209,6 @@ void loop() {
 
     // ZARZĄDZANIE ŁĄCZNOŚCIĄ
     
-    // Sprawdzanie i utrzymanie połączenia WiFi
-    // if (WiFi.status() != WL_CONNECTED) {
-    //     setupWiFi();    // Próba ponownego połączenia z siecią
-    //     return;         // Powrót do początku pętli po próbie połączenia
-    // }
-
     if (WiFi.status() != WL_CONNECTED && !WiFi.softAPgetStationNum()) {
         // Jeśli nie ma połączenia WiFi i nikt nie jest połączony do AP
         reconnectWiFi();
@@ -1227,7 +1221,7 @@ void loop() {
         if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
             lastMQTTRetry = currentMillis;
             DEBUG_PRINT("\nBrak połączenia MQTT - próba reconnect...");
-            if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+            if (mqtt.begin(config.mqtt_server, config.mqtt_port, config.mqtt_user, config.mqtt_password)) {
                 DEBUG_PRINT("MQTT połączono ponownie!");
             }
         }
