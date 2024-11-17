@@ -5,7 +5,6 @@
 #include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
 #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
 #include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
-#include <stdarg.h>
 
 // --- Definicje stałych i zmiennych globalnych
 
@@ -42,6 +41,17 @@ const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnała
 // Konfiguracja EEPROM
 #define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
+// Definicja debugowania - ustaw 1 aby włączyć, 0 aby wyłączyć
+#define DEBUG 1
+
+#if DEBUG
+    #define DEBUG_PRINT(x) Serial.println(x)
+    #define DEBUG_PRINTF(format, ...) Serial.printf(format, __VA_ARGS__)
+#else
+    #define DEBUG_PRINT(x)
+    #define DEBUG_PRINTF(format, ...)
+#endif
+
 // Konfiguracja zbiornika i pomiarów
 const int ODLEGLOSC_PELNY = 65.0;    // Dystans dla pełnego zbiornika (w mm)
 const int ODLEGLOSC_PUSTY = 510.0;  // Dystans dla pustego zbiornika (w mm)
@@ -76,7 +86,6 @@ HASensor sensorReserve("water_reserve");                  // Alarm rezerwy w zbi
 HASwitch switchPump("pump_alarm");                        // Przełącznik resetowania blokady pompy
 HASwitch switchService("service_mode");                   // Przełącznik trybu serwisowego
 HASwitch switchSound("sound_switch");                     // Przełącznik dźwięku alarmu
-HASwitch switchDebug("debug_switch");
 
 // --- Deklaracje funkcji i struktury
 
@@ -91,7 +100,6 @@ struct SystemStatus {
     bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
     bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
     bool soundEnabled;// = false; // Status włączenia dźwięku alarmu
-    bool debugEnabled;
     bool isServiceMode = false; // Status trybu serwisowego
     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
     unsigned long lastSoundAlert = 0;  //
@@ -102,7 +110,6 @@ SystemStatus systemStatus;
 struct Config {
     uint8_t version;  // Wersja konfiguracji
     bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
-    bool debugEnabled;  // Stan włączenia/wyłączenia komunikatów debug
     char checksum;  // Suma kontrolna
 };
 Config config;
@@ -127,7 +134,6 @@ struct AlarmTone {
 
 struct Status {
     bool soundEnabled;
-    bool debugEnabled;
     bool waterAlarmActive;
     bool waterReserveActive;
     bool isPumpActive;
@@ -149,40 +155,16 @@ float volume = 0;
 unsigned long pumpStartTime = 0;
 float waterLevelBeforePump = 0;
 
-void debugPrint(const __FlashStringHelper* message) {
-    if (config.debugEnabled) {
-        Serial.println(message);
-    }
-}
-
-void debugPrint(const char* message) {
-    if (config.debugEnabled) {
-        Serial.println(message);
-    }
-}
-
-void debugPrintf(const char* format, ...) {
-    if (config.debugEnabled) {
-        va_list args;
-        va_start(args, format);
-        char buf[128];
-        vsnprintf(buf, sizeof(buf), format, args);
-        Serial.print(buf);
-        va_end(args);
-    }
-}
-
 // --- EEPROM
 
 // Ustawienia domyślne
 void setDefaultConfig() {
     config.version = CONFIG_VERSION;
     config.soundEnabled = true;  // Domyślnie dźwięk włączony
-    config.debugEnabled = true;  // Domyślnie włączone komunikaty
     config.checksum = calculateChecksum(config);
 
     saveConfig();
-    debugPrint(F("Utworzono domyślną konfigurację"));
+    DEBUG_PRINT(F("Utworzono domyślną konfigurację"));
 }
 
 // Wczytywanie konfiguracji
@@ -191,14 +173,14 @@ bool loadConfig() {
     EEPROM.get(0, config);
     
     if (config.version != CONFIG_VERSION) {
-        debugPrint(F("Niekompatybilna wersja konfiguracji"));
+        DEBUG_PRINT(F("Niekompatybilna wersja konfiguracji"));
         setDefaultConfig();
         return false;
     }
     
     char calculatedChecksum = calculateChecksum(config);
     if (config.checksum != calculatedChecksum) {
-        debugPrint(F("Błąd sumy kontrolnej"));
+        DEBUG_PRINT(F("Błąd sumy kontrolnej"));
         setDefaultConfig();
         return false;
     }
@@ -207,14 +189,9 @@ bool loadConfig() {
     // Dzwięk
     status.soundEnabled = config.soundEnabled;
     switchSound.setState(config.soundEnabled, true);  // force update
-    // Debug
-    status.debugEnabled = config.debugEnabled;
-    switchSound.setState(config.debugEnabled, true);  // force update
-    
+
     Serial.printf("Konfiguracja wczytana. Stan dźwięku: %s\n", 
                  config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
-    Serial.printf("Konfiguracja wczytana. Stan debug: %s\n", 
-                 config.debugEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     return true;
 }
 
@@ -259,9 +236,9 @@ void checkAlarmConditions() {
             status.lastSoundAlert = currentTime;
             
             // Debug info
-            debugPrint(F("Alarm dźwiękowy - przyczyna:"));
-            if (status.pumpSafetyLock) debugPrint(F("- Alarm pompy"));
-            if (status.isServiceMode) debugPrint(F("- Tryb serwisowy"));
+            DEBUG_PRINT(F("Alarm dźwiękowy - przyczyna:"));
+            if (status.pumpSafetyLock) DEBUG_PRINT(F("- Alarm pompy"));
+            if (status.isServiceMode) DEBUG_PRINT(F("- Tryb serwisowy"));
         }
     }
 }
@@ -274,7 +251,7 @@ void updateAlarmStates(float currentDistance) {
     if (currentDistance >= ODLEGLOSC_PUSTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
         sensorAlarm.setValue("ON");               
-        debugPrint("Brak wody ON");
+        DEBUG_PRINT("Brak wody ON");
     } 
     // Wyłącz alarm jeśli:
     // - odległość spadła poniżej progu wyłączenia (z histerezą)
@@ -282,7 +259,7 @@ void updateAlarmStates(float currentDistance) {
     else if (currentDistance < (ODLEGLOSC_PUSTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
         sensorAlarm.setValue("OFF");
-        debugPrint("Brak wody OFF");
+        DEBUG_PRINT("Brak wody OFF");
     }
 
     // --- Obsługa ostrzeżenia o rezerwie wody ---
@@ -292,7 +269,7 @@ void updateAlarmStates(float currentDistance) {
     if (currentDistance >= REZERWA_ODLEGLOSC && !status.waterReserveActive) {
         status.waterReserveActive = true;
         sensorReserve.setValue("ON");
-        debugPrint("Rezerwa ON");
+        DEBUG_PRINT("Rezerwa ON");
     } 
     // Wyłącz ostrzeżenie o rezerwie jeśli:
     // - odległość spadła poniżej progu rezerwy (z histerezą)
@@ -300,7 +277,7 @@ void updateAlarmStates(float currentDistance) {
     else if (currentDistance < (REZERWA_ODLEGLOSC - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
         sensorReserve.setValue("OFF");
-        debugPrint("Rezerwa OFF");
+        DEBUG_PRINT("Rezerwa OFF");
     }
 }
 
@@ -400,11 +377,11 @@ void setupWiFi() {
  */
 bool connectMQTT() {   
     if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        debugPrint("\nBŁĄD POŁĄCZENIA MQTT!");
+        DEBUG_PRINT("\nBŁĄD POŁĄCZENIA MQTT!");
         return false;
     }
     
-    debugPrint("MQTT połączono pomyślnie!");
+    DEBUG_PRINT("MQTT połączono pomyślnie!");
     return true;
 }
 
@@ -457,54 +434,9 @@ void setupHA() {
     switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
     switchSound.setState(status.soundEnabled);      // Stan początkowy
     
-    switchDebug.setName("Komunikaty");
-    switchDebug.setIcon("mdi:console");        // Ikona głośnika
-    switchDebug.onCommand(onDebugSwitchCommand);   // Funkcja obsługi zmiany stanu
-    switchDebug.setState(status.debugEnabled);      // Stan początkowy
-    
     switchPump.setName("Alarm pompy");
     switchPump.setIcon("mdi:alert");               // Ikona alarmu
     switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
-}
-
-// Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
-void configOTA() {
-    ArduinoOTA.setHostname("HydroSense");
-    ArduinoOTA.setPassword("hydrosense");
-    
-    ArduinoOTA.onStart([]() {
-        String type;
-        if (ArduinoOTA.getCommand() == U_FLASH) {
-            type = "sketch";
-        } else {
-            type = "filesystem";
-        }
-        Serial.println("Start updating " + type);
-    });
-    
-    ArduinoOTA.onEnd([]() {
-        debugPrint("\nKoniec OTA");
-        WiFi.disconnect(true);
-        mqtt.disconnect();
-        delay(100);
-        ESP.eraseConfig();
-    });
-    
-    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-        Serial.printf("Postęp: %u%%\n", (progress / (total / 100)));
-    });
-    
-    ArduinoOTA.onError([](ota_error_t error) {
-        Serial.printf("Error[%u]: ", error);
-        if (error == OTA_AUTH_ERROR) Serial.printf("Auth Failed\n");
-        else if (error == OTA_BEGIN_ERROR) Serial.printf("Begin Failed\n");
-        else if (error == OTA_CONNECT_ERROR) Serial.printf("Connect Failed\n");
-        else if (error == OTA_RECEIVE_ERROR) Serial.printf("Receive Failed\n");
-        else if (error == OTA_END_ERROR) debugPrint("End Failed");
-    });
-    
-    ArduinoOTA.begin();
-    debugPrint("OTA Gotowy");
 }
 
 // --- Deklaracje funkcji ogólnych
@@ -639,7 +571,7 @@ int measureDistance() {
         unsigned long startWaiting = millis();
         while (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
             if (millis() - startWaiting > 100) {
-                debugPrint("Timeout - brak początku echa");
+                DEBUG_PRINT("Timeout - brak początku echa");
                 return -1;  // Błąd - brak odpowiedzi od czujnika
             }
         }
@@ -651,7 +583,7 @@ int measureDistance() {
         // Timeout 20ms - teoretyczny max dla 3.4m to około 20ms
         while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
             if (micros() - echoStartTime > 20000) {
-                debugPrint("Timeout - zbyt długie echo");
+                DEBUG_PRINT("Timeout - zbyt długie echo");
                 return -1;  // Błąd - echo trwa zbyt długo
             }
         }
@@ -815,7 +747,7 @@ void handleButton() {
                 status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
                 switchPump.setState(false, true);  // force update w HA
                 buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
-                debugPrint("Alarm pompy skasowany");
+                DEBUG_PRINT("Alarm pompy skasowany");
             }
         }
     }
@@ -846,32 +778,20 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     Serial.printf("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
-void onDebugSwitchCommand(bool state, HASwitch* sender) {
-    status.debugEnabled = state;  // Aktualizuj status lokalny
-    config.debugEnabled = state;  // Aktualizuj konfigurację
-    saveConfig(); // Zapisz stan do EEPROM
-    
-    // Aktualizuj stan w Home Assistant
-    switchDebug.setState(state, true);  // force update
-    
-    debugPrintf("Zmieniono stan debugowania na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
-}
-
 // --- Setup
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
-    debugPrint("\nStarting HydroSense...");  // Komunikat startowy
+    DEBUG_PRINT("\nStarting HydroSense...");  // Komunikat startowy
     
     // Wczytaj konfigurację
     if (!loadConfig()) {
-        debugPrint(F("Tworzenie nowej konfiguracji..."));
+        DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
         setDefaultConfig();
     }
     
     // Zastosuj wczytane ustawienia
-    status.soundEnabled = config.soundEnabled;
-    status.debugEnabled = config.debugEnabled;
+    //status.soundEnabled = config.soundEnabled;
     
     setupPin();
     
@@ -883,12 +803,10 @@ void setup() {
         Serial.print(".");
         ESP.wdtFeed(); // Reset watchdoga podczas łączenia
     }
-    debugPrint("\nPołączono z WiFi");
-
-    //configOTA();
+    DEBUG_PRINT("\nPołączono z WiFi");
 
     // Próba połączenia MQTT
-    debugPrint("Rozpoczynam połączenie MQTT...");
+    DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
     connectMQTT();
 
     setupHA();
@@ -896,7 +814,6 @@ void setup() {
     // Wczytaj konfigurację z EEPROM
     if (loadConfig()) {        
         status.soundEnabled = config.soundEnabled;  // Synchronizuj stan dźwięku z wczytanej konfiguracji
-        switchSound.setState(config.soundEnabled);  // Aktualizuj stan w HA
     }
     
     firstUpdateHA();
@@ -907,7 +824,7 @@ void setup() {
     ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
     ArduinoOTA.begin();  // Uruchom OTA    
     
-    debugPrint("Setup zakończony pomyślnie!");
+    DEBUG_PRINT("Setup zakończony pomyślnie!");
     
     if (status.soundEnabled) {
         welcomeMelody();
@@ -941,9 +858,9 @@ void loop() {
     if (!mqtt.isConnected()) {
         if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
             lastMQTTRetry = currentMillis;
-            debugPrint("\nBrak połączenia MQTT - próba reconnect...");
+            DEBUG_PRINT("\nBrak połączenia MQTT - próba reconnect...");
             if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-                debugPrint("MQTT połączono ponownie!");
+                DEBUG_PRINT("MQTT połączono ponownie!");
             }
         }
     }
