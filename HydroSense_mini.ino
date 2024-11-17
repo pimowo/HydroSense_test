@@ -75,6 +75,7 @@ HASensor sensorReserve("water_reserve");                  // Alarm rezerwy w zbi
 HASwitch switchPump("pump_alarm");                        // Przełącznik resetowania blokady pompy
 HASwitch switchService("service_mode");                   // Przełącznik trybu serwisowego
 HASwitch switchSound("sound_switch");                     // Przełącznik dźwięku alarmu
+HASwitch switchDebug("debug_switch");
 
 // --- Deklaracje funkcji i struktury
 
@@ -89,6 +90,7 @@ struct SystemStatus {
     bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
     bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
     bool soundEnabled;// = false; // Status włączenia dźwięku alarmu
+    bool debugEnabled;
     bool isServiceMode = false; // Status trybu serwisowego
     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
     unsigned long lastSoundAlert = 0;  //
@@ -97,9 +99,10 @@ SystemStatus systemStatus;
 
 // eeprom
 struct Config {
-    uint8_t version;        // Wersja konfiguracji
-    bool soundEnabled;      // Status dźwięku (włączony/wyłączony)
-    char checksum;          // Suma kontrolna
+    uint8_t version;  // Wersja konfiguracji
+    bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
+    bool debugEnabled;  // Stan włączenia/wyłączenia komunikatów debug
+    char checksum;  // Suma kontrolna
 };
 Config config;
 
@@ -123,6 +126,7 @@ struct AlarmTone {
 
 struct Status {
     bool soundEnabled;
+    bool debugEnabled;
     bool waterAlarmActive;
     bool waterReserveActive;
     bool isPumpActive;
@@ -150,7 +154,9 @@ float waterLevelBeforePump = 0;
 void setDefaultConfig() {
     config.version = CONFIG_VERSION;
     config.soundEnabled = true;  // Domyślnie dźwięk włączony
-    
+    config.debugEnabled = true;  // Domyślnie włączone komunikaty
+    //config.checksum = calculateChecksum(config);
+
     saveConfig();
     Serial.println(F("Utworzono domyślną konfigurację"));
 }
@@ -174,11 +180,17 @@ bool loadConfig() {
     }
     
     // Synchronizuj stan po wczytaniu
+    // Dzwięk
     status.soundEnabled = config.soundEnabled;
     switchSound.setState(config.soundEnabled, true);  // force update
+    // Debug
+    status.debugEnabled = config.debugEnabled;
+    switchSound.setState(config.debugEnabled, true);  // force update
     
     Serial.printf("Konfiguracja wczytana. Stan dźwięku: %s\n", 
                  config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
+    Serial.printf("Konfiguracja wczytana. Stan debug: %s\n", 
+                 config.debugEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     return true;
 }
 
@@ -420,6 +432,11 @@ void setupHA() {
     switchSound.setIcon("mdi:volume-high");        // Ikona głośnika
     switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
     switchSound.setState(status.soundEnabled);      // Stan początkowy
+    
+    switchDebug.setName("Komunikaty");
+    switchDebug.setIcon("mdi:console");        // Ikona głośnika
+    switchDebug.onCommand(onDebugSwitchCommand);   // Funkcja obsługi zmiany stanu
+    switchDebug.setState(status.debugEnabled);      // Stan początkowy
     
     switchPump.setName("Alarm pompy");
     switchPump.setIcon("mdi:alert");               // Ikona alarmu
@@ -803,6 +820,17 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     switchSound.setState(state, true);  // force update
     
     Serial.printf("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
+}
+
+void onDebugSwitchCommand(bool state, HASwitch* sender) {
+    status.debugEnabled = state;  // Aktualizuj status lokalny
+    config.debugEnabled = state;  // Aktualizuj konfigurację
+    saveConfig(); // Zapisz stan do EEPROM
+    
+    // Aktualizuj stan w Home Assistant
+    switchDebug.setState(state, true);  // force update
+    
+    Serial.printf("Zmieniono stan debugowania na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // --- Setup
