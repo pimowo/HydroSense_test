@@ -14,11 +14,11 @@
 // --- Definicje stałych i zmiennych globalnych
 
 // Konfiguracja WiFi i MQTT
-const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
-const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
-const char* MQTT_SERVER = "192.168.1.14";          // Adres IP serwera MQTT (Home Assistant)
-const char* MQTT_USER = "hydrosense";              // Użytkownik MQTT
-const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
+// const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
+// const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
+// const char* MQTT_SERVER = "192.168.1.14";          // Adres IP serwera MQTT (Home Assistant)
+// const char* MQTT_USER = "hydrosense";              // Użytkownik MQTT
+// const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
 
 // Konfiguracja pinów ESP8266
 #define PIN_ULTRASONIC_TRIG D6  // Pin TRIG czujnika ultradźwiękowego
@@ -434,6 +434,38 @@ void setupWiFi() {
                 WiFi.reconnect();  // Próba ponownego połączenia
             }
         }
+    }
+}
+
+void reconnectWiFi() {
+    // Próbuj połączyć się z zapisaną siecią
+    if (strlen(config.wifi_ssid) > 0) {  // Sprawdź czy mamy zapisane dane WiFi
+        WiFi.begin(config.wifi_ssid, config.wifi_password);
+        
+        int attempts = 0;
+        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+            delay(500);
+            Serial.print(".");
+            attempts++;
+        }
+        
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("\nReconnected to WiFi");
+            Serial.print("IP Address: ");
+            Serial.println(WiFi.localIP());
+        } else {
+            // Jeśli nie można połączyć - przejdź w tryb AP
+            WiFi.softAP("HydroSense", "hydrosense");
+            Serial.println("\nFailed to reconnect - switching to AP mode");
+            Serial.print("IP Address: ");
+            Serial.println(WiFi.softAPIP());
+        }
+    } else {
+        // Brak zapisanych danych WiFi - uruchom tryb AP
+        WiFi.softAP("HydroSense", "hydrosense");
+        Serial.println("No WiFi credentials - switching to AP mode");
+        Serial.print("IP Address: ");
+        Serial.println(WiFi.softAPIP());
     }
 }
 
@@ -1168,9 +1200,16 @@ void loop() {
     // ZARZĄDZANIE ŁĄCZNOŚCIĄ
     
     // Sprawdzanie i utrzymanie połączenia WiFi
-    if (WiFi.status() != WL_CONNECTED) {
-        setupWiFi();    // Próba ponownego połączenia z siecią
-        return;         // Powrót do początku pętli po próbie połączenia
+    // if (WiFi.status() != WL_CONNECTED) {
+    //     setupWiFi();    // Próba ponownego połączenia z siecią
+    //     return;         // Powrót do początku pętli po próbie połączenia
+    // }
+
+    if (WiFi.status() != WL_CONNECTED && !WiFi.softAPgetStationNum()) {
+        // Jeśli nie ma połączenia WiFi i nikt nie jest połączony do AP
+        reconnectWiFi();
+        delay(5000);  // Odczekaj 5 sekund przed kolejną próbą
+        return;
     }
     
     // Zarządzanie połączeniem MQTT
