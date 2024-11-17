@@ -86,7 +86,7 @@ HASensor sensorAlarm("water_alarm");                      // Alarm braku wody w 
 HASensor sensorReserve("water_reserve");                  // Alarm rezerwy w zbiorniku dolewki
 
 // Przełączniki
-HASwitch switchPump("pump_alarm");                        // Przełącznik resetowania blokady pompy
+HASwitch switchPumpAlarm("pump_alarm");                        // Przełącznik resetowania blokady pompy
 HASwitch switchService("service_mode");                   // Przełącznik trybu serwisowego
 HASwitch switchSound("sound_switch");                     // Przełącznik dźwięku alarmu
 
@@ -324,7 +324,7 @@ void updatePump() {
     if (status.isPumpActive && (currentMillis - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
         stopPump();
         status.pumpSafetyLock = true;
-        switchPump.setState(true);
+        switchPumpAlarm.setState(true);
         DEBUG_PRINT(F("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!"));
         return;
     }
@@ -341,6 +341,7 @@ void updatePump() {
     if (!waterPresent && status.isPumpActive) {
         stopPump();
         status.isPumpDelayActive = false;
+        switchPumpAlarm.setState(true, true);  // Wymuś aktualizację stanu na ON w HA
         return;
     }
     
@@ -390,7 +391,7 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
     if (!state) {
         playConfirmationSound();  // Sygnał potwierdzenia zmiany trybu
         status.pumpSafetyLock = false;  // Wyłącz blokadę bezpieczeństwa pompy
-        switchPump.setState(false);  // Aktualizuj stan przełącznika w HA na OFF        
+        switchPumpAlarm.setState(false);  // Aktualizuj stan przełącznika w HA na OFF        
     }
 }
 
@@ -487,9 +488,9 @@ void setupHA() {
     switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
     switchSound.setState(status.soundEnabled);      // Stan początkowy
     
-    switchPump.setName("Alarm pompy");
-    switchPump.setIcon("mdi:alert");               // Ikona alarmu
-    switchPump.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
+    switchPumpAlarm.setName("Alarm pompy");
+    switchPumpAlarm.setIcon("mdi:alert");               // Ikona alarmu
+    switchPumpAlarm.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
 }
 
 // --- Deklaracje funkcji ogólnych
@@ -801,7 +802,7 @@ void handleButton() {
                 ESP.wdtFeed();  // Reset przy długim naciśnięciu
                 status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
                 playConfirmationSound();  // Sygnał potwierdzenia zmiany trybu
-                switchPump.setState(false, true);  // force update w HA
+                switchPumpAlarm.setState(false, true);  // force update w HA
                 buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
                 DEBUG_PRINT("Alarm pompy skasowany");
             }
