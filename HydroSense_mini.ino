@@ -121,23 +121,6 @@ struct AlarmTone {
     uint16_t pauseDuration;   // Przerwa między powtórzeniami
 };
 
-// Konfiguracja dźwięków dla różnych alarmów
-const AlarmTone alarmTones[] = {
-    {2000, 1000, 3, 500},     // ALARM_WATER_LOW
-    {3000, 500, 5, 200},      // ALARM_PUMP_SAFETY
-    {1500, 200, 2, 300},      // ALARM_WATER_RESERVE
-    {800, 100, 1, 0},         // ALARM_PUMP_START
-    {600, 200, 1, 0}          // ALARM_PUMP_STOP
-};
-
-// Definicje dla różnych typów alarmów
-enum AlarmType {
-    ALARM_PUMP_START,
-    ALARM_PUMP_STOP,
-    ALARM_WATER_LOW,
-    ALARM_WATER_HIGH
-};
-
 struct Status {
     bool soundEnabled;
     bool waterAlarmActive;
@@ -221,63 +204,28 @@ char calculateChecksum(const Config& cfg) {
 
 // --- Deklaracje funkcji alarmów
 
-// Uruchomienie alarmu
-void playAlarm(AlarmType type) {
-    // Sprawdź czy dźwięk jest włączony
-    if (!config.soundEnabled) {
-        return; // Jeśli dźwięk jest wyłączony, zakończ funkcję
-    }
-
-    // Parametry dźwięku dla różnych typów alarmów
-    switch (type) {
-        case ALARM_PUMP_START:
-            tone(BUZZER_PIN, 2000, 100);  // Wysoki dźwięk, krótki
-            break;
-            
-        case ALARM_PUMP_STOP:
-            tone(BUZZER_PIN, 1000, 200);  // Niższy dźwięk, dłuższy
-            break;
-            
-        case ALARM_WATER_LOW:
-            // Dwa krótkie sygnały
-            tone(BUZZER_PIN, 2500, 100);
-            delay(150);
-            tone(BUZZER_PIN, 2500, 100);
-            break;
-            
-        case ALARM_WATER_HIGH:
-            // Jeden długi sygnał
-            tone(BUZZER_PIN, 3000, 500);
-            break;
-    }
-}
-
-// Krótki sygnał dźwiękowy
+// Krótki sygnał dźwiękowy - pojedyncze piknięcie
 void playShortWarningSound() {
-    tone(BUZZER_PIN, 2000, 100); // Krótki sygnał dźwiękowy (częstotliwość 2000Hz, czas 100ms)
+    if (config.soundEnabled) {
+        tone(BUZZER_PIN, 2000, 100); // Krótkie piknięcie (2000Hz, 100ms)
+    }
 }
 
 // Sprawdzenie warunków alarmowych
 void checkAlarmConditions() {
-    static unsigned long lastAlarmTime = 0;  // Zmienna statyczna do przechowywania czasu ostatniego alarmu
-    unsigned long currentTime = millis();  // Aktualny czas
+    unsigned long currentTime = millis();
 
     // Sprawdź czy minęła minuta od ostatniego alarmu
-    if (currentTime - status.lastSoundAlert >= SOUND_ALERT_INTERVAL) {
-        // Sprawdź czy dźwięk jest włączony i czy występuje któryś z alarmów
-        if (status.soundEnabled && (status.waterAlarmActive || status.pumpSafetyLock)) {
+    if (currentTime - status.lastSoundAlert >= 60000) { // 60000ms = 1 minuta
+        // Sprawdź czy dźwięk jest włączony i czy występuje alarm pompy lub tryb serwisowy
+        if (config.soundEnabled && (status.pumpSafetyLock || status.isServiceMode)) {
+            playShortWarningSound();
+            status.lastSoundAlert = currentTime;
             
-            // Sprawdź czy minęło wystarczająco dużo czasu od ostatniego alarmu
-            if (currentTime - lastAlarmTime >= 1000) {  // 1000 ms = 1 sekunda
-                playShortWarningSound();
-                status.lastSoundAlert = currentTime;
-                lastAlarmTime = currentTime;  // Zaktualizuj czas ostatniego alarmu
-                
-                // Debug info
-                Serial.println(F("Alarm dźwiękowy - przyczyna:"));
-                if (status.waterAlarmActive) Serial.println(F("- Brak wody"));
-                if (status.pumpSafetyLock) Serial.println(F("- Alarm pompy"));
-            }
+            // Debug info
+            Serial.println(F("Alarm dźwiękowy - przyczyna:"));
+            if (status.pumpSafetyLock) Serial.println(F("- Alarm pompy"));
+            if (status.isServiceMode) Serial.println(F("- Tryb serwisowy"));
         }
     }
 }
