@@ -1,24 +1,19 @@
 // --- Biblioteki
 
 #include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
-#include <ArduinoJson.h>
-#include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
-#include <ESP8266WebServer.h>
-#include <WiFiManager.h>          // https://github.com/tzapu/WiFiManager
-#include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
-#include <FS.h>
-
 #include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
 #include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
+#include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
+#include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
 
 // --- Definicje stałych i zmiennych globalnych
 
 // Konfiguracja WiFi i MQTT
-// const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
-// const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
-// const char* MQTT_SERVER = "192.168.1.14";          // Adres IP serwera MQTT (Home Assistant)
-// const char* MQTT_USER = "hydrosense";              // Użytkownik MQTT
-// const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
+const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
+const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
+const char* MQTT_SERVER = "192.168.1.14";          // Adres IP serwera MQTT (Home Assistant)
+const char* MQTT_USER = "hydrosense";              // Użytkownik MQTT
+const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
 
 // Konfiguracja pinów ESP8266
 #define PIN_ULTRASONIC_TRIG D6  // Pin TRIG czujnika ultradźwiękowego
@@ -67,7 +62,7 @@ const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
 const int TANK_DIAMETER = 150;  // Średnica zbiornika (mm)
 const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
 const int PUMP_DELAY = 5;  // Opóźnienie uruchomienia pompy (sekundy)
-const int PUMP_WORK_TIME = 5;  // Czas pracy pompy
+const int PUMP_WORK_TIME = 60;  // Czas pracy pompy
 
 float aktualnaOdleglosc = 0;  // Aktualny dystans
 unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
@@ -95,9 +90,6 @@ HASwitch switchPumpAlarm("pump_alarm");                        // Przełącznik 
 HASwitch switchService("service_mode");                   // Przełącznik trybu serwisowego
 HASwitch switchSound("sound_switch");                     // Przełącznik dźwięku alarmu
 
-ESP8266WebServer server(80);
-WiFiManager wifiManager;
-
 // --- Deklaracje funkcji i struktury
 
 // Status systemu
@@ -121,22 +113,6 @@ SystemStatus systemStatus;
 struct Config {
     uint8_t version;  // Wersja konfiguracji
     bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
-    char wifi_ssid[32];
-    char wifi_password[64];
-    bool mqtt_enabled;  // Czy MQTT jest włączone
-    char mqtt_server[40];
-    int mqtt_port;      // Port MQTT (domyślnie 1883)
-    char mqtt_user[32];
-    char mqtt_password[32];
-    int TANK_FULL;
-    int TANK_EMPTY;
-    int RESERVE_LEVEL;
-    int HYSTERESIS;
-    int TANK_DIAMETER;
-    int SENSOR_AVG_SAMPLES;
-    int PUMP_DELAY;
-    int PUMP_WORK_TIME;
-    bool configured;  // flaga indicating if initial setup was done
     char checksum;  // Suma kontrolna
 };
 Config config;
@@ -188,18 +164,6 @@ float waterLevelBeforePump = 0;
 void setDefaultConfig() {
     config.version = CONFIG_VERSION;
     config.soundEnabled = true;  // Domyślnie dźwięk włączony
-    config.TANK_FULL = 50;           // Pełny zbiornik
-    config.TANK_EMPTY = 100;         // Pusty zbiornik
-    config.RESERVE_LEVEL = 90;       // Rezerwa
-    config.HYSTERESIS = 10;          // Histereza
-    config.TANK_DIAMETER = 100;      // Średnica zbiornika
-    config.SENSOR_AVG_SAMPLES = 3;   // Ilość próbek do mediany
-    config.PUMP_DELAY = 10;        // Opóźnienie załączenia pompy
-    config.PUMP_WORK_TIME = 60;   // CZas pracy pompy
-    config.configured = false;
-    strcpy(config.mqtt_server, "");
-    strcpy(config.mqtt_user, "");
-    strcpy(config.mqtt_password, "");
     config.checksum = calculateChecksum(config);
 
     saveConfig();
@@ -434,61 +398,29 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 // --- Deklaracje funkcji związanych z siecią
 
 // Konfiguracja i zarządzanie połączeniem WiFi
-// void setupWiFi() {
-//     // Zmienne statyczne zachowujące wartość między wywołaniami
-//     static unsigned long lastWiFiCheck = 0;  // Czas ostatniej próby połączenia
-//     static bool wifiInitiated = false;  // Flaga pierwszej inicjalizacji WiFi
+void setupWiFi() {
+    // Zmienne statyczne zachowujące wartość między wywołaniami
+    static unsigned long lastWiFiCheck = 0;  // Czas ostatniej próby połączenia
+    static bool wifiInitiated = false;  // Flaga pierwszej inicjalizacji WiFi
     
-//     ESP.wdtFeed();  // Reset watchdoga
+    ESP.wdtFeed();  // Reset watchdoga
     
-//     // Pierwsza inicjalizacja WiFi
-//     if (!wifiInitiated) {
-//         WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  // Rozpoczęcie połączenia z siecią
-//         wifiInitiated = true;  // Ustawienie flagi inicjalizacji
-//         return;
-//     }
+    // Pierwsza inicjalizacja WiFi
+    if (!wifiInitiated) {
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  // Rozpoczęcie połączenia z siecią
+        wifiInitiated = true;  // Ustawienie flagi inicjalizacji
+        return;
+    }
     
-//     // Sprawdzenie stanu połączenia
-//     if (WiFi.status() != WL_CONNECTED) {  // Jeśli nie połączono z siecią
-//         if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {  // Sprawdź czy minął interwał
-//             Serial.print(".");  // Wskaźnik aktywności
-//             lastWiFiCheck = millis();  // Aktualizacja czasu ostatniej próby
-//             if (WiFi.status() == WL_DISCONNECTED) {  // Jeśli sieć jest dostępna ale rozłączona
-//                 WiFi.reconnect();  // Próba ponownego połączenia
-//             }
-//         }
-//     }
-// }
-
-void reconnectWiFi() {
-    // Próbuj połączyć się z zapisaną siecią
-    if (strlen(config.wifi_ssid) > 0) {  // Sprawdź czy mamy zapisane dane WiFi
-        WiFi.begin(config.wifi_ssid, config.wifi_password);
-        
-        int attempts = 0;
-        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-            delay(500);
-            Serial.print(".");
-            attempts++;
+    // Sprawdzenie stanu połączenia
+    if (WiFi.status() != WL_CONNECTED) {  // Jeśli nie połączono z siecią
+        if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {  // Sprawdź czy minął interwał
+            Serial.print(".");  // Wskaźnik aktywności
+            lastWiFiCheck = millis();  // Aktualizacja czasu ostatniej próby
+            if (WiFi.status() == WL_DISCONNECTED) {  // Jeśli sieć jest dostępna ale rozłączona
+                WiFi.reconnect();  // Próba ponownego połączenia
+            }
         }
-        
-        if (WiFi.status() == WL_CONNECTED) {
-            Serial.println("\nReconnected to WiFi");
-            Serial.print("IP Address: ");
-            Serial.println(WiFi.localIP());
-        } else {
-            // Jeśli nie można połączyć - przejdź w tryb AP
-            WiFi.softAP("HydroSense", "hydrosense");
-            Serial.println("\nFailed to reconnect - switching to AP mode");
-            Serial.print("IP Address: ");
-            Serial.println(WiFi.softAPIP());
-        }
-    } else {
-        // Brak zapisanych danych WiFi - uruchom tryb AP
-        WiFi.softAP("HydroSense", "hydrosense");
-        Serial.println("No WiFi credentials - switching to AP mode");
-        Serial.print("IP Address: ");
-        Serial.println(WiFi.softAPIP());
     }
 }
 
@@ -497,15 +429,14 @@ void reconnectWiFi() {
  * 
  * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
  */
-bool connectMQTT() {
-    if (!mqtt.isConnected()) {  // Zmiana z connected() na isConnected()
-        if (!mqtt.begin(config.mqtt_server, config.mqtt_port, config.mqtt_user, config.mqtt_password)) {
-            Serial.println("Failed to connect to MQTT broker");
-            return false;
-        }
-    }   
+bool connectMQTT() {   
+    if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+        DEBUG_PRINT("\nBŁĄD POŁĄCZENIA MQTT!");
+        return false;
+    }
+    
     DEBUG_PRINT("MQTT połączono pomyślnie!");
-    return mqtt.isConnected();  // Zmiana z connected() na isConnected()
+    return true;
 }
 
 // Funkcja konfigurująca Home Assistant
@@ -909,243 +840,32 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     Serial.printf("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
-const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-    <title>HydroSense Configuration</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            margin: 20px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        input {
-            width: 100%;
-            padding: 8px;
-            box-sizing: border-box;
-        }
-        button {
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px 15px;
-            border: none;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-    </style>
-</head>
-<body>
-    <h2>HydroSense Configuration</h2>
-    <form id="configForm">
-        <div class="form-group">
-            <label for="mqtt_server">MQTT Server:</label>
-            <input type="text" id="mqtt_server" name="mqtt_server">
-        </div>
-        <div class="form-group">
-            <label for="mqtt_user">MQTT User:</label>
-            <input type="text" id="mqtt_user" name="mqtt_user">
-        </div>
-        <div class="form-group">
-            <label for="mqtt_password">MQTT Password:</label>
-            <input type="password" id="mqtt_password" name="mqtt_password">
-        </div>
-        <div class="form-group">
-            <label for="tank_full">Tank Full Level (cm):</label>
-            <input type="number" id="tank_full" name="tank_full">
-        </div>
-        <div class="form-group">
-            <label for="tank_empty">Tank Empty Level (cm):</label>
-            <input type="number" id="tank_empty" name="tank_empty">
-        </div>
-        <div class="form-group">
-            <label for="reserve_level">Reserve Level (cm):</label>
-            <input type="number" id="reserve_level" name="reserve_level">
-        </div>
-        <div class="form-group">
-            <label for="hysteresis">Hysteresis (cm):</label>
-            <input type="number" id="hysteresis" name="hysteresis">
-        </div>
-        <div class="form-group">
-            <label for="tank_diameter">Tank Diameter (cm):</label>
-            <input type="number" id="tank_diameter" name="tank_diameter">
-        </div>
-        <div class="form-group">
-            <label for="sensor_avg_samples">Sensor Average Samples:</label>
-            <input type="number" id="sensor_avg_samples" name="sensor_avg_samples">
-        </div>
-        <div class="form-group">
-            <label for="pump_delay">Pump Delay (ms):</label>
-            <input type="number" id="pump_delay" name="pump_delay">
-        </div>
-        <div class="form-group">
-            <label for="pump_work_time">Pump Work Time (ms):</label>
-            <input type="number" id="pump_work_time" name="pump_work_time">
-        </div>
-        <button type="submit">Save Configuration</button>
-    </form>
-
-    <script>
-        // Pobierz aktualną konfigurację
-        fetch('/api/config')
-            .then(response => response.json())
-            .then(config => {
-                Object.keys(config).forEach(key => {
-                    const element = document.getElementById(key);
-                    if (element) {
-                        element.value = config[key];
-                    }
-                });
-            });
-
-        // Obsługa formularza
-        document.getElementById('configForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const formData = {};
-            new FormData(e.target).forEach((value, key) => {
-                formData[key] = value;
-            });
-
-            fetch('/api/config', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'ok') {
-                    alert('Configuration saved successfully!');
-                } else {
-                    alert('Error saving configuration!');
-                }
-            })
-            .catch(error => {
-                alert('Error saving configuration!');
-                console.error('Error:', error);
-            });
-        });
-    </script>
-</body>
-</html>
-)rawliteral";
-
-// Funkcja setupServer()
-void setupServer() {
-    server.on("/", HTTP_GET, []() {
-        File file = SPIFFS.open("/index.html", "r");
-        server.streamFile(file, "text/html");
-        file.close();
-    });
-
-    server.on("/api/config", HTTP_GET, []() {
-        StaticJsonDocument<1024> doc;
-        
-        doc["mqtt_server"] = config.mqtt_server;
-        doc["mqtt_user"] = config.mqtt_user;
-        doc["mqtt_password"] = config.mqtt_password;
-        doc["mqtt_port"] = config.mqtt_port;
-        doc["tank_full"] = config.TANK_FULL;
-        doc["tank_empty"] = config.TANK_EMPTY;
-        doc["reserve_level"] = config.RESERVE_LEVEL;
-        doc["hysteresis"] = config.HYSTERESIS;
-        doc["tank_diameter"] = config.TANK_DIAMETER;
-        doc["sensor_avg_samples"] = config.SENSOR_AVG_SAMPLES;
-        doc["pump_delay"] = config.PUMP_DELAY;
-        doc["pump_work_time"] = config.PUMP_WORK_TIME;
-        
-        String response;
-        serializeJson(doc, response);
-        server.send(200, "application/json", response);
-    });
-
-    server.on("/api/config", HTTP_POST, []() {
-        if (server.hasArg("plain")) {
-            String json = server.arg("plain");
-            
-            StaticJsonDocument<1024> doc;
-            DeserializationError error = deserializeJson(doc, json);
-            
-            if (!error) {
-                bool needsSave = false;
-                
-                if (doc.containsKey("mqtt_server")) {
-                    const char* mqtt_server = doc["mqtt_server"];
-                    if (mqtt_server) {
-                        strncpy(config.mqtt_server, mqtt_server, sizeof(config.mqtt_server) - 1);
-                        config.mqtt_server[sizeof(config.mqtt_server) - 1] = '\0';
-                        needsSave = true;
-                    }
-                }
-                
-                if (doc.containsKey("mqtt_port")) {
-                    config.mqtt_port = doc["mqtt_port"].as<int>();
-                    needsSave = true;
-                }
-                
-                if (needsSave) {
-                    saveConfig();
-                    server.send(200, "application/json", "{\"status\":\"ok\"}");
-                } else {
-                    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"No changes\"}");
-                }
-            } else {
-                String errorMsg = String("{\"status\":\"error\",\"message\":\"") + error.c_str() + "\"}";
-                server.send(400, "application/json", errorMsg);
-            }
-        } else {
-            server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"No data\"}");
-        }
-    });
-
-    server.begin();
-}
-
 // --- Setup
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
     DEBUG_PRINT("\nStarting HydroSense...");  // Komunikat startowy
-        
-    setupPin();
-
-    if (!SPIFFS.begin()) {
-        Serial.println("Failed to mount file system");
-        return;
-    }
     
     // Wczytaj konfigurację
     if (!loadConfig()) {
+        DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
         setDefaultConfig();
     }
     
-    // Inicjalizacja WiFiManager
-    WiFiManager wifiManager;
+    // Zastosuj wczytane ustawienia
+    //status.soundEnabled = config.soundEnabled;
     
-    // Jeśli nie skonfigurowano wcześniej
-    if (!config.configured) {
-        if (!wifiManager.autoConnect("HydroSense_Setup")) {
-            Serial.println("Failed to connect and hit timeout");
-            ESP.restart();
-        }
-        
-        config.configured = true;
-        saveConfig();
+    setupPin();
+    
+    // Nawiązanie połączenia WiFi
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.print("Łączenie z WiFi");
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+        ESP.wdtFeed(); // Reset watchdoga podczas łączenia
     }
-    
-    setupServer();  // Inicjalizacja serwera web
+    DEBUG_PRINT("\nPołączono z WiFi");
 
     // Próba połączenia MQTT
     DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
@@ -1157,11 +877,10 @@ void setup() {
     if (loadConfig()) {        
         status.soundEnabled = config.soundEnabled;  // Synchronizuj stan dźwięku z wczytanej konfiguracji
     }
-        
-    status.lastSoundAlert = millis();
+    
     firstUpdateHA();
-    setupServer();
-
+    status.lastSoundAlert = millis();
+    
     // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
     ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
     ArduinoOTA.setPassword("hydrosense");  // Ustaw hasło dla OTA
@@ -1185,18 +904,16 @@ void loop() {
     // Zabezpieczenie przed zawieszeniem systemu
     ESP.wdtFeed();  // Resetowanie licznika watchdog
     yield();  // Obsługa krytycznych zadań systemowych ESP8266
-    reconnectWiFi();
     
     // System aktualizacji bezprzewodowej
     ArduinoOTA.handle();  // Nasłuchiwanie żądań aktualizacji OTA
 
     // ZARZĄDZANIE ŁĄCZNOŚCIĄ
     
-    if (WiFi.status() != WL_CONNECTED && !WiFi.softAPgetStationNum()) {
-        // Jeśli nie ma połączenia WiFi i nikt nie jest połączony do AP
-        reconnectWiFi();
-        delay(5000);  // Odczekaj 5 sekund przed kolejną próbą
-        return;
+    // Sprawdzanie i utrzymanie połączenia WiFi
+    if (WiFi.status() != WL_CONNECTED) {
+        setupWiFi();    // Próba ponownego połączenia z siecią
+        return;         // Powrót do początku pętli po próbie połączenia
     }
     
     // Zarządzanie połączeniem MQTT
@@ -1204,7 +921,7 @@ void loop() {
         if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
             lastMQTTRetry = currentMillis;
             DEBUG_PRINT("\nBrak połączenia MQTT - próba reconnect...");
-            if (mqtt.begin(config.mqtt_server, config.mqtt_port, config.mqtt_user, config.mqtt_password)) {
+            if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
                 DEBUG_PRINT("MQTT połączono ponownie!");
             }
         }
