@@ -411,31 +411,31 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 // --- Deklaracje funkcji związanych z siecią
 
 // Konfiguracja i zarządzanie połączeniem WiFi
-void setupWiFi() {
-    // Zmienne statyczne zachowujące wartość między wywołaniami
-    static unsigned long lastWiFiCheck = 0;  // Czas ostatniej próby połączenia
-    static bool wifiInitiated = false;  // Flaga pierwszej inicjalizacji WiFi
+// void setupWiFi() {
+//     // Zmienne statyczne zachowujące wartość między wywołaniami
+//     static unsigned long lastWiFiCheck = 0;  // Czas ostatniej próby połączenia
+//     static bool wifiInitiated = false;  // Flaga pierwszej inicjalizacji WiFi
     
-    ESP.wdtFeed();  // Reset watchdoga
+//     ESP.wdtFeed();  // Reset watchdoga
     
-    // Pierwsza inicjalizacja WiFi
-    if (!wifiInitiated) {
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  // Rozpoczęcie połączenia z siecią
-        wifiInitiated = true;  // Ustawienie flagi inicjalizacji
-        return;
-    }
+//     // Pierwsza inicjalizacja WiFi
+//     if (!wifiInitiated) {
+//         WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  // Rozpoczęcie połączenia z siecią
+//         wifiInitiated = true;  // Ustawienie flagi inicjalizacji
+//         return;
+//     }
     
-    // Sprawdzenie stanu połączenia
-    if (WiFi.status() != WL_CONNECTED) {  // Jeśli nie połączono z siecią
-        if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {  // Sprawdź czy minął interwał
-            Serial.print(".");  // Wskaźnik aktywności
-            lastWiFiCheck = millis();  // Aktualizacja czasu ostatniej próby
-            if (WiFi.status() == WL_DISCONNECTED) {  // Jeśli sieć jest dostępna ale rozłączona
-                WiFi.reconnect();  // Próba ponownego połączenia
-            }
-        }
-    }
-}
+//     // Sprawdzenie stanu połączenia
+//     if (WiFi.status() != WL_CONNECTED) {  // Jeśli nie połączono z siecią
+//         if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {  // Sprawdź czy minął interwał
+//             Serial.print(".");  // Wskaźnik aktywności
+//             lastWiFiCheck = millis();  // Aktualizacja czasu ostatniej próby
+//             if (WiFi.status() == WL_DISCONNECTED) {  // Jeśli sieć jest dostępna ale rozłączona
+//                 WiFi.reconnect();  // Próba ponownego połączenia
+//             }
+//         }
+//     }
+// }
 
 void reconnectWiFi() {
     // Próbuj połączyć się z zapisaną siecią
