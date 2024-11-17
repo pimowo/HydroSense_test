@@ -148,6 +148,29 @@ float volume = 0;
 unsigned long pumpStartTime = 0;
 float waterLevelBeforePump = 0;
 
+void debugPrint(const __FlashStringHelper* message) {
+    if (config.debugEnabled) {
+        Serial.println(message);
+    }
+}
+
+void debugPrint(const char* message) {
+    if (config.debugEnabled) {
+        Serial.println(message);
+    }
+}
+
+void debugPrintf(const char* format, ...) {
+    if (config.debugEnabled) {
+        va_list args;
+        va_start(args, format);
+        char buf[128];
+        vsnprintf(buf, sizeof(buf), format, args);
+        Serial.print(buf);
+        va_end(args);
+    }
+}
+
 // --- EEPROM
 
 // Ustawienia domyślne
@@ -158,7 +181,7 @@ void setDefaultConfig() {
     //config.checksum = calculateChecksum(config);
 
     saveConfig();
-    Serial.println(F("Utworzono domyślną konfigurację"));
+    debugPrint(F("Utworzono domyślną konfigurację"));
 }
 
 // Wczytywanie konfiguracji
@@ -167,14 +190,14 @@ bool loadConfig() {
     EEPROM.get(0, config);
     
     if (config.version != CONFIG_VERSION) {
-        Serial.println(F("Niekompatybilna wersja konfiguracji"));
+        debugPrint(F("Niekompatybilna wersja konfiguracji"));
         setDefaultConfig();
         return false;
     }
     
     char calculatedChecksum = calculateChecksum(config);
     if (config.checksum != calculatedChecksum) {
-        Serial.println(F("Błąd sumy kontrolnej"));
+        debugPrint(F("Błąd sumy kontrolnej"));
         setDefaultConfig();
         return false;
     }
@@ -235,9 +258,9 @@ void checkAlarmConditions() {
             status.lastSoundAlert = currentTime;
             
             // Debug info
-            Serial.println(F("Alarm dźwiękowy - przyczyna:"));
-            if (status.pumpSafetyLock) Serial.println(F("- Alarm pompy"));
-            if (status.isServiceMode) Serial.println(F("- Tryb serwisowy"));
+            debugPrint(F("Alarm dźwiękowy - przyczyna:"));
+            if (status.pumpSafetyLock) debugPrint(F("- Alarm pompy"));
+            if (status.isServiceMode) debugPrint(F("- Tryb serwisowy"));
         }
     }
 }
@@ -250,7 +273,7 @@ void updateAlarmStates(float currentDistance) {
     if (currentDistance >= ODLEGLOSC_PUSTY && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
         sensorAlarm.setValue("ON");               
-        Serial.println("Brak wody ON");
+        debugPrint("Brak wody ON");
     } 
     // Wyłącz alarm jeśli:
     // - odległość spadła poniżej progu wyłączenia (z histerezą)
@@ -258,7 +281,7 @@ void updateAlarmStates(float currentDistance) {
     else if (currentDistance < (ODLEGLOSC_PUSTY - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
         sensorAlarm.setValue("OFF");
-        Serial.println("Brak wody OFF");
+        debugPrint("Brak wody OFF");
     }
 
     // --- Obsługa ostrzeżenia o rezerwie wody ---
@@ -268,7 +291,7 @@ void updateAlarmStates(float currentDistance) {
     if (currentDistance >= REZERWA_ODLEGLOSC && !status.waterReserveActive) {
         status.waterReserveActive = true;
         sensorReserve.setValue("ON");
-        Serial.println("Rezerwa ON");
+        debugPrint("Rezerwa ON");
     } 
     // Wyłącz ostrzeżenie o rezerwie jeśli:
     // - odległość spadła poniżej progu rezerwy (z histerezą)
@@ -276,7 +299,7 @@ void updateAlarmStates(float currentDistance) {
     else if (currentDistance < (REZERWA_ODLEGLOSC - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
         sensorReserve.setValue("OFF");
-        Serial.println("Rezerwa OFF");
+        debugPrint("Rezerwa OFF");
     }
 }
 
@@ -376,11 +399,11 @@ void setupWiFi() {
  */
 bool connectMQTT() {   
     if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        Serial.println("\nBŁĄD POŁĄCZENIA MQTT!");
+        debugPrint("\nBŁĄD POŁĄCZENIA MQTT!");
         return false;
     }
     
-    Serial.println("MQTT połączono pomyślnie!");
+    debugPrint("MQTT połączono pomyślnie!");
     return true;
 }
 
@@ -459,7 +482,7 @@ void configOTA() {
     });
     
     ArduinoOTA.onEnd([]() {
-        Serial.println("\nKoniec OTA");
+        debugPrint("\nKoniec OTA");
         WiFi.disconnect(true);
         mqtt.disconnect();
         delay(100);
@@ -467,20 +490,20 @@ void configOTA() {
     });
     
     ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-        Serial.printf("Postęp: %u%%\r", (progress / (total / 100)));
+        Serial.println("Postęp: %u%%\r", (progress / (total / 100)));
     });
     
     ArduinoOTA.onError([](ota_error_t error) {
-        Serial.printf("Error[%u]: ", error);
+        Serial.println("Error[%u]: ", error);
         if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
         else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
         else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
         else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-        else if (error == OTA_END_ERROR) Serial.println("End Failed");
+        else if (error == OTA_END_ERROR) debugPrint("End Failed");
     });
     
     ArduinoOTA.begin();
-    Serial.println("OTA Gotowy");
+    debugPrint("OTA Gotowy");
 }
 
 // --- Deklaracje funkcji ogólnych
@@ -615,7 +638,7 @@ int measureDistance() {
         unsigned long startWaiting = millis();
         while (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
             if (millis() - startWaiting > 100) {
-                Serial.println("Timeout - brak początku echa");
+                debugPrint("Timeout - brak początku echa");
                 return -1;  // Błąd - brak odpowiedzi od czujnika
             }
         }
@@ -627,7 +650,7 @@ int measureDistance() {
         // Timeout 20ms - teoretyczny max dla 3.4m to około 20ms
         while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
             if (micros() - echoStartTime > 20000) {
-                Serial.println("Timeout - zbyt długie echo");
+                debugPrint("Timeout - zbyt długie echo");
                 return -1;  // Błąd - echo trwa zbyt długo
             }
         }
@@ -791,7 +814,7 @@ void handleButton() {
                 status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
                 switchPump.setState(false, true);  // force update w HA
                 buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
-                Serial.println("Alarm pompy skasowany");
+                debugPrint("Alarm pompy skasowany");
             }
         }
     }
@@ -830,18 +853,18 @@ void onDebugSwitchCommand(bool state, HASwitch* sender) {
     // Aktualizuj stan w Home Assistant
     switchDebug.setState(state, true);  // force update
     
-    Serial.printf("Zmieniono stan debugowania na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
+    debugPrint("Zmieniono stan debugowania na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // --- Setup
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
-    Serial.println("\nStarting HydroSense...");  // Komunikat startowy
+    debugPrint("\nStarting HydroSense...");  // Komunikat startowy
     
     // Wczytaj konfigurację
     if (!loadConfig()) {
-        Serial.println(F("Tworzenie nowej konfiguracji..."));
+        debugPrint(F("Tworzenie nowej konfiguracji..."));
         setDefaultConfig();
     }
     
@@ -858,12 +881,12 @@ void setup() {
         Serial.print(".");
         ESP.wdtFeed(); // Reset watchdoga podczas łączenia
     }
-    Serial.println("\nPołączono z WiFi");
+    debugPrint("\nPołączono z WiFi");
 
     configOTA();
 
     // Próba połączenia MQTT
-    Serial.println("Rozpoczynam połączenie MQTT...");
+    debugPrint("Rozpoczynam połączenie MQTT...");
     connectMQTT();
 
     setupHA();
@@ -877,7 +900,7 @@ void setup() {
     firstUpdateHA();
     status.lastSoundAlert = millis();
     
-    Serial.println("Setup zakończony pomyślnie!");
+    debugPrint("Setup zakończony pomyślnie!");
     
     if (status.soundEnabled) {
         //welcomeMelody();
@@ -911,9 +934,9 @@ void loop() {
     if (!mqtt.isConnected()) {
         if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
             lastMQTTRetry = currentMillis;
-            Serial.println("\nBrak połączenia MQTT - próba reconnect...");
+            debugPrint("\nBrak połączenia MQTT - próba reconnect...");
             if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-                Serial.println("MQTT połączono ponownie!");
+                debugPrint("MQTT połączono ponownie!");
             }
         }
     }
