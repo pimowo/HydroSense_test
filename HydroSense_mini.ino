@@ -126,14 +126,15 @@ struct Config {
     char mqtt_server[40];
     char mqtt_user[32];
     char mqtt_password[32];
-    int tank_full;
-    int tank_empty;
-    int reserve_level;
-    int hysteresis;
-    int tank_diameter;
-    int sensor_avg_samples;
-    int pump_delay;
-    int pump_work_time;
+    int mqtt_port;
+    int TANK_FULL;
+    int TANK_EMPTY;
+    int RESERVE_LEVEL;
+    int HYSTERESIS;
+    int TANK_DIAMETER;
+    int SENSOR_AVG_SAMPLES;
+    int PUMP_DELAY;
+    int PUMP_WORK_TIME;
     bool configured;  // flaga indicating if initial setup was done
     char checksum;  // Suma kontrolna
 };
