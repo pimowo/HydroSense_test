@@ -42,7 +42,7 @@ const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnała
 #define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
 // Definicja debugowania - ustaw 1 aby włączyć, 0 aby wyłączyć
-#define DEBUG 1
+#define DEBUG 0
 
 #if DEBUG
     #define DEBUG_PRINT(x) Serial.println(x)
@@ -55,22 +55,22 @@ const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnała
 // Stałe konfiguracyjne zbiornika
 // Wszystkie odległości w milimetrach od czujnika do powierzchni wody
 // Mniejsza odległość = wyższy poziom wody
-const int TANK_FULL = 65;      // Odległość gdy zbiornik jest pełny (mm)
-const int TANK_EMPTY = 510;    // Odległość gdy zbiornik jest pusty (mm)
+const int TANK_FULL = 65;  // Odległość gdy zbiornik jest pełny (mm)
+const int TANK_EMPTY = 510;  // Odległość gdy zbiornik jest pusty (mm)
 const int RESERVE_LEVEL = 450;  // Poziom rezerwy wody (mm)
-const int HYSTERESIS = 10; // Histereza przy zmianach poziomu (mm)
+const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
 const int TANK_DIAMETER = 150;  // Średnica zbiornika (mm)
 const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
-const int PUMP_DELAY = 5;      // Opóźnienie uruchomienia pompy (sekundy)
-const int PUMP_WORK_TIME = 15;  // Czas pracy pompy
+const int PUMP_DELAY = 5;  // Opóźnienie uruchomienia pompy (sekundy)
+const int PUMP_WORK_TIME = 5;  // Czas pracy pompy
 
-float aktualnaOdleglosc = 0;              // Aktualny dystans
-unsigned long ostatniCzasDebounce = 0;     // Ostatni czas zmiany stanu przycisku
+float aktualnaOdleglosc = 0;  // Aktualny dystans
+unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
 
 // Obiekty do komunikacji
-WiFiClient client;              // Klient połączenia WiFi
+WiFiClient client;  // Klient połączenia WiFi
 HADevice device("HydroSense");  // Definicja urządzenia dla Home Assistant
-HAMqtt mqtt(client, device);    // Klient MQTT dla Home Assistant
+HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
 
 // Sensory pomiarowe
 HASensor sensorDistance("water_level");                   // Odległość od lustra wody (w mm)
@@ -224,6 +224,13 @@ char calculateChecksum(const Config& cfg) {
 void playShortWarningSound() {
     if (config.soundEnabled) {
         tone(BUZZER_PIN, 2000, 100); // Krótkie piknięcie (2000Hz, 100ms)
+    }
+}
+
+// Sygnał potwierdzenia
+void playConfirmationSound() {
+    if (config.soundEnabled) {
+        tone(BUZZER_PIN, 2000, 200); // Dłuższe piknięcie (2000Hz, 200ms)
     }
 }
 
@@ -381,7 +388,9 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
     // Reset blokady bezpieczeństwa pompy następuje tylko gdy przełącznik 
     // zostanie ustawiony na false (wyłączony)
     if (!state) {
+        playConfirmationSound();  // Sygnał potwierdzenia zmiany trybu
         status.pumpSafetyLock = false;  // Wyłącz blokadę bezpieczeństwa pompy
+        switchPump.setState(false);  // Aktualizuj stan przełącznika w HA na OFF        
     }
 }
 
@@ -553,6 +562,7 @@ void firstUpdateHA() {
  * - Resetuje stan opóźnienia pompy
  */
 void onServiceSwitchCommand(bool state, HASwitch* sender) {
+    playConfirmationSound();  // Sygnał potwierdzenia zmiany trybu
     status.isServiceMode = state;  // Ustawienie flagi trybu serwisowego
     buttonState.lastState = HIGH;  // Reset stanu przycisku
     
@@ -767,6 +777,7 @@ void handleButton() {
                 if (buttonState.releasedTime - buttonState.pressedTime < LONG_PRESS_TIME) {
                     // Przełącz tryb serwisowy
                     status.isServiceMode = !status.isServiceMode;
+                    playConfirmationSound();  // Sygnał potwierdzenia zmiany trybu
                     switchService.setState(status.isServiceMode, true);  // force update w HA
                     
                     // Log zmiany stanu
@@ -789,6 +800,7 @@ void handleButton() {
             if (millis() - buttonState.pressedTime >= LONG_PRESS_TIME) {
                 ESP.wdtFeed();  // Reset przy długim naciśnięciu
                 status.pumpSafetyLock = false;  // Zdjęcie blokady pompy
+                playConfirmationSound();  // Sygnał potwierdzenia zmiany trybu
                 switchPump.setState(false, true);  // force update w HA
                 buttonState.isLongPressHandled = true;  // Oznacz jako obsłużone
                 DEBUG_PRINT("Alarm pompy skasowany");
@@ -818,6 +830,11 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     
     // Aktualizuj stan w Home Assistant
     switchSound.setState(state, true);  // force update
+    
+    // Zagraj dźwięk potwierdzenia tylko gdy włączamy dźwięk
+    if (state) {
+        playConfirmationSound();
+    }
     
     Serial.printf("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
