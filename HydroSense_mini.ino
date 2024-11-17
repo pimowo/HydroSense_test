@@ -5,6 +5,7 @@
 #include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
 #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
 #include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
+#include <stdarg.h>
 
 // --- Definicje stałych i zmiennych globalnych
 
@@ -490,15 +491,15 @@ void configOTA() {
     });
     
     ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-        Serial.println("Postęp: %u%%\r", (progress / (total / 100)));
+        Serial.printf("Postęp: %u%%\r", (progress / (total / 100)));
     });
     
     ArduinoOTA.onError([](ota_error_t error) {
-        Serial.println("Error[%u]: ", error);
-        if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-        else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR) Serial.printf("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR) Serial.printf("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR) Serial.printf("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR) Serial.printf("Receive Failed");
         else if (error == OTA_END_ERROR) debugPrint("End Failed");
     });
     
@@ -853,7 +854,7 @@ void onDebugSwitchCommand(bool state, HASwitch* sender) {
     // Aktualizuj stan w Home Assistant
     switchDebug.setState(state, true);  // force update
     
-    debugPrint("Zmieniono stan debugowania na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
+    debugPrintf("Zmieniono stan debugowania na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // --- Setup
