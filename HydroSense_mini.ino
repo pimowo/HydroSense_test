@@ -7,9 +7,10 @@
 #include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
 
 #include <WiFiManager.h>          // https://github.com/tzapu/WiFiManager
-#include <ESPAsyncWebServer.h>    // https://github.com/me-no-dev/ESPAsyncWebServer
 #include <AsyncJson.h>
 #include <ArduinoJson.h>
+#include <FS.h>
+#include <ESP8266WebServer.h>
 
 // --- Definicje stałych i zmiennych globalnych
 
@@ -95,7 +96,7 @@ HASwitch switchPumpAlarm("pump_alarm");                        // Przełącznik 
 HASwitch switchService("service_mode");                   // Przełącznik trybu serwisowego
 HASwitch switchSound("sound_switch");                     // Przełącznik dźwięku alarmu
 
-AsyncWebServer server(80);
+ESP8266WebServer server(80);
 WiFiManager wifiManager;
 
 // --- Deklaracje funkcji i struktury
@@ -123,10 +124,11 @@ struct Config {
     bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
     char wifi_ssid[32];
     char wifi_password[64];
+    bool mqtt_enabled;  // Czy MQTT jest włączone
     char mqtt_server[40];
+    int mqtt_port;      // Port MQTT (domyślnie 1883)
     char mqtt_user[32];
     char mqtt_password[32];
-    int mqtt_port;
     int TANK_FULL;
     int TANK_EMPTY;
     int RESERVE_LEVEL;
@@ -139,23 +141,6 @@ struct Config {
     char checksum;  // Suma kontrolna
 };
 Config config;
-
-void setDefaultConfig() {
-    memset(&config, 0, sizeof(Config));
-    config.TANK_FULL = 50;           // Pełny zbiornik
-    config.TANK_EMPTY = 100;         // Pusty zbiornik
-    config.RESERVE_LEVEL = 90;       // Rezerwa
-    config.HYSTERESIS = 10;          // Histereza
-    config.TANK_DIAMETER = 100;      // Średnica zbiornika
-    config.SENSOR_AVG_SAMPLES = 3;   // Ilość próbek do mediany
-    config.PUMP_DELAY = 10;        // Opóźnienie załączenia pompy
-    config.PUMP_WORK_TIME = 60;   // CZas pracy pompy
-    config.configured = false;
-    strcpy(config.mqtt_server, "");
-    strcpy(config.mqtt_user, "");
-    strcpy(config.mqtt_password, "");
-    saveConfig();
-}
 
 // Struktura dla obsługi przycisku
 struct ButtonState {
@@ -204,6 +189,18 @@ float waterLevelBeforePump = 0;
 void setDefaultConfig() {
     config.version = CONFIG_VERSION;
     config.soundEnabled = true;  // Domyślnie dźwięk włączony
+    config.TANK_FULL = 50;           // Pełny zbiornik
+    config.TANK_EMPTY = 100;         // Pusty zbiornik
+    config.RESERVE_LEVEL = 90;       // Rezerwa
+    config.HYSTERESIS = 10;          // Histereza
+    config.TANK_DIAMETER = 100;      // Średnica zbiornika
+    config.SENSOR_AVG_SAMPLES = 3;   // Ilość próbek do mediany
+    config.PUMP_DELAY = 10;        // Opóźnienie załączenia pompy
+    config.PUMP_WORK_TIME = 60;   // CZas pracy pompy
+    config.configured = false;
+    strcpy(config.mqtt_server, "");
+    strcpy(config.mqtt_user, "");
+    strcpy(config.mqtt_password, "");
     config.checksum = calculateChecksum(config);
 
     saveConfig();
@@ -501,12 +498,13 @@ void reconnectWiFi() {
  * 
  * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
  */
-bool connectMQTT() {   
-    if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        DEBUG_PRINT("\nBŁĄD POŁĄCZENIA MQTT!");
-        return false;
-    }
-    
+bool connectMQTT() {
+    if (!mqtt.connected()) {
+        if (!mqtt.begin(config.mqtt_server, config.mqtt_port, config.mqtt_user, config.mqtt_password)) {
+            Serial.println("Failed to connect to MQTT broker");
+            return false;
+        }
+    }    
     DEBUG_PRINT("MQTT połączono pomyślnie!");
     return true;
 }
@@ -1046,86 +1044,66 @@ const char index_html[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 void setupServer() {
-    // Obsługa plików statycznych (HTML, CSS, JS)
-    server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html");
+    server.on("/", HTTP_GET, []() {
+        File file = SPIFFS.open("/index.html", "r");
+        server.streamFile(file, "text/html");
+        file.close();
+    });
 
-    // Endpoint do pobierania konfiguracji
-    server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest *request) {
-        DynamicJsonDocument doc(1024);
+    server.on("/api/config", HTTP_GET, []() {
+        StaticJsonDocument<1024> doc;
         
         doc["mqtt_server"] = config.mqtt_server;
         doc["mqtt_user"] = config.mqtt_user;
-        doc["tank_full"] = config.tank_full;
-        doc["tank_empty"] = config.tank_empty;
-        doc["reserve_level"] = config.reserve_level;
-        doc["hysteresis"] = config.hysteresis;
-        doc["tank_diameter"] = config.tank_diameter;
-        doc["sensor_avg_samples"] = config.sensor_avg_samples;
-        doc["pump_delay"] = config.pump_delay;
-        doc["pump_work_time"] = config.pump_work_time;
+        doc["mqtt_password"] = config.mqtt_password;
+        doc["mqtt_port"] = config.mqtt_port;
+        doc["tank_full"] = config.TANK_FULL;
+        doc["tank_empty"] = config.TANK_EMPTY;
+        doc["reserve_level"] = config.RESERVE_LEVEL;
+        doc["hysteresis"] = config.HYSTERESIS;
+        doc["tank_diameter"] = config.TANK_DIAMETER;
+        doc["sensor_avg_samples"] = config.SENSOR_AVG_SAMPLES;
+        doc["pump_delay"] = config.PUMP_DELAY;
+        doc["pump_work_time"] = config.PUMP_WORK_TIME;
         
         String response;
         serializeJson(doc, response);
-        request->send(200, "application/json", response);
+        server.send(200, "application/json", response);
     });
 
-    // Handler do zapisywania konfiguracji
-    AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler(
-        "/api/config",
-        [](AsyncWebServerRequest *request, JsonVariant &json) {
-            if (json.is<JsonObject>()) {
-                JsonObject jsonObj = json.as<JsonObject>();
+    server.on("/api/config", HTTP_POST, []() {
+        if (server.hasArg("plain")) {
+            String json = server.arg("plain");
+            StaticJsonDocument<1024> doc;
+            DeserializationError error = deserializeJson(doc, json);
+            
+            if (!error) {
+                bool needsSave = false;
                 
-                if (jsonObj.containsKey("mqtt_server")) {
-                    strlcpy(config.mqtt_server, 
-                           jsonObj["mqtt_server"] | "", 
-                           sizeof(config.mqtt_server));
-                }
-                if (jsonObj.containsKey("mqtt_user")) {
-                    strlcpy(config.mqtt_user, 
-                           jsonObj["mqtt_user"] | "", 
-                           sizeof(config.mqtt_user));
-                }
-                if (jsonObj.containsKey("mqtt_password")) {
-                    strlcpy(config.mqtt_password, 
-                           jsonObj["mqtt_password"] | "", 
-                           sizeof(config.mqtt_password));
-                }
-                if (jsonObj.containsKey("tank_full")) {
-                    config.tank_full = jsonObj["tank_full"].as<int>();
-                }
-                if (jsonObj.containsKey("tank_empty")) {
-                    config.tank_empty = jsonObj["tank_empty"].as<int>();
-                }
-                if (jsonObj.containsKey("reserve_level")) {
-                    config.reserve_level = jsonObj["reserve_level"].as<int>();
-                }
-                if (jsonObj.containsKey("hysteresis")) {
-                    config.hysteresis = jsonObj["hysteresis"].as<int>();
-                }
-                if (jsonObj.containsKey("tank_diameter")) {
-                    config.tank_diameter = jsonObj["tank_diameter"].as<int>();
-                }
-                if (jsonObj.containsKey("sensor_avg_samples")) {
-                    config.sensor_avg_samples = jsonObj["sensor_avg_samples"].as<int>();
-                }
-                if (jsonObj.containsKey("pump_delay")) {
-                    config.pump_delay = jsonObj["pump_delay"].as<int>();
-                }
-                if (jsonObj.containsKey("pump_work_time")) {
-                    config.pump_work_time = jsonObj["pump_work_time"].as<int>();
+                if (doc.containsKey("mqtt_server")) {
+                    strlcpy(config.mqtt_server, doc["mqtt_server"] | "", sizeof(config.mqtt_server));
+                    needsSave = true;
                 }
                 
-                config.configured = true;
-                saveConfig();
-                request->send(200, "application/json", "{\"status\":\"ok\"}");
+                if (doc.containsKey("mqtt_port")) {
+                    config.mqtt_port = doc["mqtt_port"] | 1883;
+                    needsSave = true;
+                }
+                
+                // Dodaj podobne warunki dla innych pól
+                
+                if (needsSave) {
+                    saveConfig();
+                    server.send(200, "application/json", "{\"status\":\"ok\"}");
+                } else {
+                    server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"No changes\"}");
+                }
             } else {
-                request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
+                server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
             }
         }
-    );
-    
-    server.addHandler(handler);
+    });
+
     server.begin();
 }
 
@@ -1158,35 +1136,30 @@ void setup() {
 
     // Sprawdź czy to pierwsze uruchomienie
     // Inicjalizacja SPIFFS dla plików WWW
-    if(!SPIFFS.begin()){
-        Serial.println("An Error has occurred while mounting SPIFFS");
+    // Inicjalizacja SPIFFS
+        // Inicjalizacja SPIFFS
+    if (!SPIFFS.begin()) {
+        Serial.println("Failed to mount file system");
         return;
     }
-
-    // Wczytaj konfigurację lub ustaw wartości domyślne
+    
+    // Wczytaj konfigurację
     if (!loadConfig()) {
         setDefaultConfig();
-        
-        // Utworzenie Access Point do konfiguracji
-        AsyncWiFiManager wifiManager(&server, &dns);
-        wifiManager.autoConnect("HydroSense_Setup");
-    } else {
-        // Połącz z zapisaną siecią WiFi
-        WiFi.begin(config.wifi_ssid, config.wifi_password);
-        
-        // Czekaj na połączenie
-        int i = 0;
-        while (WiFi.status() != WL_CONNECTED && i < 30) {
-            delay(1000);
-            Serial.print(".");
-            i++;
+    }
+    
+    // Inicjalizacja WiFiManager
+    WiFiManager wifiManager;
+    
+    // Jeśli nie skonfigurowano wcześniej
+    if (!config.configured) {
+        if (!wifiManager.autoConnect("HydroSense_Setup")) {
+            Serial.println("Failed to connect and hit timeout");
+            ESP.restart();
         }
         
-        if (WiFi.status() != WL_CONNECTED) {
-            // Jeśli nie udało się połączyć, uruchom tryb AP
-            AsyncWiFiManager wifiManager(&server, &dns);
-            wifiManager.autoConnect("HydroSense_Setup");
-        }
+        config.configured = true;
+        saveConfig();
     }
     
     setupServer();  // Inicjalizacja serwera web
@@ -1229,6 +1202,7 @@ void loop() {
     // Zabezpieczenie przed zawieszeniem systemu
     ESP.wdtFeed();  // Resetowanie licznika watchdog
     yield();  // Obsługa krytycznych zadań systemowych ESP8266
+    reconnectWiFi();
     
     // System aktualizacji bezprzewodowej
     ArduinoOTA.handle();  // Nasłuchiwanie żądań aktualizacji OTA
