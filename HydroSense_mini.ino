@@ -1,16 +1,15 @@
 // --- Biblioteki
 
 #include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
+#include <ArduinoJson.h>
+#include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>          // https://github.com/tzapu/WiFiManager
+#include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
+#include <FS.h>
+
 #include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
 #include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
-#include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
-#include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
-
-#include <WiFiManager.h>          // https://github.com/tzapu/WiFiManager
-#include <AsyncJson.h>
-#include <ArduinoJson.h>
-#include <FS.h>
-#include <ESP8266WebServer.h>
 
 // --- Definicje stałych i zmiennych globalnych
 
@@ -1043,6 +1042,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
+// Funkcja setupServer()
 void setupServer() {
     server.on("/", HTTP_GET, []() {
         File file = SPIFFS.open("/index.html", "r");
@@ -1051,8 +1051,7 @@ void setupServer() {
     });
 
     server.on("/api/config", HTTP_GET, []() {
-        String response;
-        StaticJsonDocument<1024> doc;  // Use StaticJsonDocument for small JSON objects
+        StaticJsonDocument<1024> doc;
         
         doc["mqtt_server"] = config.mqtt_server;
         doc["mqtt_user"] = config.mqtt_user;
@@ -1067,6 +1066,7 @@ void setupServer() {
         doc["pump_delay"] = config.PUMP_DELAY;
         doc["pump_work_time"] = config.PUMP_WORK_TIME;
         
+        String response;
         serializeJson(doc, response);
         server.send(200, "application/json", response);
     });
@@ -1074,23 +1074,26 @@ void setupServer() {
     server.on("/api/config", HTTP_POST, []() {
         if (server.hasArg("plain")) {
             String json = server.arg("plain");
-            StaticJsonDocument<1024> doc;
-            DeserializationError err = deserializeJson(doc, json);
             
-            if (!err) {
+            StaticJsonDocument<1024> doc;
+            DeserializationError error = deserializeJson(doc, json);
+            
+            if (!error) {
                 bool needsSave = false;
                 
                 if (doc.containsKey("mqtt_server")) {
-                    strlcpy(config.mqtt_server, doc["mqtt_server"] | "", sizeof(config.mqtt_server));
-                    needsSave = true;
+                    const char* mqtt_server = doc["mqtt_server"];
+                    if (mqtt_server) {
+                        strncpy(config.mqtt_server, mqtt_server, sizeof(config.mqtt_server) - 1);
+                        config.mqtt_server[sizeof(config.mqtt_server) - 1] = '\0';
+                        needsSave = true;
+                    }
                 }
                 
                 if (doc.containsKey("mqtt_port")) {
-                    config.mqtt_port = doc["mqtt_port"] | 1883;
+                    config.mqtt_port = doc["mqtt_port"].as<int>();
                     needsSave = true;
                 }
-                
-                // Dodaj podobne warunki dla innych pól
                 
                 if (needsSave) {
                     saveConfig();
@@ -1099,8 +1102,11 @@ void setupServer() {
                     server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"No changes\"}");
                 }
             } else {
-                server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
+                String errorMsg = String("{\"status\":\"error\",\"message\":\"") + error.c_str() + "\"}";
+                server.send(400, "application/json", errorMsg);
             }
+        } else {
+            server.send(400, "application/json", "{\"status\":\"error\",\"message\":\"No data\"}");
         }
     });
 
@@ -1112,32 +1118,9 @@ void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
     DEBUG_PRINT("\nStarting HydroSense...");  // Komunikat startowy
-    
-    // Wczytaj konfigurację
-    // if (!loadConfig()) {
-    //     DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
-    //     setDefaultConfig();
-    // }
-    
-    // Zastosuj wczytane ustawienia
-    //status.soundEnabled = config.soundEnabled;
-    
+        
     setupPin();
-    
-    // Nawiązanie połączenia WiFi
-    // WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    // Serial.print("Łączenie z WiFi");
-    // while (WiFi.status() != WL_CONNECTED) {
-    //     delay(500);
-    //     Serial.print(".");
-    //     ESP.wdtFeed(); // Reset watchdoga podczas łączenia
-    // }
-    // DEBUG_PRINT("\nPołączono z WiFi");
 
-    // Sprawdź czy to pierwsze uruchomienie
-    // Inicjalizacja SPIFFS dla plików WWW
-    // Inicjalizacja SPIFFS
-        // Inicjalizacja SPIFFS
     if (!SPIFFS.begin()) {
         Serial.println("Failed to mount file system");
         return;
