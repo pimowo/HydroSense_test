@@ -20,13 +20,13 @@ const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
 #define PIN_ULTRASONIC_ECHO D7  // Pin ECHO czujnika ultradźwiękowego
 
 #define PIN_WATER_LEVEL D5  // Pin czujnika poziomu wody w akwarium
-#define POMPA_PIN D1       // Pin sterowania pompą
-#define BUZZER_PIN D2           // Pin buzzera do alarmów dźwiękowych
-#define PRZYCISK_PIN D3           // Pin przycisku do kasowania alarmów
+#define POMPA_PIN D1  // Pin sterowania pompą
+#define BUZZER_PIN D2  // Pin buzzera do alarmów dźwiękowych
+#define PRZYCISK_PIN D3  // Pin przycisku do kasowania alarmów
 
 // Stałe czasowe (wszystkie wartości w milisekundach)
 const unsigned long ULTRASONIC_TIMEOUT = 50;       // Timeout pomiaru czujnika ultradźwiękowego
-const unsigned long MEASUREMENT_INTERVAL = 10000;  // Interwał między pomiarami
+const unsigned long MEASUREMENT_INTERVAL = 15000;  // Interwał między pomiarami
 const unsigned long WIFI_CHECK_INTERVAL = 5000;    // Interwał sprawdzania połączenia WiFi
 const unsigned long WATCHDOG_TIMEOUT = 8000;       // Timeout dla watchdoga
 const unsigned long PUMP_MAX_WORK_TIME = 300000;   // Maksymalny czas pracy pompy (5 minut)
@@ -60,11 +60,16 @@ const int TANK_EMPTY = 510;  // Odległość gdy zbiornik jest pusty (mm)
 const int RESERVE_LEVEL = 450;  // Poziom rezerwy wody (mm)
 const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
 const int TANK_DIAMETER = 150;  // Średnica zbiornika (mm)
-const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
+const int SENSOR_AVG_SAMPLES = 5;  // Liczba próbek do uśrednienia pomiaru
 const int PUMP_DELAY = 5;  // Opóźnienie uruchomienia pompy (sekundy)
 const int PUMP_WORK_TIME = 60;  // Czas pracy pompy
 
 float aktualnaOdleglosc = 0;  // Aktualny dystans
+float lastFilteredDistance = 0;
+const float EMA_ALPHA = 0.2;        // Współczynnik filtru EMA (0.0-1.0)
+const int MEASUREMENT_DELAY = 30;    // Opóźnienie między pomiarami w ms
+const int VALID_MARGIN = 20;        // Margines błędu pomiaru (mm)
+
 unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
 
 // Obiekty do komunikacji
@@ -611,81 +616,125 @@ float getCurrentWaterLevel() {
 //   - zmierzoną odległość w milimetrach (mediana z kilku pomiarów)
 //   - (-1) w przypadku błędu lub przekroczenia czasu odpowiedzi
 int measureDistance() {
-    int measurements[SENSOR_AVG_SAMPLES];  // Tablica do przechowywania pomiarów
+    int measurements[SENSOR_AVG_SAMPLES];
+    int validCount = 0;
+
+    // Rozszerzony zakres akceptowalnych pomiarów o margines
+    const int MIN_VALID_DISTANCE = TANK_FULL - VALID_MARGIN;      // 45mm
+    const int MAX_VALID_DISTANCE = TANK_EMPTY + VALID_MARGIN;     // 530mm
 
     for (int i = 0; i < SENSOR_AVG_SAMPLES; i++) {
-        // Generowanie impulsu wyzwalającego (trigger)
-        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że pin jest w stanie niskim
-        delayMicroseconds(5);  // Krótka pauza dla stabilizacji
-        digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);  // Wysłanie impulsu 10µs
-        delayMicroseconds(10);  // Czekaj 10µs
-        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Zakończ impuls
+        measurements[i] = -1; // Domyślna wartość błędu
+        
+        // Reset trigger
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+        delayMicroseconds(2);
+        
+        // Wysłanie impulsu 10µs
+        digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
 
-        // Oczekiwanie na początek sygnału echo
-        // Timeout 100ms chroni przed zawieszeniem jeśli czujnik nie odpowiada
-        unsigned long startWaiting = millis();
+        // Pomiar czasu odpowiedzi z timeoutem
+        unsigned long startTime = micros();
+        unsigned long timeout = startTime + 25000; // 25ms timeout
+        
+        // Czekaj na początek echa
+        bool validEcho = true;
         while (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
-            if (millis() - startWaiting > 100) {
-                DEBUG_PRINT("Timeout - brak początku echa");
-                return -1;  // Błąd - brak odpowiedzi od czujnika
+            if (micros() > timeout) {
+                DEBUG_PRINT(F("Echo start timeout"));
+                validEcho = false;
+                break;
+            }
+        }
+        
+        if (validEcho) {
+            startTime = micros();
+            
+            // Czekaj na koniec echa
+            while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
+                if (micros() > timeout) {
+                    DEBUG_PRINT(F("Echo end timeout"));
+                    validEcho = false;
+                    break;
+                }
+            }
+            
+            if (validEcho) {
+                unsigned long duration = micros() - startTime;
+                int distance = (duration * 343) / 2000; // Prędkość dźwięku 343 m/s
+
+                // Walidacja odległości z uwzględnieniem marginesu
+                if (distance >= MIN_VALID_DISTANCE && distance <= MAX_VALID_DISTANCE) {
+                    measurements[i] = distance;
+                    validCount++;
+                } else {
+                    DEBUG_PRINT(F("Distance out of range: "));
+                    DEBUG_PRINT(distance);
+                }
             }
         }
 
-        // Pomiar czasu początku echa (w mikrosekundach)
-        unsigned long echoStartTime = micros();
-
-        // Oczekiwanie na koniec sygnału echo
-        // Timeout 20ms - teoretyczny max dla 3.4m to około 20ms
-        while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
-            if (micros() - echoStartTime > 20000) {
-                DEBUG_PRINT("Timeout - zbyt długie echo");
-                return -1;  // Błąd - echo trwa zbyt długo
-            }
-        }
-
-        // Obliczenie czasu trwania echa (w mikrosekundach)
-        unsigned long duration = micros() - echoStartTime;
-
-        // Konwersja czasu na odległość
-        int distance = (duration * 343) / 2000;
-
-        // Walidacja wyniku
-        if (distance >= 20 && distance <= 1500) {
-            measurements[i] = distance;  // Zapis poprawnego pomiaru
-        } else {
-            measurements[i] = -1;  // Zapis błędnego pomiaru
-        }
-
-        delay(50);  // Krótka przerwa między pomiarami
+        delay(MEASUREMENT_DELAY);
     }
 
-    // Sortowanie pomiarów rosnąco
-    for (int i = 0; i < SENSOR_AVG_SAMPLES - 1; i++) {
-        for (int j = 0; j < SENSOR_AVG_SAMPLES - i - 1; j++) {
-            if (measurements[j] > measurements[j + 1]) {
-                int temp = measurements[j];
-                measurements[j] = measurements[j + 1];
-                measurements[j + 1] = temp;
+    // Sprawdź czy mamy wystarczająco dużo poprawnych pomiarów
+    if (validCount < (SENSOR_AVG_SAMPLES / 2)) {
+        DEBUG_PRINT(F("Too few valid measurements: "));
+        DEBUG_PRINT(validCount);
+        return -1;
+    }
+
+    // Przygotuj tablicę na poprawne pomiary
+    int validMeasurements[validCount];
+    int validIndex = 0;
+    
+    // Kopiuj tylko poprawne pomiary
+    for (int i = 0; i < SENSOR_AVG_SAMPLES; i++) {
+        if (measurements[i] != -1) {
+            validMeasurements[validIndex++] = measurements[i];
+        }
+    }
+
+    // Sortowanie
+    for (int i = 0; i < validCount - 1; i++) {
+        for (int j = 0; j < validCount - i - 1; j++) {
+            if (validMeasurements[j] > validMeasurements[j + 1]) {
+                int temp = validMeasurements[j];
+                validMeasurements[j] = validMeasurements[j + 1];
+                validMeasurements[j + 1] = temp;
             }
         }
     }
 
-    // Obliczenie mediany z pomiarów
-    if (SENSOR_AVG_SAMPLES % 2 == 0) {
-        // Jeśli liczba pomiarów jest parzysta, zwróć średnią z dwóch środkowych wartości
-        int midIndex = SENSOR_AVG_SAMPLES / 2;
-        if (measurements[midIndex - 1] == -1 || measurements[midIndex] == -1) {
-            return -1;  // Jeśli środkowe wartości są błędne, zwróć błąd
-        }
-        return (measurements[midIndex - 1] + measurements[midIndex]) / 2;
+    // Oblicz medianę
+    float medianValue;
+    if (validCount % 2 == 0) {
+        medianValue = (validMeasurements[(validCount-1)/2] + validMeasurements[validCount/2]) / 2.0;
     } else {
-        // Jeśli liczba pomiarów jest nieparzysta, zwróć środkową wartość
-        int midIndex = SENSOR_AVG_SAMPLES / 2;
-        if (measurements[midIndex] == -1) {
-            return -1;  // Jeśli środkowa wartość jest błędna, zwróć błąd
-        }
-        return measurements[midIndex];
+        medianValue = validMeasurements[validCount/2];
     }
+
+    // Zastosuj filtr EMA
+    if (lastFilteredDistance == 0) {
+        lastFilteredDistance = medianValue;
+    }
+    
+    // Zastosuj filtr EMA z ograniczeniem maksymalnej zmiany
+    float maxChange = 10.0; // maksymalna zmiana między pomiarami w mm
+    float currentChange = medianValue - lastFilteredDistance;
+    if (abs(currentChange) > maxChange) {
+        medianValue = lastFilteredDistance + (currentChange > 0 ? maxChange : -maxChange);
+    }
+    
+    lastFilteredDistance = (EMA_ALPHA * medianValue) + ((1 - EMA_ALPHA) * lastFilteredDistance);
+
+    // Końcowe ograniczenie do rzeczywistego zakresu zbiornika
+    if (lastFilteredDistance < TANK_FULL) lastFilteredDistance = TANK_FULL;
+    if (lastFilteredDistance > TANK_EMPTY) lastFilteredDistance = TANK_EMPTY;
+
+    return (int)lastFilteredDistance;
 }
 
 // Funkcja obliczająca poziom wody w zbiorniku dolewki w procentach
