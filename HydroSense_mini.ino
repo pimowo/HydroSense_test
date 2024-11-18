@@ -27,7 +27,6 @@ const int PRZYCISK_PIN = D3;         // Pin przycisku do kasowania alarmów
 // Stałe czasowe (wszystkie wartości w milisekundach)
 const unsigned long ULTRASONIC_TIMEOUT = 50;       // Timeout pomiaru czujnika ultradźwiękowego
 const unsigned long MEASUREMENT_INTERVAL = 60000;  // Interwał między pomiarami
-//const unsigned long MEASUREMENT_INTERVAL = 15000;  // Interwał między pomiarami
 const unsigned long WIFI_CHECK_INTERVAL = 5000;    // Interwał sprawdzania połączenia WiFi
 const unsigned long WATCHDOG_TIMEOUT = 8000;       // Timeout dla watchdoga
 const unsigned long PUMP_MAX_WORK_TIME = 300000;   // Maksymalny czas pracy pompy (5 minut)
@@ -70,7 +69,10 @@ const float EMA_ALPHA = 0.2f;  // Współczynnik wygładzania dla średniej wyk�
 // Zmienne globalne
 float lastFilteredDistance = 0;  // Dla filtra EMA (Exponential Moving Average)
 float aktualnaOdleglosc = 0;  // Aktualny dystans
+float lastReportedDistance = 0;
 unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
+unsigned long lastMeasurement = 0;
+const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dni
 
 // Obiekty do komunikacji
 WiFiClient client;  // Klient połączenia WiFi
@@ -163,6 +165,30 @@ float volume = 0;
 unsigned long pumpStartTime = 0;
 float waterLevelBeforePump = 0;
 
+// Zerowanie liczników
+
+void handleMillisOverflow() {
+    unsigned long currentMillis = millis();
+    
+    // Sprawdź czy zbliża się przepełnienie
+    if (currentMillis > MILLIS_OVERFLOW_THRESHOLD) {
+        // Reset wszystkich liczników czasu
+        lastMeasurement = 0;
+        status.lastSoundAlert = 0;
+        status.pumpStartTime = 0;
+        //status.lastPumpStop = 0;
+        //status.lastWifiCheck = 0;
+        
+        DEBUG_PRINT(F("Millis overflow - reset timerów"));
+    }
+    
+    // Sprawdź czy wystąpiło przepełnienie
+    if (currentMillis < lastMeasurement) {
+        lastMeasurement = currentMillis;
+        DEBUG_PRINT(F("Wykryto przepełnienie millis()"));
+    }
+}
+
 // --- EEPROM
 
 // Ustawienia domyślne
@@ -198,7 +224,7 @@ bool loadConfig() {
     status.soundEnabled = config.soundEnabled;
     switchSound.setState(config.soundEnabled, true);  // force update
 
-    DEBUG_PRINT("Konfiguracja wczytana. Stan dźwięku: %s\n", 
+    DEBUG_PRINTF("Konfiguracja wczytana. Stan dźwięku: %s\n", 
                  config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     return true;
 }
@@ -590,8 +616,7 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
         // jeśli czujnik poziomu wykryje wodę
     }
     
-    DEBUG_PRINT("Tryb serwisowy: %s (przez HA)\n", 
-                  state ? "WŁĄCZONY" : "WYŁĄCZONY");
+    DEBUG_PRINTF("Tryb serwisowy: %s (przez HA)\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // Pobranie aktualnego poziomu wody
@@ -781,10 +806,10 @@ void updateWaterLevel() {
     dtostrf(volume, 1, 1, valueStr);
     sensorVolume.setValue(valueStr);
         
-    Debug info tylko gdy wartości się zmieniły (conajmniej 5mm)
+    //Debug info tylko gdy wartości się zmieniły (conajmniej 5mm)
     static float lastReportedDistance = 0;
     if (abs(currentDistance - lastReportedDistance) > 5) {
-        DEBUG_PRINT("Poziom: %.1f mm, Obj: %.1f L\n", currentDistance, volume);
+        DEBUG_PRINTF("Poziom: %.1f mm, Obj: %.1f L\n", currentDistance, volume);
         lastReportedDistance = currentDistance;
     }
 }
@@ -830,8 +855,7 @@ void handleButton() {
                     switchService.setState(status.isServiceMode, true);  // force update w HA
                     
                     // Log zmiany stanu
-                    DEBUG_PRINT("Tryb serwisowy: %s (przez przycisk)\n", 
-                                status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
+                    DEBUG_PRINTF("Tryb serwisowy: %s (przez przycisk)\n", status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
                     
                     // Jeśli włączono tryb serwisowy podczas pracy pompy
                     if (status.isServiceMode && status.isPumpActive) {
@@ -885,7 +909,7 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
         playConfirmationSound();
     }
     
-    DEBUG_PRINT("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
+    DEBUG_PRINTF("Zmieniono stan dźwięku na: ", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // --- Setup
@@ -957,7 +981,7 @@ void loop() {
     ArduinoOTA.handle();  // Nasłuchiwanie żądań aktualizacji OTA
 
     // ZARZĄDZANIE ŁĄCZNOŚCIĄ
-    
+
     // Sprawdzanie i utrzymanie połączenia WiFi
     if (WiFi.status() != WL_CONNECTED) {
         setupWiFi();    // Próba ponownego połączenia z siecią
@@ -983,6 +1007,7 @@ void loop() {
     handleButton();     // Przetwarzanie sygnałów z przycisków
     updatePump();       // Sterowanie pompą
     checkAlarmConditions(); // System ostrzeżeń dźwiękowych
+    handleMillisOverflow();  // Sprawdzenie przepełnienia licznika
     
     // Monitoring poziomu wody
     if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
