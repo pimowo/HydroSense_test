@@ -73,6 +73,14 @@ float lastReportedDistance = 0;
 unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
 unsigned long lastMeasurement = 0;
 const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dni
+// Stałe konfiguracyjne
+const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
+const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
+
+float currentDistance = 0;
+float volume = 0;
+unsigned long pumpStartTime = 0;
+float waterLevelBeforePump = 0;
 
 // Obiekty do komunikacji
 WiFiClient client;  // Klient połączenia WiFi
@@ -99,22 +107,21 @@ HASwitch switchSound("sound_switch");                     // Przełącznik dźwi
 
 // --- Deklaracje funkcji i struktury
 
-// Status systemu
-struct SystemStatus {
-    bool isPumpActive = false; // Status pracy pompy
-    unsigned long pumpStartTime = 0; // Czas startu pompy
-    float waterLevelBeforePump = 0;       // Poziom wody przed startem pompy
-    bool isPumpDelayActive = false; // Status opóźnienia przed startem pompy
-    unsigned long pumpDelayStartTime = 0; // Czas rozpoczęcia opóźnienia pompy
-    bool pumpSafetyLock = false; // Blokada bezpieczeństwa pompy
-    bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
-    bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
-    bool soundEnabled;// = false; // Status włączenia dźwięku alarmu
-    bool isServiceMode = false; // Status trybu serwisowego
-    unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
-    unsigned long lastSoundAlert = 0;  //
-}; 
-SystemStatus systemStatus;
+struct Status {
+    bool soundEnabled;
+    bool waterAlarmActive;
+    bool waterReserveActive;
+    bool isPumpActive;
+    bool isPumpDelayActive;
+    bool pumpSafetyLock;
+    bool isServiceMode;
+    float waterLevelBeforePump;
+    unsigned long pumpStartTime;
+    unsigned long pumpDelayStartTime;
+    unsigned long lastSoundAlert;      
+    unsigned long lastSuccessfulMeasurement;
+};
+Status status;
 
 // eeprom
 struct Config {
@@ -142,29 +149,6 @@ struct AlarmTone {
     uint16_t pauseDuration;   // Przerwa między powtórzeniami
 };
 
-struct Status {
-    bool soundEnabled;
-    bool waterAlarmActive;
-    bool waterReserveActive;
-    bool isPumpActive;
-    bool isPumpDelayActive;
-    bool pumpSafetyLock;
-    bool isServiceMode;
-    unsigned long pumpStartTime;
-    unsigned long pumpDelayStartTime;
-    unsigned long lastSoundAlert;
-};
-Status status;
-
-// Stałe konfiguracyjne
-const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
-const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
-
-float currentDistance = 0;
-float volume = 0;
-unsigned long pumpStartTime = 0;
-float waterLevelBeforePump = 0;
-
 // Zerowanie liczników
 
 void handleMillisOverflow() {
@@ -173,11 +157,10 @@ void handleMillisOverflow() {
     // Sprawdź czy zbliża się przepełnienie
     if (currentMillis > MILLIS_OVERFLOW_THRESHOLD) {
         // Reset wszystkich liczników czasu
-        lastMeasurement = 0;
-        status.lastSoundAlert = 0;
         status.pumpStartTime = 0;
-        //status.lastPumpStop = 0;
-        //status.lastWifiCheck = 0;
+        status.pumpDelayStartTime = 0;
+        status.lastSoundAlert = 0;
+        status.lastSuccessfulMeasurement = 0;
         
         DEBUG_PRINT(F("Millis overflow - reset timerów"));
     }
