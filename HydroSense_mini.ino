@@ -1,22 +1,23 @@
 // --- Biblioteki
 
-// #include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
-// #include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
-// #include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
-// #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
-// #include <ESP8266WebServer.h>
-// #include <DNSServer.h>
-#include <Arduino.h>
-#include <ESP8266WiFi.h>
+#include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
+#include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
+#include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
+#include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
-#include <HomeAssistant.h>
+//#include <HomeAssistant.h>
 
 #include "ConfigManager.h"
 
 ConfigManager configManager;
+ESP8266WebServer webServer(80);
+DNSServer dnsServer;
+WiFiClient client;
+HADevice device;
+HAMqtt mqtt(client, device);  // Tylko jedna deklaracja
 
 // --- Definicje stałych i zmiennych globalnych
 
@@ -32,12 +33,6 @@ const char* AP_SSID = "HydroSense";
 const char* AP_PASSWORD = "hydrosense";
 const byte DNS_PORT = 53;
 
-// Obiekty dla serwera webowego i DNS
-ESP8266WebServer webServer(80);
-DNSServer dnsServer;
-WiFiClient client;
-HADevice device;
-HAMqtt mqtt(client, device);
 ConfigManager configManager;
 
 // Konfiguracja pinów ESP8266
@@ -95,9 +90,7 @@ const int VALID_MARGIN = 20;        // Margines błędu pomiaru (mm)
 unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
 
 // Obiekty do komunikacji
-WiFiClient client;  // Klient połączenia WiFi
 HADevice device("HydroSense");  // Definicja urządzenia dla Home Assistant
-HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
 
 // Sensory pomiarowe
 HASensor sensorDistance("water_level");                   // Odległość od lustra wody (w mm)
@@ -137,17 +130,31 @@ HASwitch switchSound("sound_switch");                     // Przełącznik dźwi
 // SystemStatus systemStatus;
 
 struct SystemStatus {
+    // Stan urządzenia
     bool isServiceEnabled = true;
     bool isPumpEnabled = true;
     bool isSoundEnabled = true;
     bool isAlarmActive = false;
     bool isPumpRunning = false;
-    unsigned long pumpStartTime = 0;
+    
+    // Pomiary i liczniki
     float currentWaterLevel = 0;
     float currentDistance = 0;
+    unsigned long pumpStartTime = 0;
+    unsigned long lastMeasurementTime = 0;
+    unsigned long lastUpdateTime = 0;
+    
+    // Alarmy
+    bool isLowWaterAlarm = false;
+    bool isHighWaterAlarm = false;
+    bool isPumpAlarm = false;
+    
+    // Stan połączenia
+    bool isWiFiConnected = false;
+    bool isMQTTConnected = false;
 };
 
-SystemStatus status;
+SystemStatus systemStatus;
 
 // eeprom
 struct Config {
@@ -428,14 +435,12 @@ void handleRoot() {
 void handleGetConfig() {
     DynamicJsonDocument doc(1024);
     
-    // Pobierz aktualną konfigurację
-    ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
-    ConfigManager::TankConfig& tankConfig = configManager.getTankConfig();
-    ConfigManager::PumpConfig& pumpConfig = configManager.getPumpConfig();
+    const ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
+    const ConfigManager::TankConfig& tankConfig = configManager.getTankConfig();
+    const ConfigManager::PumpConfig& pumpConfig = configManager.getPumpConfig();
     
     JsonObject network = doc.createNestedObject("network");
     network["wifi_ssid"] = networkConfig.wifi_ssid;
-    // Nie wysyłamy hasła WiFi ze względów bezpieczeństwa
     network["mqtt_server"] = networkConfig.mqtt_server;
     network["mqtt_user"] = networkConfig.mqtt_user;
     
@@ -453,6 +458,103 @@ void handleGetConfig() {
     String response;
     serializeJson(doc, response);
     webServer.send(200, "application/json", response);
+}
+
+void handleSaveConfig() {
+    if (!webServer.hasArg("plain")) {
+        webServer.send(400, "text/plain", "Brak danych");
+        return;
+    }
+
+    DynamicJsonDocument doc(1024);
+    DeserializationError error = deserializeJson(doc, webServer.arg("plain"));
+    
+    if (error) {
+        webServer.send(400, "text/plain", "Nieprawidłowy format JSON");
+        return;
+    }
+
+    bool configChanged = false;
+    bool wifiChanged = false;
+    
+    ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
+    ConfigManager::TankConfig& tankConfig = configManager.getTankConfig();
+    ConfigManager::PumpConfig& pumpConfig = configManager.getPumpConfig();
+
+    // Walidacja i aktualizacja konfiguracji sieci
+    if (doc.containsKey("network")) {
+        JsonObject network = doc["network"];
+        
+        if (network.containsKey("wifi_ssid")) {
+            String newSSID = network["wifi_ssid"].as<String>();
+            if (newSSID.length() > 0 && newSSID.length() <= 32) {
+                networkConfig.wifi_ssid = newSSID;
+                wifiChanged = true;
+                configChanged = true;
+            }
+        }
+        
+        if (network.containsKey("wifi_password")) {
+            String newPass = network["wifi_password"].as<String>();
+            if (newPass.length() <= 64) {  // Pusty string jest dozwolony
+                networkConfig.wifi_password = newPass;
+                wifiChanged = true;
+                configChanged = true;
+            }
+        }
+
+        if (network.containsKey("mqtt_server")) {
+            String newServer = network["mqtt_server"].as<String>();
+            if (newServer.length() <= 64) {
+                networkConfig.mqtt_server = newServer;
+                configChanged = true;
+            }
+        }
+    }
+
+    // Walidacja i aktualizacja konfiguracji zbiornika
+    if (doc.containsKey("tank")) {
+        JsonObject tank = doc["tank"];
+        
+        if (tank.containsKey("full") && tank["full"].is<int>()) {
+            int newFull = tank["full"].as<int>();
+            if (newFull > 0 && newFull < 5000) {  // Maksymalna wysokość 5m
+                tankConfig.full = newFull;
+                configChanged = true;
+            }
+        }
+        
+        // Podobnie dla pozostałych parametrów zbiornika...
+    }
+
+    // Walidacja i aktualizacja konfiguracji pompy
+    if (doc.containsKey("pump")) {
+        JsonObject pump = doc["pump"];
+        
+        if (pump.containsKey("delay") && pump["delay"].is<int>()) {
+            int newDelay = pump["delay"].as<int>();
+            if (newDelay >= 0 && newDelay <= 3600) {  // Maksymalnie 1 godzina
+                pumpConfig.delay = newDelay;
+                configChanged = true;
+            }
+        }
+        
+        // Podobnie dla pozostałych parametrów pompy...
+    }
+
+    if (configChanged) {
+        if (configManager.saveConfig()) {
+            webServer.send(200, "text/plain", "Konfiguracja zapisana");
+            if (wifiChanged) {
+                delay(1000);  // Poczekaj na wysłanie odpowiedzi
+                switchToNormalMode();
+            }
+        } else {
+            webServer.send(500, "text/plain", "Błąd zapisu konfiguracji");
+        }
+    } else {
+        webServer.send(400, "text/plain", "Brak zmian w konfiguracji");
+    }
 }
 
 void handleSaveConfig() {
@@ -768,19 +870,73 @@ void setupWiFi() {
     }
 }
 
-/**
- * Funkcja nawiązująca połączenie z serwerem MQTT (Home Assistant)
- * 
- * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
- */
-bool connectMQTT() {   
-    if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        DEBUG_PRINT("\nBŁĄD POŁĄCZENIA MQTT!");
+bool setupWiFi() {
+    Serial.println(F("Rozpoczynanie konfiguracji WiFi..."));
+    
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(configManager.getNetworkConfig().wifi_ssid.c_str(), 
+               configManager.getNetworkConfig().wifi_password.c_str());
+
+    // Czekaj maksymalnie 30 sekund na połączenie
+    unsigned long startTime = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - startTime < 30000) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println();
+
+    if (WiFi.status() == WL_CONNECTED) {
+        systemStatus.isWiFiConnected = true;
+        Serial.print(F("Połączono z WiFi. IP: "));
+        Serial.println(WiFi.localIP());
+        return true;
+    } else {
+        systemStatus.isWiFiConnected = false;
+        Serial.println(F("Nie udało się połączyć z WiFi"));
         return false;
     }
+}
+Poprawiona funkcja connectMQTT() z obsługą błędów:
+C++
+bool connectMQTT() {
+    if (!systemStatus.isWiFiConnected) {
+        Serial.println(F("Brak połączenia WiFi - nie można połączyć z MQTT"));
+        return false;
+    }
+
+    const ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
     
-    DEBUG_PRINT("MQTT połączono pomyślnie!");
-    return true;
+    if (networkConfig.mqtt_server.length() == 0) {
+        Serial.println(F("Brak skonfigurowanego serwera MQTT"));
+        return false;
+    }
+
+    Serial.println(F("Łączenie z MQTT..."));
+    
+    if (networkConfig.mqtt_user.length() > 0) {
+        mqtt.begin(networkConfig.mqtt_server.c_str(),
+                  networkConfig.mqtt_user.c_str(),
+                  networkConfig.mqtt_password.c_str());
+    } else {
+        mqtt.begin(networkConfig.mqtt_server.c_str());
+    }
+
+    // Czekaj maksymalnie 10 sekund na połączenie
+    unsigned long startTime = millis();
+    while (!mqtt.isConnected() && millis() - startTime < 10000) {
+        mqtt.loop();
+        delay(100);
+    }
+
+    systemStatus.isMQTTConnected = mqtt.isConnected();
+    
+    if (systemStatus.isMQTTConnected) {
+        Serial.println(F("Połączono z MQTT"));
+        return true;
+    } else {
+        Serial.println(F("Nie udało się połączyć z MQTT"));
+        return false;
+    }
 }
 
 // Funkcja konfigurująca Home Assistant
@@ -1232,32 +1388,27 @@ void setup() {
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
     setupPin();
 
-    // Initialize configuration
+    // Inicjalizacja managera konfiguracji
     if (!configManager.begin()) {
-        Serial.println(F("Failed to initialize configuration"));
+        Serial.println(F("Błąd inicjalizacji konfiguracji"));
         playShortWarningSound();
     }
 
-    // Try to connect to WiFi
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(configManager.getNetworkConfig().wifi_ssid.c_str(), 
-               configManager.getNetworkConfig().wifi_password.c_str());
-
-    unsigned long startAttemptTime = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 30000) {
-        delay(100);
-    }
-
-    if (WiFi.status() != WL_CONNECTED) {
-        // If WiFi connection failed, start AP mode
+    // Próba połączenia z WiFi
+    if (!setupWiFi()) {
+        // Jeśli nie udało się połączyć, przejdź w tryb AP
         setupAP();
         setupWebServer();
         playShortWarningSound();
     } else {
-        // Normal initialization for connected mode
-        setupHA();
-        firstUpdateHA();
-        playConfirmationSound();
+        // Normalna inicjalizacja dla trybu połączonego
+        if (connectMQTT()) {
+            setupHA();
+            firstUpdateHA();
+            playConfirmationSound();
+        } else {
+            playShortWarningSound();
+        }
     }
     
     // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
