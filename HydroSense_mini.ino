@@ -1,11 +1,18 @@
 // --- Biblioteki
 
-#include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
-#include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
-#include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
-#include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
+// #include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
+// #include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
+// #include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
+// #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
+// #include <ESP8266WebServer.h>
+// #include <DNSServer.h>
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
+#include <LittleFS.h>
+#include <ArduinoJson.h>
+#include <HomeAssistant.h>
 
 #include "ConfigManager.h"
 
@@ -21,13 +28,17 @@ ConfigManager configManager;
 // const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
 
 // Stałe dla trybu AP
-const byte DNS_PORT = 53;
 const char* AP_SSID = "HydroSense";
 const char* AP_PASSWORD = "hydrosense";
+const byte DNS_PORT = 53;
 
 // Obiekty dla serwera webowego i DNS
 ESP8266WebServer webServer(80);
 DNSServer dnsServer;
+WiFiClient client;
+HADevice device;
+HAMqtt mqtt(client, device);
+ConfigManager configManager;
 
 // Konfiguracja pinów ESP8266
 #define PIN_ULTRASONIC_TRIG D6  // Pin TRIG czujnika ultradźwiękowego
@@ -51,9 +62,6 @@ const unsigned long WIFI_RETRY_INTERVAL = 10000;   // Interwał prób połączen
 const unsigned long BUTTON_DEBOUNCE_TIME = 50;     // Czas debouncingu przycisku
 const unsigned long LONG_PRESS_TIME = 1000;        // Czas długiego naciśnięcia przycisku
 const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnałami dźwiękowymi
-
-// Konfiguracja EEPROM
-#define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
 // Definicja debugowania - ustaw 1 aby włączyć, 0 aby wyłączyć
 #define DEBUG 0
@@ -112,21 +120,34 @@ HASwitch switchSound("sound_switch");                     // Przełącznik dźwi
 // --- Deklaracje funkcji i struktury
 
 // Status systemu
+// struct SystemStatus {
+//     bool isPumpActive = false; // Status pracy pompy
+//     unsigned long pumpStartTime = 0; // Czas startu pompy
+//     float waterLevelBeforePump = 0;       // Poziom wody przed startem pompy
+//     bool isPumpDelayActive = false; // Status opóźnienia przed startem pompy
+//     unsigned long pumpDelayStartTime = 0; // Czas rozpoczęcia opóźnienia pompy
+//     bool pumpSafetyLock = false; // Blokada bezpieczeństwa pompy
+//     bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
+//     bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
+//     bool soundEnabled;// = false; // Status włączenia dźwięku alarmu
+//     bool isServiceMode = false; // Status trybu serwisowego
+//     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
+//     unsigned long lastSoundAlert = 0;  //
+// }; 
+// SystemStatus systemStatus;
+
 struct SystemStatus {
-    bool isPumpActive = false; // Status pracy pompy
-    unsigned long pumpStartTime = 0; // Czas startu pompy
-    float waterLevelBeforePump = 0;       // Poziom wody przed startem pompy
-    bool isPumpDelayActive = false; // Status opóźnienia przed startem pompy
-    unsigned long pumpDelayStartTime = 0; // Czas rozpoczęcia opóźnienia pompy
-    bool pumpSafetyLock = false; // Blokada bezpieczeństwa pompy
-    bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
-    bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
-    bool soundEnabled;// = false; // Status włączenia dźwięku alarmu
-    bool isServiceMode = false; // Status trybu serwisowego
-    unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
-    unsigned long lastSoundAlert = 0;  //
-}; 
-SystemStatus systemStatus;
+    bool isServiceEnabled = true;
+    bool isPumpEnabled = true;
+    bool isSoundEnabled = true;
+    bool isAlarmActive = false;
+    bool isPumpRunning = false;
+    unsigned long pumpStartTime = 0;
+    float currentWaterLevel = 0;
+    float currentDistance = 0;
+};
+
+SystemStatus status;
 
 // eeprom
 struct Config {
@@ -167,10 +188,6 @@ struct Status {
     unsigned long lastSoundAlert;
 };
 Status status;
-
-// Stałe konfiguracyjne
-const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
-const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
 
 float currentDistance = 0;
 float volume = 0;
@@ -448,28 +465,39 @@ void handleSaveConfig() {
             return;
         }
         
+        // Update configuration
         ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
         ConfigManager::TankConfig& tankConfig = configManager.getTankConfig();
         ConfigManager::PumpConfig& pumpConfig = configManager.getPumpConfig();
         
+        bool wifiChanged = false;
+        
         if (doc.containsKey("network")) {
             JsonObject network = doc["network"];
-            if (network.containsKey("wifi_ssid")) 
+            if (network.containsKey("wifi_ssid")) {
+                wifiChanged = true;
                 networkConfig.wifi_ssid = network["wifi_ssid"].as<String>();
-            if (network.containsKey("wifi_password")) 
+            }
+            if (network.containsKey("wifi_password")) {
+                wifiChanged = true;
                 networkConfig.wifi_password = network["wifi_password"].as<String>();
-            if (network.containsKey("mqtt_server")) 
+            }
+            if (network.containsKey("mqtt_server"))
                 networkConfig.mqtt_server = network["mqtt_server"].as<String>();
-            if (network.containsKey("mqtt_user")) 
+            if (network.containsKey("mqtt_user"))
                 networkConfig.mqtt_user = network["mqtt_user"].as<String>();
-            if (network.containsKey("mqtt_password")) 
+            if (network.containsKey("mqtt_password"))
                 networkConfig.mqtt_password = network["mqtt_password"].as<String>();
         }
         
-        // Podobnie dla pozostałych sekcji...
+        // Update tank and pump configs similarly...
         
         if (configManager.saveConfig()) {
             webServer.send(200, "text/plain", "Configuration saved");
+            if (wifiChanged) {
+                delay(1000);
+                switchToNormalMode();
+            }
         } else {
             webServer.send(500, "text/plain", "Failed to save configuration");
         }
@@ -1181,13 +1209,11 @@ void handleButton() {
  * 
  * Działanie:
  * - Aktualizuje flagę stanu dźwięku
- * - Zapisuje nowy stan do pamięci EEPROM (trwałej)
  * - Aktualizuje stan w Home Assistant
  */
 void onSoundSwitchCommand(bool state, HASwitch* sender) {   
     status.soundEnabled = state;  // Aktualizuj status lokalny
     config.soundEnabled = state;  // Aktualizuj konfigurację
-    saveConfig();  // Zapisz do EEPROM
     
     // Aktualizuj stan w Home Assistant
     switchSound.setState(state, true);  // force update
@@ -1204,42 +1230,35 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
+    setupPin();
 
-    // Inicjalizacja managera konfiguracji
+    // Initialize configuration
     if (!configManager.begin()) {
         Serial.println(F("Failed to initialize configuration"));
-        // Możesz dodać tutaj obsługę błędów
+        playShortWarningSound();
     }
 
-    // Próba połączenia z WiFi
+    // Try to connect to WiFi
     WiFi.mode(WIFI_STA);
     WiFi.begin(configManager.getNetworkConfig().wifi_ssid.c_str(), 
                configManager.getNetworkConfig().wifi_password.c_str());
 
-    // Czekaj na połączenie przez 30 sekund
     unsigned long startAttemptTime = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 30000) {
         delay(100);
     }
 
-    // Jeśli nie udało się połączyć, przejdź w tryb AP
     if (WiFi.status() != WL_CONNECTED) {
+        // If WiFi connection failed, start AP mode
         setupAP();
         setupWebServer();
+        playShortWarningSound();
     } else {
-        // Normalna inicjalizacja dla trybu połączonego
+        // Normal initialization for connected mode
         setupHA();
         firstUpdateHA();
+        playConfirmationSound();
     }
-       
-    // Próba połączenia MQTT
-    DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
-    connectMQTT();
-
-    setupPin();
-    setupHA();    
-    firstUpdateHA();
-    status.lastSoundAlert = millis();
     
     // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
     ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
@@ -1273,37 +1292,26 @@ void loop() {
 
     // ZARZĄDZANIE ŁĄCZNOŚCIĄ
     
-    // Sprawdzanie i utrzymanie połączenia WiFi
-    if (WiFi.status() != WL_CONNECTED) {
-        setupWiFi();    // Próba ponownego połączenia z siecią
-        return;         // Powrót do początku pętli po próbie połączenia
-    }
-    
     if (WiFi.getMode() == WIFI_AP) {
-        // Obsługa trybu AP
+        // Handle AP mode
         dnsServer.processNextRequest();
         webServer.handleClient();
     } else {
-        // Normalna obsługa w trybie połączonym
+        // Normal operation mode
         if (!mqtt.isConnected()) {
-            connectMQTT();
+            if (!connectMQTT()) {
+                playShortWarningSound();
+            }
         }
         mqtt.loop();
         
-        handleButton();
-        updateWaterLevel();
-        checkAlarmConditions();
-        updatePump();
+        if (status.isServiceEnabled) {
+            handleButton();
+            updateWaterLevel();
+            checkAlarmConditions();
+            updatePump();
+        }
     }
-        
-    mqtt.loop();  // Obsługa komunikacji MQTT
-
-    // GŁÓWNE FUNKCJE URZĄDZENIA
-    
-    // Obsługa interfejsu i sterowania
-    handleButton();     // Przetwarzanie sygnałów z przycisków
-    updatePump();       // Sterowanie pompą
-    checkAlarmConditions(); // System ostrzeżeń dźwiękowych
     
     // Monitoring poziomu wody
     if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
