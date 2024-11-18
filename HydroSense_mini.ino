@@ -4,49 +4,29 @@
 #include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
 #include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
 #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
-#include <ESP8266WebServer.h>
-#include <DNSServer.h>
-#include <LittleFS.h>
-#include <ArduinoJson.h>
-//#include <HomeAssistant.h>
-
-#include "ConfigManager.h"
-
-ConfigManager configManager;
-ESP8266WebServer webServer(80);
-DNSServer dnsServer;
-WiFiClient client;
-HADevice device;
-HAMqtt mqtt(client, device);  // Tylko jedna deklaracja
+#include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
 
 // --- Definicje stałych i zmiennych globalnych
 
 // Konfiguracja WiFi i MQTT
-// const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
-// const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
-// const char* MQTT_SERVER = "192.168.1.14";          // Adres IP serwera MQTT (Home Assistant)
-// const char* MQTT_USER = "hydrosense";              // Użytkownik MQTT
-// const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
-
-// Stałe dla trybu AP
-const char* AP_SSID = "HydroSense";
-const char* AP_PASSWORD = "hydrosense";
-const byte DNS_PORT = 53;
-
-ConfigManager configManager;
+const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
+const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
+const char* MQTT_SERVER = "192.168.1.14";          // Adres IP serwera MQTT (Home Assistant)
+const char* MQTT_USER = "hydrosense";              // Użytkownik MQTT
+const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
 
 // Konfiguracja pinów ESP8266
 #define PIN_ULTRASONIC_TRIG D6  // Pin TRIG czujnika ultradźwiękowego
 #define PIN_ULTRASONIC_ECHO D7  // Pin ECHO czujnika ultradźwiękowego
 
 #define PIN_WATER_LEVEL D5  // Pin czujnika poziomu wody w akwarium
-#define POMPA_PIN D1  // Pin sterowania pompą
-#define BUZZER_PIN D2  // Pin buzzera do alarmów dźwiękowych
-#define PRZYCISK_PIN D3  // Pin przycisku do kasowania alarmów
+#define POMPA_PIN D1       // Pin sterowania pompą
+#define BUZZER_PIN D2           // Pin buzzera do alarmów dźwiękowych
+#define PRZYCISK_PIN D3           // Pin przycisku do kasowania alarmów
 
 // Stałe czasowe (wszystkie wartości w milisekundach)
 const unsigned long ULTRASONIC_TIMEOUT = 50;       // Timeout pomiaru czujnika ultradźwiękowego
-const unsigned long MEASUREMENT_INTERVAL = 15000;  // Interwał między pomiarami
+const unsigned long MEASUREMENT_INTERVAL = 10000;  // Interwał między pomiarami
 const unsigned long WIFI_CHECK_INTERVAL = 5000;    // Interwał sprawdzania połączenia WiFi
 const unsigned long WATCHDOG_TIMEOUT = 8000;       // Timeout dla watchdoga
 const unsigned long PUMP_MAX_WORK_TIME = 300000;   // Maksymalny czas pracy pompy (5 minut)
@@ -57,6 +37,9 @@ const unsigned long WIFI_RETRY_INTERVAL = 10000;   // Interwał prób połączen
 const unsigned long BUTTON_DEBOUNCE_TIME = 50;     // Czas debouncingu przycisku
 const unsigned long LONG_PRESS_TIME = 1000;        // Czas długiego naciśnięcia przycisku
 const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnałami dźwiękowymi
+
+// Konfiguracja EEPROM
+#define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
 // Definicja debugowania - ustaw 1 aby włączyć, 0 aby wyłączyć
 #define DEBUG 0
@@ -77,20 +60,17 @@ const int TANK_EMPTY = 510;  // Odległość gdy zbiornik jest pusty (mm)
 const int RESERVE_LEVEL = 450;  // Poziom rezerwy wody (mm)
 const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
 const int TANK_DIAMETER = 150;  // Średnica zbiornika (mm)
-const int SENSOR_AVG_SAMPLES = 5;  // Liczba próbek do uśrednienia pomiaru
+const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
 const int PUMP_DELAY = 5;  // Opóźnienie uruchomienia pompy (sekundy)
 const int PUMP_WORK_TIME = 60;  // Czas pracy pompy
 
 float aktualnaOdleglosc = 0;  // Aktualny dystans
-float lastFilteredDistance = 0;
-const float EMA_ALPHA = 0.2;        // Współczynnik filtru EMA (0.0-1.0)
-const int MEASUREMENT_DELAY = 30;    // Opóźnienie między pomiarami w ms
-const int VALID_MARGIN = 20;        // Margines błędu pomiaru (mm)
-
 unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
 
 // Obiekty do komunikacji
+WiFiClient client;  // Klient połączenia WiFi
 HADevice device("HydroSense");  // Definicja urządzenia dla Home Assistant
+HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
 
 // Sensory pomiarowe
 HASensor sensorDistance("water_level");                   // Odległość od lustra wody (w mm)
@@ -113,47 +93,20 @@ HASwitch switchSound("sound_switch");                     // Przełącznik dźwi
 // --- Deklaracje funkcji i struktury
 
 // Status systemu
-// struct SystemStatus {
-//     bool isPumpActive = false; // Status pracy pompy
-//     unsigned long pumpStartTime = 0; // Czas startu pompy
-//     float waterLevelBeforePump = 0;       // Poziom wody przed startem pompy
-//     bool isPumpDelayActive = false; // Status opóźnienia przed startem pompy
-//     unsigned long pumpDelayStartTime = 0; // Czas rozpoczęcia opóźnienia pompy
-//     bool pumpSafetyLock = false; // Blokada bezpieczeństwa pompy
-//     bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
-//     bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
-//     bool soundEnabled;// = false; // Status włączenia dźwięku alarmu
-//     bool isServiceMode = false; // Status trybu serwisowego
-//     unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
-//     unsigned long lastSoundAlert = 0;  //
-// }; 
-// SystemStatus systemStatus;
-
 struct SystemStatus {
-    // Stan urządzenia
-    bool isServiceEnabled = true;
-    bool isPumpEnabled = true;
-    bool isSoundEnabled = true;
-    bool isAlarmActive = false;
-    bool isPumpRunning = false;
-    
-    // Pomiary i liczniki
-    float currentWaterLevel = 0;
-    float currentDistance = 0;
-    unsigned long pumpStartTime = 0;
-    unsigned long lastMeasurementTime = 0;
-    unsigned long lastUpdateTime = 0;
-    
-    // Alarmy
-    bool isLowWaterAlarm = false;
-    bool isHighWaterAlarm = false;
-    bool isPumpAlarm = false;
-    
-    // Stan połączenia
-    bool isWiFiConnected = false;
-    bool isMQTTConnected = false;
-};
-
+    bool isPumpActive = false; // Status pracy pompy
+    unsigned long pumpStartTime = 0; // Czas startu pompy
+    float waterLevelBeforePump = 0;       // Poziom wody przed startem pompy
+    bool isPumpDelayActive = false; // Status opóźnienia przed startem pompy
+    unsigned long pumpDelayStartTime = 0; // Czas rozpoczęcia opóźnienia pompy
+    bool pumpSafetyLock = false; // Blokada bezpieczeństwa pompy
+    bool waterAlarmActive = false; // Alarm braku wody w zbiorniku dolewki
+    bool waterReserveActive = false; // Status rezerwy wody w zbiorniku
+    bool soundEnabled;// = false; // Status włączenia dźwięku alarmu
+    bool isServiceMode = false; // Status trybu serwisowego
+    unsigned long lastSuccessfulMeasurement = 0; // Czas ostatniego udanego pomiaru
+    unsigned long lastSoundAlert = 0;  //
+}; 
 SystemStatus systemStatus;
 
 // eeprom
@@ -196,473 +149,74 @@ struct Status {
 };
 Status status;
 
+// Stałe konfiguracyjne
+const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
+const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
+
 float currentDistance = 0;
 float volume = 0;
 unsigned long pumpStartTime = 0;
 float waterLevelBeforePump = 0;
 
-void setupAP() {
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(AP_SSID, AP_PASSWORD);
-    
-    // Konfiguracja DNS dla captive portal
-    dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
-    
-    Serial.print(F("AP Started. IP: "));
-    Serial.println(WiFi.softAPIP());
+// --- EEPROM
+
+// Ustawienia domyślne
+void setDefaultConfig() {
+    config.version = CONFIG_VERSION;
+    config.soundEnabled = true;  // Domyślnie dźwięk włączony
+    config.checksum = calculateChecksum(config);
+
+    saveConfig();
+    DEBUG_PRINT(F("Utworzono domyślną konfigurację"));
 }
 
-void setupWebServer() {
-    // Strona główna
-    webServer.on("/", HTTP_GET, handleRoot);
+// Wczytywanie konfiguracji
+bool loadConfig() {
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.get(0, config);
     
-    // Endpointy API
-    webServer.on("/api/config", HTTP_GET, handleGetConfig);
-    webServer.on("/api/config", HTTP_POST, handleSaveConfig);
-    webServer.on("/api/wifi/scan", HTTP_GET, handleWiFiScan);
-    
-    // Obsługa nieznanych ścieżek
-    webServer.onNotFound([]() {
-        if (!handleCaptivePortal()) {
-            webServer.send(404, "text/plain", "Not Found");
-        }
-    });
-    
-    webServer.begin();
-}
-
-bool handleCaptivePortal() {
-    if (!isIp(webServer.hostHeader())) {
-        Serial.println(F("Redirect to captive portal"));
-        webServer.sendHeader("Location", String("http://") + toStringIp(WiFi.softAPIP()), true);
-        webServer.send(302, "text/plain", "");
-        webServer.client().stop();
-        return true;
-    }
-    return false;
-}
-
-void handleRoot() {
-    String html = F("<!DOCTYPE html>"
-        "<html>"
-        "<head>"
-        "<meta charset='UTF-8'>"
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<title>HydroSense Configuration</title>"
-        "<style>"
-        "body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f0f0f0; }"
-        ".container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }"
-        ".section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }"
-        ".section h2 { margin-top: 0; color: #333; }"
-        "input, select { width: calc(100% - 20px); padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }"
-        "label { display: block; margin-top: 10px; color: #666; }"
-        "button { background-color: #4CAF50; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }"
-        "button:hover { background-color: #45a049; }"
-        ".button-group { margin-top: 20px; }"
-        ".status { margin-top: 10px; padding: 10px; border-radius: 4px; }"
-        ".success { background-color: #dff0d8; color: #3c763d; }"
-        ".error { background-color: #f2dede; color: #a94442; }"
-        "</style>"
-        "</head>"
-        "<body>"
-        "<div class='container'>"
-        "<h1>HydroSense Configuration</h1>"
-        
-        "<div class='section' id='network-section'>"
-        "<h2>Network Settings</h2>"
-        "<label>WiFi SSID:</label>"
-        "<input type='text' id='wifi_ssid'>"
-        "<button onclick='scanWiFi()'>Scan Networks</button>"
-        "<select id='wifi_networks' style='display:none' onchange='selectNetwork()'></select>"
-        "<label>WiFi Password:</label>"
-        "<input type='password' id='wifi_password'>"
-        "<label>MQTT Server:</label>"
-        "<input type='text' id='mqtt_server'>"
-        "<label>MQTT User:</label>"
-        "<input type='text' id='mqtt_user'>"
-        "<label>MQTT Password:</label>"
-        "<input type='password' id='mqtt_password'>"
-        "</div>"
-        
-        "<div class='section' id='tank-section'>"
-        "<h2>Tank Settings</h2>"
-        "<label>Tank Full Level (mm):</label>"
-        "<input type='number' id='tank_full'>"
-        "<label>Tank Empty Level (mm):</label>"
-        "<input type='number' id='tank_empty'>"
-        "<label>Reserve Level (mm):</label>"
-        "<input type='number' id='reserve_level'>"
-        "<label>Hysteresis (mm):</label>"
-        "<input type='number' id='hysteresis'>"
-        "<label>Tank Diameter (mm):</label>"
-        "<input type='number' id='tank_diameter'>"
-        "</div>"
-        
-        "<div class='section' id='pump-section'>"
-        "<h2>Pump Settings</h2>"
-        "<label>Pump Delay (seconds):</label>"
-        "<input type='number' id='pump_delay'>"
-        "<label>Pump Work Time (seconds):</label>"
-        "<input type='number' id='pump_work_time'>"
-        "</div>"
-        
-        "<div class='button-group'>"
-        "<button onclick='saveConfig()'>Save Configuration</button>"
-        "<button onclick='loadConfig()'>Reload Configuration</button>"
-        "<button onclick='restartDevice()' style='background-color: #d9534f;'>Restart Device</button>"
-        "</div>"
-        
-        "<div id='status' class='status' style='display:none;'></div>"
-        "</div>"
-        
-        "<script>"
-        "function showStatus(message, isError = false) {"
-        "    const status = document.getElementById('status');"
-        "    status.className = 'status ' + (isError ? 'error' : 'success');"
-        "    status.textContent = message;"
-        "    status.style.display = 'block';"
-        "    setTimeout(() => status.style.display = 'none', 3000);"
-        "}"
-
-        "function loadConfig() {"
-        "    fetch('/api/config')"
-        "        .then(response => response.json())"
-        "        .then(data => {"
-        "            if (data.network) {"
-        "                document.getElementById('wifi_ssid').value = data.network.wifi_ssid || '';"
-        "                document.getElementById('mqtt_server').value = data.network.mqtt_server || '';"
-        "                document.getElementById('mqtt_user').value = data.network.mqtt_user || '';"
-        "            }"
-        "            if (data.tank) {"
-        "                document.getElementById('tank_full').value = data.tank.full || '';"
-        "                document.getElementById('tank_empty').value = data.tank.empty || '';"
-        "                document.getElementById('reserve_level').value = data.tank.reserve_level || '';"
-        "                document.getElementById('hysteresis').value = data.tank.hysteresis || '';"
-        "                document.getElementById('tank_diameter').value = data.tank.diameter || '';"
-        "            }"
-        "            if (data.pump) {"
-        "                document.getElementById('pump_delay').value = data.pump.delay || '';"
-        "                document.getElementById('pump_work_time').value = data.pump.work_time || '';"
-        "            }"
-        "            showStatus('Configuration loaded');"
-        "        })"
-        "        .catch(error => showStatus('Error loading configuration: ' + error, true));"
-        "}"
-
-        "function saveConfig() {"
-        "    const config = {"
-        "        network: {"
-        "            wifi_ssid: document.getElementById('wifi_ssid').value,"
-        "            wifi_password: document.getElementById('wifi_password').value,"
-        "            mqtt_server: document.getElementById('mqtt_server').value,"
-        "            mqtt_user: document.getElementById('mqtt_user').value,"
-        "            mqtt_password: document.getElementById('mqtt_password').value"
-        "        },"
-        "        tank: {"
-        "            full: parseInt(document.getElementById('tank_full').value),"
-        "            empty: parseInt(document.getElementById('tank_empty').value),"
-        "            reserve_level: parseInt(document.getElementById('reserve_level').value),"
-        "            hysteresis: parseInt(document.getElementById('hysteresis').value),"
-        "            diameter: parseInt(document.getElementById('tank_diameter').value)"
-        "        },"
-        "        pump: {"
-        "            delay: parseInt(document.getElementById('pump_delay').value),"
-        "            work_time: parseInt(document.getElementById('pump_work_time').value)"
-        "        }"
-        "    };"
-        
-        "    fetch('/api/config', {"
-        "        method: 'POST',"
-        "        headers: {'Content-Type': 'application/json'},"
-        "        body: JSON.stringify(config)"
-        "    })"
-        "    .then(response => response.text())"
-        "    .then(result => showStatus('Configuration saved'))"
-        "    .catch(error => showStatus('Error saving configuration: ' + error, true));"
-        "}"
-
-        "function scanWiFi() {"
-        "    const button = event.target;"
-        "    const select = document.getElementById('wifi_networks');"
-        "    button.disabled = true;"
-        "    button.textContent = 'Scanning...';"
-        "    select.style.display = 'none';"
-        
-        "    fetch('/api/wifi/scan')"
-        "        .then(response => response.json())"
-        "        .then(data => {"
-        "            select.innerHTML = '';"
-        "            select.appendChild(new Option('Select network...', ''));"
-        "            data.networks.sort((a, b) => b.rssi - a.rssi)"
-        "                .forEach(network => {"
-        "                    const option = new Option(network.ssid + ' (' + network.rssi + 'dBm)', network.ssid);"
-        "                    select.appendChild(option);"
-        "                });"
-        "            select.style.display = 'block';"
-        "            button.disabled = false;"
-        "            button.textContent = 'Scan Networks';"
-        "        })"
-        "        .catch(error => {"
-        "            showStatus('Error scanning networks: ' + error, true);"
-        "            button.disabled = false;"
-        "            button.textContent = 'Scan Networks';"
-        "        });"
-        "}"
-
-        "function selectNetwork() {"
-        "    const select = document.getElementById('wifi_networks');"
-        "    const ssidInput = document.getElementById('wifi_ssid');"
-        "    ssidInput.value = select.value;"
-        "}"
-
-        "function restartDevice() {"
-        "    if (confirm('Are you sure you want to restart the device?')) {"
-        "        showStatus('Restarting device...');"
-        "        fetch('/restart', { method: 'POST' })"
-        "            .then(() => showStatus('Device is restarting...'));"
-        "    }"
-        "}"
-
-        "// Load configuration when page loads"
-        "document.addEventListener('DOMContentLoaded', loadConfig);"
-        "</script>"
-        "</body>"
-        "</html>");
-    
-    webServer.send(200, "text/html", html);
-}
-
-void handleGetConfig() {
-    DynamicJsonDocument doc(1024);
-    
-    const ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
-    const ConfigManager::TankConfig& tankConfig = configManager.getTankConfig();
-    const ConfigManager::PumpConfig& pumpConfig = configManager.getPumpConfig();
-    
-    JsonObject network = doc.createNestedObject("network");
-    network["wifi_ssid"] = networkConfig.wifi_ssid;
-    network["mqtt_server"] = networkConfig.mqtt_server;
-    network["mqtt_user"] = networkConfig.mqtt_user;
-    
-    JsonObject tank = doc.createNestedObject("tank");
-    tank["full"] = tankConfig.full;
-    tank["empty"] = tankConfig.empty;
-    tank["reserve_level"] = tankConfig.reserve_level;
-    tank["hysteresis"] = tankConfig.hysteresis;
-    tank["diameter"] = tankConfig.diameter;
-    
-    JsonObject pump = doc.createNestedObject("pump");
-    pump["delay"] = pumpConfig.delay;
-    pump["work_time"] = pumpConfig.work_time;
-    
-    String response;
-    serializeJson(doc, response);
-    webServer.send(200, "application/json", response);
-}
-
-void handleSaveConfig() {
-    if (!webServer.hasArg("plain")) {
-        webServer.send(400, "text/plain", "Brak danych");
-        return;
-    }
-
-    DynamicJsonDocument doc(1024);
-    DeserializationError error = deserializeJson(doc, webServer.arg("plain"));
-    
-    if (error) {
-        webServer.send(400, "text/plain", "Nieprawidłowy format JSON");
-        return;
-    }
-
-    bool configChanged = false;
-    bool wifiChanged = false;
-    
-    ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
-    ConfigManager::TankConfig& tankConfig = configManager.getTankConfig();
-    ConfigManager::PumpConfig& pumpConfig = configManager.getPumpConfig();
-
-    // Walidacja i aktualizacja konfiguracji sieci
-    if (doc.containsKey("network")) {
-        JsonObject network = doc["network"];
-        
-        if (network.containsKey("wifi_ssid")) {
-            String newSSID = network["wifi_ssid"].as<String>();
-            if (newSSID.length() > 0 && newSSID.length() <= 32) {
-                networkConfig.wifi_ssid = newSSID;
-                wifiChanged = true;
-                configChanged = true;
-            }
-        }
-        
-        if (network.containsKey("wifi_password")) {
-            String newPass = network["wifi_password"].as<String>();
-            if (newPass.length() <= 64) {  // Pusty string jest dozwolony
-                networkConfig.wifi_password = newPass;
-                wifiChanged = true;
-                configChanged = true;
-            }
-        }
-
-        if (network.containsKey("mqtt_server")) {
-            String newServer = network["mqtt_server"].as<String>();
-            if (newServer.length() <= 64) {
-                networkConfig.mqtt_server = newServer;
-                configChanged = true;
-            }
-        }
-    }
-
-    // Walidacja i aktualizacja konfiguracji zbiornika
-    if (doc.containsKey("tank")) {
-        JsonObject tank = doc["tank"];
-        
-        if (tank.containsKey("full") && tank["full"].is<int>()) {
-            int newFull = tank["full"].as<int>();
-            if (newFull > 0 && newFull < 5000) {  // Maksymalna wysokość 5m
-                tankConfig.full = newFull;
-                configChanged = true;
-            }
-        }
-        
-        // Podobnie dla pozostałych parametrów zbiornika...
-    }
-
-    // Walidacja i aktualizacja konfiguracji pompy
-    if (doc.containsKey("pump")) {
-        JsonObject pump = doc["pump"];
-        
-        if (pump.containsKey("delay") && pump["delay"].is<int>()) {
-            int newDelay = pump["delay"].as<int>();
-            if (newDelay >= 0 && newDelay <= 3600) {  // Maksymalnie 1 godzina
-                pumpConfig.delay = newDelay;
-                configChanged = true;
-            }
-        }
-        
-        // Podobnie dla pozostałych parametrów pompy...
-    }
-
-    if (configChanged) {
-        if (configManager.saveConfig()) {
-            webServer.send(200, "text/plain", "Konfiguracja zapisana");
-            if (wifiChanged) {
-                delay(1000);  // Poczekaj na wysłanie odpowiedzi
-                switchToNormalMode();
-            }
-        } else {
-            webServer.send(500, "text/plain", "Błąd zapisu konfiguracji");
-        }
-    } else {
-        webServer.send(400, "text/plain", "Brak zmian w konfiguracji");
-    }
-}
-
-void handleSaveConfig() {
-    if (webServer.hasArg("plain")) {
-        DynamicJsonDocument doc(1024);
-        DeserializationError error = deserializeJson(doc, webServer.arg("plain"));
-        
-        if (error) {
-            webServer.send(400, "text/plain", "Invalid JSON");
-            return;
-        }
-        
-        // Update configuration
-        ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
-        ConfigManager::TankConfig& tankConfig = configManager.getTankConfig();
-        ConfigManager::PumpConfig& pumpConfig = configManager.getPumpConfig();
-        
-        bool wifiChanged = false;
-        
-        if (doc.containsKey("network")) {
-            JsonObject network = doc["network"];
-            if (network.containsKey("wifi_ssid")) {
-                wifiChanged = true;
-                networkConfig.wifi_ssid = network["wifi_ssid"].as<String>();
-            }
-            if (network.containsKey("wifi_password")) {
-                wifiChanged = true;
-                networkConfig.wifi_password = network["wifi_password"].as<String>();
-            }
-            if (network.containsKey("mqtt_server"))
-                networkConfig.mqtt_server = network["mqtt_server"].as<String>();
-            if (network.containsKey("mqtt_user"))
-                networkConfig.mqtt_user = network["mqtt_user"].as<String>();
-            if (network.containsKey("mqtt_password"))
-                networkConfig.mqtt_password = network["mqtt_password"].as<String>();
-        }
-        
-        // Update tank and pump configs similarly...
-        
-        if (configManager.saveConfig()) {
-            webServer.send(200, "text/plain", "Configuration saved");
-            if (wifiChanged) {
-                delay(1000);
-                switchToNormalMode();
-            }
-        } else {
-            webServer.send(500, "text/plain", "Failed to save configuration");
-        }
-    } else {
-        webServer.send(400, "text/plain", "No data received");
-    }
-}
-
-void handleWiFiScan() {
-    DynamicJsonDocument doc(1024);
-    JsonArray networks = doc.createNestedArray("networks");
-    
-    int n = WiFi.scanNetworks();
-    for (int i = 0; i < n; ++i) {
-        JsonObject network = networks.createNestedObject();
-        network["ssid"] = WiFi.SSID(i);
-        network["rssi"] = WiFi.RSSI(i);
-        network["encryption"] = WiFi.encryptionType(i);
+    if (config.version != CONFIG_VERSION) {
+        DEBUG_PRINT(F("Niekompatybilna wersja konfiguracji"));
+        setDefaultConfig();
+        return false;
     }
     
-    String response;
-    serializeJson(doc, response);
-    webServer.send(200, "application/json", response);
-}
-
-// Funkcje pomocnicze
-bool isIp(String str) {
-    for (int i = 0; i < str.length(); i++) {
-        int c = str.charAt(i);
-        if (c != '.' && (c < '0' || c > '9')) {
-            return false;
-        }
+    char calculatedChecksum = calculateChecksum(config);
+    if (config.checksum != calculatedChecksum) {
+        DEBUG_PRINT(F("Błąd sumy kontrolnej"));
+        setDefaultConfig();
+        return false;
     }
+    
+    // Synchronizuj stan po wczytaniu
+    // Dzwięk
+    status.soundEnabled = config.soundEnabled;
+    switchSound.setState(config.soundEnabled, true);  // force update
+
+    Serial.printf("Konfiguracja wczytana. Stan dźwięku: %s\n", 
+                 config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     return true;
 }
 
-String toStringIp(IPAddress ip) {
-    String res = "";
-    for (int i = 0; i < 3; i++) {
-        res += String((ip >> (8 * i)) & 0xFF) + ".";
+// Zapis do EEPROM
+void saveConfig() {
+    static Config lastConfig;
+    if (memcmp(&lastConfig, &config, sizeof(Config)) != 0) {
+        EEPROM.put(0, config);
+        EEPROM.commit();
+        memcpy(&lastConfig, &config, sizeof(Config));
     }
-    res += String(((ip >> 8 * 3)) & 0xFF);
-    return res;
 }
 
-webServer.on("/restart", HTTP_POST, []() {
-    webServer.send(200, "text/plain", "Restarting...");
-    delay(1000);
-    ESP.restart();
-});
-
-void switchToNormalMode() {
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(configManager.getNetworkConfig().wifi_ssid.c_str(), 
-               configManager.getNetworkConfig().wifi_password.c_str());
-    // Zatrzymaj serwery AP
-    webServer.stop();
-    dnsServer.stop();
-    
-    setupHA();
-    firstUpdateHA();
+// Obliczanie sumy kontrolnej
+char calculateChecksum(const Config& cfg) {
+    const byte* p = (const byte*)(&cfg);
+    char sum = 0;
+    for (int i = 0; i < sizeof(Config) - 1; i++) {
+        sum ^= p[i];
+    }
+    return sum;
 }
-
 
 // --- Deklaracje funkcji alarmów
 
@@ -870,73 +424,19 @@ void setupWiFi() {
     }
 }
 
-bool setupWiFi() {
-    Serial.println(F("Rozpoczynanie konfiguracji WiFi..."));
-    
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(configManager.getNetworkConfig().wifi_ssid.c_str(), 
-               configManager.getNetworkConfig().wifi_password.c_str());
-
-    // Czekaj maksymalnie 30 sekund na połączenie
-    unsigned long startTime = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - startTime < 30000) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println();
-
-    if (WiFi.status() == WL_CONNECTED) {
-        systemStatus.isWiFiConnected = true;
-        Serial.print(F("Połączono z WiFi. IP: "));
-        Serial.println(WiFi.localIP());
-        return true;
-    } else {
-        systemStatus.isWiFiConnected = false;
-        Serial.println(F("Nie udało się połączyć z WiFi"));
+/**
+ * Funkcja nawiązująca połączenie z serwerem MQTT (Home Assistant)
+ * 
+ * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
+ */
+bool connectMQTT() {   
+    if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+        DEBUG_PRINT("\nBŁĄD POŁĄCZENIA MQTT!");
         return false;
     }
-}
-Poprawiona funkcja connectMQTT() z obsługą błędów:
-C++
-bool connectMQTT() {
-    if (!systemStatus.isWiFiConnected) {
-        Serial.println(F("Brak połączenia WiFi - nie można połączyć z MQTT"));
-        return false;
-    }
-
-    const ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
     
-    if (networkConfig.mqtt_server.length() == 0) {
-        Serial.println(F("Brak skonfigurowanego serwera MQTT"));
-        return false;
-    }
-
-    Serial.println(F("Łączenie z MQTT..."));
-    
-    if (networkConfig.mqtt_user.length() > 0) {
-        mqtt.begin(networkConfig.mqtt_server.c_str(),
-                  networkConfig.mqtt_user.c_str(),
-                  networkConfig.mqtt_password.c_str());
-    } else {
-        mqtt.begin(networkConfig.mqtt_server.c_str());
-    }
-
-    // Czekaj maksymalnie 10 sekund na połączenie
-    unsigned long startTime = millis();
-    while (!mqtt.isConnected() && millis() - startTime < 10000) {
-        mqtt.loop();
-        delay(100);
-    }
-
-    systemStatus.isMQTTConnected = mqtt.isConnected();
-    
-    if (systemStatus.isMQTTConnected) {
-        Serial.println(F("Połączono z MQTT"));
-        return true;
-    } else {
-        Serial.println(F("Nie udało się połączyć z MQTT"));
-        return false;
-    }
+    DEBUG_PRINT("MQTT połączono pomyślnie!");
+    return true;
 }
 
 // Funkcja konfigurująca Home Assistant
@@ -1111,125 +611,81 @@ float getCurrentWaterLevel() {
 //   - zmierzoną odległość w milimetrach (mediana z kilku pomiarów)
 //   - (-1) w przypadku błędu lub przekroczenia czasu odpowiedzi
 int measureDistance() {
-    int measurements[SENSOR_AVG_SAMPLES];
-    int validCount = 0;
-
-    // Rozszerzony zakres akceptowalnych pomiarów o margines
-    const int MIN_VALID_DISTANCE = TANK_FULL - VALID_MARGIN;      // 45mm
-    const int MAX_VALID_DISTANCE = TANK_EMPTY + VALID_MARGIN;     // 530mm
+    int measurements[SENSOR_AVG_SAMPLES];  // Tablica do przechowywania pomiarów
 
     for (int i = 0; i < SENSOR_AVG_SAMPLES; i++) {
-        measurements[i] = -1; // Domyślna wartość błędu
-        
-        // Reset trigger
-        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
-        delayMicroseconds(2);
-        
-        // Wysłanie impulsu 10µs
-        digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
-        delayMicroseconds(10);
-        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+        // Generowanie impulsu wyzwalającego (trigger)
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że pin jest w stanie niskim
+        delayMicroseconds(5);  // Krótka pauza dla stabilizacji
+        digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);  // Wysłanie impulsu 10µs
+        delayMicroseconds(10);  // Czekaj 10µs
+        digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Zakończ impuls
 
-        // Pomiar czasu odpowiedzi z timeoutem
-        unsigned long startTime = micros();
-        unsigned long timeout = startTime + 25000; // 25ms timeout
-        
-        // Czekaj na początek echa
-        bool validEcho = true;
+        // Oczekiwanie na początek sygnału echo
+        // Timeout 100ms chroni przed zawieszeniem jeśli czujnik nie odpowiada
+        unsigned long startWaiting = millis();
         while (digitalRead(PIN_ULTRASONIC_ECHO) == LOW) {
-            if (micros() > timeout) {
-                DEBUG_PRINT(F("Echo start timeout"));
-                validEcho = false;
-                break;
-            }
-        }
-        
-        if (validEcho) {
-            startTime = micros();
-            
-            // Czekaj na koniec echa
-            while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
-                if (micros() > timeout) {
-                    DEBUG_PRINT(F("Echo end timeout"));
-                    validEcho = false;
-                    break;
-                }
-            }
-            
-            if (validEcho) {
-                unsigned long duration = micros() - startTime;
-                int distance = (duration * 343) / 2000; // Prędkość dźwięku 343 m/s
-
-                // Walidacja odległości z uwzględnieniem marginesu
-                if (distance >= MIN_VALID_DISTANCE && distance <= MAX_VALID_DISTANCE) {
-                    measurements[i] = distance;
-                    validCount++;
-                } else {
-                    DEBUG_PRINT(F("Distance out of range: "));
-                    DEBUG_PRINT(distance);
-                }
+            if (millis() - startWaiting > 100) {
+                DEBUG_PRINT("Timeout - brak początku echa");
+                return -1;  // Błąd - brak odpowiedzi od czujnika
             }
         }
 
-        delay(MEASUREMENT_DELAY);
-    }
+        // Pomiar czasu początku echa (w mikrosekundach)
+        unsigned long echoStartTime = micros();
 
-    // Sprawdź czy mamy wystarczająco dużo poprawnych pomiarów
-    if (validCount < (SENSOR_AVG_SAMPLES / 2)) {
-        DEBUG_PRINT(F("Too few valid measurements: "));
-        DEBUG_PRINT(validCount);
-        return -1;
-    }
-
-    // Przygotuj tablicę na poprawne pomiary
-    int validMeasurements[validCount];
-    int validIndex = 0;
-    
-    // Kopiuj tylko poprawne pomiary
-    for (int i = 0; i < SENSOR_AVG_SAMPLES; i++) {
-        if (measurements[i] != -1) {
-            validMeasurements[validIndex++] = measurements[i];
+        // Oczekiwanie na koniec sygnału echo
+        // Timeout 20ms - teoretyczny max dla 3.4m to około 20ms
+        while (digitalRead(PIN_ULTRASONIC_ECHO) == HIGH) {
+            if (micros() - echoStartTime > 20000) {
+                DEBUG_PRINT("Timeout - zbyt długie echo");
+                return -1;  // Błąd - echo trwa zbyt długo
+            }
         }
+
+        // Obliczenie czasu trwania echa (w mikrosekundach)
+        unsigned long duration = micros() - echoStartTime;
+
+        // Konwersja czasu na odległość
+        int distance = (duration * 343) / 2000;
+
+        // Walidacja wyniku
+        if (distance >= 20 && distance <= 1500) {
+            measurements[i] = distance;  // Zapis poprawnego pomiaru
+        } else {
+            measurements[i] = -1;  // Zapis błędnego pomiaru
+        }
+
+        delay(50);  // Krótka przerwa między pomiarami
     }
 
-    // Sortowanie
-    for (int i = 0; i < validCount - 1; i++) {
-        for (int j = 0; j < validCount - i - 1; j++) {
-            if (validMeasurements[j] > validMeasurements[j + 1]) {
-                int temp = validMeasurements[j];
-                validMeasurements[j] = validMeasurements[j + 1];
-                validMeasurements[j + 1] = temp;
+    // Sortowanie pomiarów rosnąco
+    for (int i = 0; i < SENSOR_AVG_SAMPLES - 1; i++) {
+        for (int j = 0; j < SENSOR_AVG_SAMPLES - i - 1; j++) {
+            if (measurements[j] > measurements[j + 1]) {
+                int temp = measurements[j];
+                measurements[j] = measurements[j + 1];
+                measurements[j + 1] = temp;
             }
         }
     }
 
-    // Oblicz medianę
-    float medianValue;
-    if (validCount % 2 == 0) {
-        medianValue = (validMeasurements[(validCount-1)/2] + validMeasurements[validCount/2]) / 2.0;
+    // Obliczenie mediany z pomiarów
+    if (SENSOR_AVG_SAMPLES % 2 == 0) {
+        // Jeśli liczba pomiarów jest parzysta, zwróć średnią z dwóch środkowych wartości
+        int midIndex = SENSOR_AVG_SAMPLES / 2;
+        if (measurements[midIndex - 1] == -1 || measurements[midIndex] == -1) {
+            return -1;  // Jeśli środkowe wartości są błędne, zwróć błąd
+        }
+        return (measurements[midIndex - 1] + measurements[midIndex]) / 2;
     } else {
-        medianValue = validMeasurements[validCount/2];
+        // Jeśli liczba pomiarów jest nieparzysta, zwróć środkową wartość
+        int midIndex = SENSOR_AVG_SAMPLES / 2;
+        if (measurements[midIndex] == -1) {
+            return -1;  // Jeśli środkowa wartość jest błędna, zwróć błąd
+        }
+        return measurements[midIndex];
     }
-
-    // Zastosuj filtr EMA
-    if (lastFilteredDistance == 0) {
-        lastFilteredDistance = medianValue;
-    }
-    
-    // Zastosuj filtr EMA z ograniczeniem maksymalnej zmiany
-    float maxChange = 10.0; // maksymalna zmiana między pomiarami w mm
-    float currentChange = medianValue - lastFilteredDistance;
-    if (abs(currentChange) > maxChange) {
-        medianValue = lastFilteredDistance + (currentChange > 0 ? maxChange : -maxChange);
-    }
-    
-    lastFilteredDistance = (EMA_ALPHA * medianValue) + ((1 - EMA_ALPHA) * lastFilteredDistance);
-
-    // Końcowe ograniczenie do rzeczywistego zakresu zbiornika
-    if (lastFilteredDistance < TANK_FULL) lastFilteredDistance = TANK_FULL;
-    if (lastFilteredDistance > TANK_EMPTY) lastFilteredDistance = TANK_EMPTY;
-
-    return (int)lastFilteredDistance;
 }
 
 // Funkcja obliczająca poziom wody w zbiorniku dolewki w procentach
@@ -1365,11 +821,13 @@ void handleButton() {
  * 
  * Działanie:
  * - Aktualizuje flagę stanu dźwięku
+ * - Zapisuje nowy stan do pamięci EEPROM (trwałej)
  * - Aktualizuje stan w Home Assistant
  */
 void onSoundSwitchCommand(bool state, HASwitch* sender) {   
     status.soundEnabled = state;  // Aktualizuj status lokalny
     config.soundEnabled = state;  // Aktualizuj konfigurację
+    saveConfig();  // Zapisz do EEPROM
     
     // Aktualizuj stan w Home Assistant
     switchSound.setState(state, true);  // force update
@@ -1386,30 +844,42 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
+    DEBUG_PRINT("\nStarting HydroSense...");  // Komunikat startowy
+    
+    // Wczytaj konfigurację
+    if (!loadConfig()) {
+        DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
+        setDefaultConfig();
+    }
+    
+    // Zastosuj wczytane ustawienia
+    //status.soundEnabled = config.soundEnabled;
+    
     setupPin();
-
-    // Inicjalizacja managera konfiguracji
-    if (!configManager.begin()) {
-        Serial.println(F("Błąd inicjalizacji konfiguracji"));
-        playShortWarningSound();
+    
+    // Nawiązanie połączenia WiFi
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.print("Łączenie z WiFi");
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+        ESP.wdtFeed(); // Reset watchdoga podczas łączenia
     }
+    DEBUG_PRINT("\nPołączono z WiFi");
 
-    // Próba połączenia z WiFi
-    if (!setupWiFi()) {
-        // Jeśli nie udało się połączyć, przejdź w tryb AP
-        setupAP();
-        setupWebServer();
-        playShortWarningSound();
-    } else {
-        // Normalna inicjalizacja dla trybu połączonego
-        if (connectMQTT()) {
-            setupHA();
-            firstUpdateHA();
-            playConfirmationSound();
-        } else {
-            playShortWarningSound();
-        }
+    // Próba połączenia MQTT
+    DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
+    connectMQTT();
+
+    setupHA();
+   
+    // Wczytaj konfigurację z EEPROM
+    if (loadConfig()) {        
+        status.soundEnabled = config.soundEnabled;  // Synchronizuj stan dźwięku z wczytanej konfiguracji
     }
+    
+    firstUpdateHA();
+    status.lastSoundAlert = millis();
     
     // Konfiguracja OTA (Over-The-Air) dla aktualizacji oprogramowania
     ArduinoOTA.setHostname("HydroSense");  // Ustaw nazwę urządzenia
@@ -1429,9 +899,6 @@ void loop() {
     static unsigned long lastMeasurement = 0;
     static unsigned long lastStatsUpdate = 0;
 
-    dnsServer.processNextRequest();
-    webServer.handleClient();
-
     // KRYTYCZNE OPERACJE SYSTEMOWE
     
     // Zabezpieczenie przed zawieszeniem systemu
@@ -1443,26 +910,31 @@ void loop() {
 
     // ZARZĄDZANIE ŁĄCZNOŚCIĄ
     
-    if (WiFi.getMode() == WIFI_AP) {
-        // Handle AP mode
-        dnsServer.processNextRequest();
-        webServer.handleClient();
-    } else {
-        // Normal operation mode
-        if (!mqtt.isConnected()) {
-            if (!connectMQTT()) {
-                playShortWarningSound();
+    // Sprawdzanie i utrzymanie połączenia WiFi
+    if (WiFi.status() != WL_CONNECTED) {
+        setupWiFi();    // Próba ponownego połączenia z siecią
+        return;         // Powrót do początku pętli po próbie połączenia
+    }
+    
+    // Zarządzanie połączeniem MQTT
+    if (!mqtt.isConnected()) {
+        if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
+            lastMQTTRetry = currentMillis;
+            DEBUG_PRINT("\nBrak połączenia MQTT - próba reconnect...");
+            if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+                DEBUG_PRINT("MQTT połączono ponownie!");
             }
         }
-        mqtt.loop();
-        
-        if (status.isServiceEnabled) {
-            handleButton();
-            updateWaterLevel();
-            checkAlarmConditions();
-            updatePump();
-        }
     }
+        
+    mqtt.loop();  // Obsługa komunikacji MQTT
+
+    // GŁÓWNE FUNKCJE URZĄDZENIA
+    
+    // Obsługa interfejsu i sterowania
+    handleButton();     // Przetwarzanie sygnałów z przycisków
+    updatePump();       // Sterowanie pompą
+    checkAlarmConditions(); // System ostrzeżeń dźwiękowych
     
     // Monitoring poziomu wody
     if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
