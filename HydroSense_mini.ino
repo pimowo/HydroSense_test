@@ -16,17 +16,18 @@ const char* MQTT_USER = "hydrosense";              // Użytkownik MQTT
 const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
 
 // Konfiguracja pinów ESP8266
-#define PIN_ULTRASONIC_TRIG D6  // Pin TRIG czujnika ultradźwiękowego
-#define PIN_ULTRASONIC_ECHO D7  // Pin ECHO czujnika ultradźwiękowego
+const int PIN_ULTRASONIC_TRIG = D6;  // Pin TRIG czujnika ultradźwiękowego
+const int PIN_ULTRASONIC_ECHO = D7;  // Pin ECHO czujnika ultradźwiękowego
 
-#define PIN_WATER_LEVEL D5  // Pin czujnika poziomu wody w akwarium
-#define POMPA_PIN D1       // Pin sterowania pompą
-#define BUZZER_PIN D2           // Pin buzzera do alarmów dźwiękowych
-#define PRZYCISK_PIN D3           // Pin przycisku do kasowania alarmów
+const int PIN_WATER_LEVEL = D5;      // Pin czujnika poziomu wody w akwarium
+const int POMPA_PIN = D1;            // Pin sterowania pompą
+const int BUZZER_PIN = D2;           // Pin buzzera do alarmów dźwiękowych
+const int PRZYCISK_PIN = D3;         // Pin przycisku do kasowania alarmów
 
 // Stałe czasowe (wszystkie wartości w milisekundach)
 const unsigned long ULTRASONIC_TIMEOUT = 50;       // Timeout pomiaru czujnika ultradźwiękowego
-const unsigned long MEASUREMENT_INTERVAL = 10000;  // Interwał między pomiarami
+const unsigned long MEASUREMENT_INTERVAL = 60000;  // Interwał między pomiarami
+//const unsigned long MEASUREMENT_INTERVAL = 15000;  // Interwał między pomiarami
 const unsigned long WIFI_CHECK_INTERVAL = 5000;    // Interwał sprawdzania połączenia WiFi
 const unsigned long WATCHDOG_TIMEOUT = 8000;       // Timeout dla watchdoga
 const unsigned long PUMP_MAX_WORK_TIME = 300000;   // Maksymalny czas pracy pompy (5 minut)
@@ -41,8 +42,8 @@ const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnała
 // Konfiguracja EEPROM
 #define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
-// Definicja debugowania - ustaw 1 aby włączyć, 0 aby wyłączyć
-#define DEBUG 0
+// Definicja debugowania
+#define DEBUG 0  // 0 wyłącza debug, 1 włącza debug
 
 #if DEBUG
     #define DEBUG_PRINT(x) Serial.println(x)
@@ -63,7 +64,11 @@ const int TANK_DIAMETER = 150;  // Średnica zbiornika (mm)
 const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
 const int PUMP_DELAY = 5;  // Opóźnienie uruchomienia pompy (sekundy)
 const int PUMP_WORK_TIME = 60;  // Czas pracy pompy
+const int VALID_MARGIN = 25;  // Margines błędu dla poprawnych pomiarów w mm
+const float EMA_ALPHA = 0.2f;  // Współczynnik wygładzania dla średniej wykładniczej (0-1)
 
+// Zmienne globalne
+float lastFilteredDistance = 0;  // Dla filtra EMA (Exponential Moving Average)
 float aktualnaOdleglosc = 0;  // Aktualny dystans
 unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
 
@@ -193,7 +198,7 @@ bool loadConfig() {
     status.soundEnabled = config.soundEnabled;
     switchSound.setState(config.soundEnabled, true);  // force update
 
-    Serial.printf("Konfiguracja wczytana. Stan dźwięku: %s\n", 
+    DEBUG_PRINT("Konfiguracja wczytana. Stan dźwięku: %s\n", 
                  config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
     return true;
 }
@@ -415,7 +420,7 @@ void setupWiFi() {
     // Sprawdzenie stanu połączenia
     if (WiFi.status() != WL_CONNECTED) {  // Jeśli nie połączono z siecią
         if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {  // Sprawdź czy minął interwał
-            Serial.print(".");  // Wskaźnik aktywności
+            DEBUG_PRINT(".");  // Wskaźnik aktywności
             lastWiFiCheck = millis();  // Aktualizacja czasu ostatniej próby
             if (WiFi.status() == WL_DISCONNECTED) {  // Jeśli sieć jest dostępna ale rozłączona
                 WiFi.reconnect();  // Próba ponownego połączenia
@@ -445,7 +450,7 @@ void setupHA() {
     device.setName("HydroSense");                  // Nazwa urządzenia
     device.setModel("HS ESP8266");                 // Model urządzenia
     device.setManufacturer("PMW");                 // Producent
-    device.setSoftwareVersion("17.11.24");         // Wersja oprogramowania
+    device.setSoftwareVersion("18.11.24");         // Wersja oprogramowania
 
     // Konfiguracja sensorów pomiarowych w HA
     sensorDistance.setName("Pomiar odległości");
@@ -585,7 +590,7 @@ void onServiceSwitchCommand(bool state, HASwitch* sender) {
         // jeśli czujnik poziomu wykryje wodę
     }
     
-    Serial.printf("Tryb serwisowy: %s (przez HA)\n", 
+    DEBUG_PRINT("Tryb serwisowy: %s (przez HA)\n", 
                   state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
@@ -670,8 +675,7 @@ int measureDistance() {
                 }
             }
         }
-
-        delay(MEASUREMENT_DELAY);
+        delay(ULTRASONIC_TIMEOUT);
     }
 
     // Sprawdź czy mamy wystarczająco dużo poprawnych pomiarów
@@ -777,10 +781,10 @@ void updateWaterLevel() {
     dtostrf(volume, 1, 1, valueStr);
     sensorVolume.setValue(valueStr);
         
-    // Debug info tylko gdy wartości się zmieniły (conajmniej 5mm)
+    Debug info tylko gdy wartości się zmieniły (conajmniej 5mm)
     static float lastReportedDistance = 0;
     if (abs(currentDistance - lastReportedDistance) > 5) {
-        Serial.printf("Poziom: %.1f mm, Obj: %.1f L\n", currentDistance, volume);
+        DEBUG_PRINT("Poziom: %.1f mm, Obj: %.1f L\n", currentDistance, volume);
         lastReportedDistance = currentDistance;
     }
 }
@@ -826,7 +830,7 @@ void handleButton() {
                     switchService.setState(status.isServiceMode, true);  // force update w HA
                     
                     // Log zmiany stanu
-                    Serial.printf("Tryb serwisowy: %s (przez przycisk)\n", 
+                    DEBUG_PRINT("Tryb serwisowy: %s (przez przycisk)\n", 
                                 status.isServiceMode ? "WŁĄCZONY" : "WYŁĄCZONY");
                     
                     // Jeśli włączono tryb serwisowy podczas pracy pompy
@@ -881,7 +885,7 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
         playConfirmationSound();
     }
     
-    Serial.printf("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
+    DEBUG_PRINT("Zmieniono stan dźwięku na: %s\n", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
 // --- Setup
@@ -903,10 +907,10 @@ void setup() {
     
     // Nawiązanie połączenia WiFi
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.print("Łączenie z WiFi");
+    DEBUG_PRINT("Łączenie z WiFi");
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
-        Serial.print(".");
+        DEBUG_PRINT(".");
         ESP.wdtFeed(); // Reset watchdoga podczas łączenia
     }
     DEBUG_PRINT("\nPołączono z WiFi");
