@@ -4,7 +4,6 @@
 #include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
 #include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
 #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
-//#include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
 
@@ -409,36 +408,6 @@ void handleRoot() {
     webServer.send(200, "text/html", html);
 }
 
-void setupWebServer() {
-    // Strona główna
-    webServer.on("/", HTTP_GET, handleRoot);
-    
-    // Endpointy API
-    webServer.on("/api/config", HTTP_GET, handleGetConfig);
-    webServer.on("/api/config", HTTP_POST, handleSaveConfig);
-    webServer.on("/api/wifi/scan", HTTP_GET, handleWiFiScan);
-    
-    // Obsługa nieznanych ścieżek
-    webServer.onNotFound([]() {
-        if (!handleCaptivePortal()) {
-            webServer.send(404, "text/plain", "Not Found");
-        }
-    });
-    
-    webServer.begin();
-}
-
-bool handleCaptivePortal() {
-    if (!isIp(webServer.hostHeader())) {
-        Serial.println(F("Redirect to captive portal"));
-        webServer.sendHeader("Location", String("http://") + toStringIp(WiFi.softAPIP()), true);
-        webServer.send(302, "text/plain", "");
-        webServer.client().stop();
-        return true;
-    }
-    return false;
-}
-
 void handleGetConfig() {
     DynamicJsonDocument doc(1024);
     
@@ -479,7 +448,6 @@ void handleSaveConfig() {
             return;
         }
         
-        // Aktualizacja konfiguracji
         ConfigManager::NetworkConfig& networkConfig = configManager.getNetworkConfig();
         ConfigManager::TankConfig& tankConfig = configManager.getTankConfig();
         ConfigManager::PumpConfig& pumpConfig = configManager.getPumpConfig();
@@ -553,65 +521,18 @@ webServer.on("/restart", HTTP_POST, []() {
     ESP.restart();
 });
 
-// --- EEPROM
-
-// Ustawienia domyślne
-void setDefaultConfig() {
-    config.version = CONFIG_VERSION;
-    config.soundEnabled = true;  // Domyślnie dźwięk włączony
-    config.checksum = calculateChecksum(config);
-
-    saveConfig();
-    DEBUG_PRINT(F("Utworzono domyślną konfigurację"));
-}
-
-// Wczytywanie konfiguracji
-bool loadConfig() {
-    EEPROM.begin(EEPROM_SIZE);
-    EEPROM.get(0, config);
+void switchToNormalMode() {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(configManager.getNetworkConfig().wifi_ssid.c_str(), 
+               configManager.getNetworkConfig().wifi_password.c_str());
+    // Zatrzymaj serwery AP
+    webServer.stop();
+    dnsServer.stop();
     
-    if (config.version != CONFIG_VERSION) {
-        DEBUG_PRINT(F("Niekompatybilna wersja konfiguracji"));
-        setDefaultConfig();
-        return false;
-    }
-    
-    char calculatedChecksum = calculateChecksum(config);
-    if (config.checksum != calculatedChecksum) {
-        DEBUG_PRINT(F("Błąd sumy kontrolnej"));
-        setDefaultConfig();
-        return false;
-    }
-    
-    // Synchronizuj stan po wczytaniu
-    // Dzwięk
-    status.soundEnabled = config.soundEnabled;
-    switchSound.setState(config.soundEnabled, true);  // force update
-
-    Serial.printf("Konfiguracja wczytana. Stan dźwięku: %s\n", 
-                 config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
-    return true;
+    setupHA();
+    firstUpdateHA();
 }
 
-// Zapis do EEPROM
-void saveConfig() {
-    static Config lastConfig;
-    if (memcmp(&lastConfig, &config, sizeof(Config)) != 0) {
-        EEPROM.put(0, config);
-        EEPROM.commit();
-        memcpy(&lastConfig, &config, sizeof(Config));
-    }
-}
-
-// Obliczanie sumy kontrolnej
-char calculateChecksum(const Config& cfg) {
-    const byte* p = (const byte*)(&cfg);
-    char sum = 0;
-    for (int i = 0; i < sizeof(Config) - 1; i++) {
-        sum ^= p[i];
-    }
-    return sum;
-}
 
 // --- Deklaracje funkcji alarmów
 
@@ -1283,50 +1204,40 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
-    DEBUG_PRINT("\nStarting HydroSense...");  // Komunikat startowy
-    
+
     // Inicjalizacja managera konfiguracji
     if (!configManager.begin()) {
         Serial.println(F("Failed to initialize configuration"));
         // Możesz dodać tutaj obsługę błędów
     }
-    
-    // Przykład dostępu do konfiguracji
-    ConfigManager::TankConfig& tankConfig = configManager.getTankConfig();
-    // Używamy tankConfig.full zamiast TANK_FULL itd.
 
-    // Wczytaj konfigurację
-    if (!loadConfig()) {
-        DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
-        setDefaultConfig();
-    }
-    
-    // Zastosuj wczytane ustawienia
-    //status.soundEnabled = config.soundEnabled;
-    
-    setupPin();
-    
-    // Nawiązanie połączenia WiFi
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.print("Łączenie z WiFi");
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-        ESP.wdtFeed(); // Reset watchdoga podczas łączenia
-    }
-    DEBUG_PRINT("\nPołączono z WiFi");
+    // Próba połączenia z WiFi
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(configManager.getNetworkConfig().wifi_ssid.c_str(), 
+               configManager.getNetworkConfig().wifi_password.c_str());
 
+    // Czekaj na połączenie przez 30 sekund
+    unsigned long startAttemptTime = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 30000) {
+        delay(100);
+    }
+
+    // Jeśli nie udało się połączyć, przejdź w tryb AP
+    if (WiFi.status() != WL_CONNECTED) {
+        setupAP();
+        setupWebServer();
+    } else {
+        // Normalna inicjalizacja dla trybu połączonego
+        setupHA();
+        firstUpdateHA();
+    }
+       
     // Próba połączenia MQTT
     DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
     connectMQTT();
 
-    setupHA();
-   
-    // Wczytaj konfigurację z EEPROM
-    if (loadConfig()) {        
-        status.soundEnabled = config.soundEnabled;  // Synchronizuj stan dźwięku z wczytanej konfiguracji
-    }
-    
+    setupPin();
+    setupHA();    
     firstUpdateHA();
     status.lastSoundAlert = millis();
     
@@ -1368,15 +1279,21 @@ void loop() {
         return;         // Powrót do początku pętli po próbie połączenia
     }
     
-    // Zarządzanie połączeniem MQTT
-    if (!mqtt.isConnected()) {
-        if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
-            lastMQTTRetry = currentMillis;
-            DEBUG_PRINT("\nBrak połączenia MQTT - próba reconnect...");
-            if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-                DEBUG_PRINT("MQTT połączono ponownie!");
-            }
+    if (WiFi.getMode() == WIFI_AP) {
+        // Obsługa trybu AP
+        dnsServer.processNextRequest();
+        webServer.handleClient();
+    } else {
+        // Normalna obsługa w trybie połączonym
+        if (!mqtt.isConnected()) {
+            connectMQTT();
         }
+        mqtt.loop();
+        
+        handleButton();
+        updateWaterLevel();
+        checkAlarmConditions();
+        updatePump();
     }
         
     mqtt.loop();  // Obsługa komunikacji MQTT
