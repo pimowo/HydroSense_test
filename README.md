@@ -91,6 +91,8 @@ Interfejs Web
 Aktualizacje OTA
 Autor
 @pimowo
+PMW 
+pimowo@gmail.com
 
 Licencja
 MIT License - możesz swobodnie używać, modyfikować i rozpowszechniać kod.
