@@ -978,7 +978,6 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     DEBUG_PRINTF("Zmieniono stan dźwięku na: ", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
-// Strona HTML
 const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -1009,6 +1008,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             <p>Adres IP: %IP_ADDRESS%</p>
             <p>Status MQTT: %MQTT_STATUS%</p>
             <p>Aktualny poziom wody: %WATER_LEVEL%mm</p>
+            <p>Status pompy: %PUMP_STATUS%</p>
         </div>
 
         <form method="POST" action="/save">
@@ -1075,6 +1075,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
+// Usuń starą definicję getConfigPage i zostaw tylko jedną:
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
@@ -1086,6 +1087,7 @@ String getConfigPage() {
     // Pobierz aktualny poziom wody
     float currentWaterLevel = getCurrentWaterLevel();
     html.replace("%WATER_LEVEL%", String(currentWaterLevel));
+    html.replace("%PUMP_STATUS%", status.isPumpActive ? "Włączona" : "Wyłączona");
     
     // Ustawienia MQTT
     html.replace("%MQTT_SERVER%", config.mqtt_server);
@@ -1128,19 +1130,17 @@ void handleSave() {
         needMqttReconnect = true;
     }
 
-    // Zapisz ustawienia MQTT
+    // Zapisz wszystkie ustawienia
     strlcpy(config.mqtt_server, server.arg("mqtt_server").c_str(), sizeof(config.mqtt_server));
     config.mqtt_port = server.arg("mqtt_port").toInt();
     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
-
-    // Zapisz ustawienia zbiornika
+    
     config.tank_full = server.arg("tank_full").toInt();
     config.tank_empty = server.arg("tank_empty").toInt();
     config.reserve_level = server.arg("reserve_level").toInt();
     config.tank_diameter = server.arg("tank_diameter").toInt();
-
-    // Zapisz ustawienia pompy
+    
     config.pump_delay = server.arg("pump_delay").toInt();
     config.pump_work_time = server.arg("pump_work_time").toInt();
 
@@ -1152,7 +1152,7 @@ void handleSave() {
         if (mqtt.isConnected()) {
             mqtt.disconnect();
         }
-        connectMQTT();
+        setupHA(); // Ponowna konfiguracja HA z nowymi danymi MQTT
     }
 
     // Przekieruj z powrotem na stronę główną
