@@ -90,10 +90,12 @@ ESP8266WebServer server(80);
 
 // eeprom
 struct Config {
-    char mqtt_server[40];     // Adres IP serwera MQTT
-    char mqtt_user[20];       // Nazwa użytkownika MQTT
-    char mqtt_password[20];   // Hasło MQTT
-    int mqtt_port;           // Port MQTT
+    uint8_t version;  // Wersja konfiguracji
+    bool soundEnabled;       // Stan dźwięku
+    char mqtt_server[40];    // Adres IP serwera MQTT
+    char mqtt_user[20];      // Nazwa użytkownika MQTT
+    char mqtt_password[20];  // Hasło MQTT
+    int mqtt_port;          // Port MQTT
     int tank_full;          // Poziom pełnego zbiornika (mm)
     int tank_empty;         // Poziom pustego zbiornika (mm)
     int reserve_level;      // Poziom rezerwy wody (mm)
@@ -515,14 +517,29 @@ void setupWiFi() {
 //     return true;
 // }
 
+// bool connectMQTT() {
+//     if (!mqtt.isConnected()) {
+//         // Użyj wartości z konfiguracji zamiast stałych
+//         client.setServer(config.mqtt_server, config.mqtt_port);
+        
+//         Serial.print("Łączenie z MQTT...");
+//         if (mqtt.begin(config.mqtt_user, config.mqtt_password)) {
+//             Serial.println("połączono!");
+//             return true;
+//         } else {
+//             Serial.println("nie udało się połączyć!");
+//             return false;
+//         }
+//     }
+//     return true;
+// }
+
 bool connectMQTT() {
     if (!mqtt.isConnected()) {
-        // Użyj wartości z konfiguracji zamiast stałych
-        client.setServer(config.mqtt_server, config.mqtt_port);
-        
         Serial.print("Łączenie z MQTT...");
-        if (mqtt.begin(config.mqtt_user, config.mqtt_password)) {
+        if (mqtt.begin(config.mqtt_server, config.mqtt_port, config.mqtt_user, config.mqtt_password)) {
             Serial.println("połączono!");
+            setupHA();  // Konfiguracja Home Assistant
             return true;
         } else {
             Serial.println("nie udało się połączyć!");
@@ -1134,7 +1151,8 @@ void handleSave() {
     server.send(303);
 
     // Zrestartuj połączenie MQTT z nowymi ustawieniami
-    if (mqtt.connected()) {
+    //if (mqtt.connected()) {
+    if (mqtt.isConnected()) {
         mqtt.disconnect();
     }
     connectMQTT();
@@ -1229,7 +1247,7 @@ void loop() {
         timers.lastMQTTRetry = currentMillis;  // Aktualizacja znacznika czasu ostatniej próby połączenia MQTT
         DEBUG_PRINT(F("Brak połączenia MQTT - próba połączenia..."));  // Wydrukuj komunikat debugowania
         //if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        if (mqtt.begin(config.mqtt_server, config.mqtt_port, config.mqtt_user, config.mqtt_password))
+        if (mqtt.begin(config.mqtt_server, config.mqtt_port, config.mqtt_user, config.mqtt_password)) {
             DEBUG_PRINT(F("MQTT połączono ponownie!"));  // Wydrukuj komunikat debugowania
         }
     }
