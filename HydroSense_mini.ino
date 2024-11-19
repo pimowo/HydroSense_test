@@ -1,16 +1,16 @@
 // --- Biblioteki
 
 #include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
-#include <ArduinoHA.h>  // Integracja z Home Assistant przez protokół MQTT
-#include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
+#include <ArduinoHA.h>  // Biblioteka do integracji z Home Assistant przez protokół MQTT
+#include <ArduinoOTA.h>  // Biblioteka do aktualizacji oprogramowania przez sieć WiFi
 #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
-#include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
-#include <WiFiManager.h>
+#include <EEPROM.h>  // Biblioteka do dostępu do pamięci nieulotnej EEPROM
+#include <WiFiManager.h>  // Biblioteka do zarządzania połączeniami WiFi
 
 // --- Definicje stałych i zmiennych globalnych
 
 // Wersja systemu
-const char* SOFTWARE_VERSION = "18.11.24";
+const char* SOFTWARE_VERSION = "19.11.24";
 
 // Konfiguracja MQTT
 const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
