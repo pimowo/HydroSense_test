@@ -87,7 +87,25 @@ const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dn
 struct Config {
     uint8_t version;  // Wersja konfiguracji
     bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
-    char checksum;  // Suma kontrolna
+
+    // Ustawienia MQTT
+    char mqtt_server[40];
+    uint16_t mqtt_port;
+    char mqtt_user[32];
+    char mqtt_password[32];
+    
+    // Ustawienia zbiornika
+    int tank_full;
+    int tank_empty;
+    int reserve_level;
+    int tank_diameter;
+    
+    // Ustawienia pompy
+    int pump_delay;
+    int pump_work_time;
+    
+    // Suma kontrolna
+    char checksum;
 };
 Config config;
 
@@ -206,6 +224,22 @@ void setDefaultConfig() {
     config.version = CONFIG_VERSION;
     config.soundEnabled = true;  // Domyślnie dźwięk włączony
     config.checksum = calculateChecksum(config);
+
+    // MQTT
+    strlcpy(config.mqtt_server, "192.168.1.14", sizeof(config.mqtt_server));
+    config.mqtt_port = 1883;
+    strlcpy(config.mqtt_user, "hydrosense", sizeof(config.mqtt_user));
+    strlcpy(config.mqtt_password, "hydrosense", sizeof(config.mqtt_password));
+    
+    // Zbiornik
+    config.tank_full = 65;      // mm
+    config.tank_empty = 510;    // mm
+    config.reserve_level = 450;  // mm
+    config.tank_diameter = 150; // mm
+    
+    // Pompa
+    config.pump_delay = 5;       // sekundy
+    config.pump_work_time = 60;  // sekundy
 
     saveConfig();
     DEBUG_PRINT(F("Utworzono domyślną konfigurację"));
@@ -932,34 +966,143 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>HydroSense - Konfiguracja</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HydroSense</title>
     <style>
-        body { font-family: Arial; margin: 20px; background: #f0f0f0; }
-        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        input[type="number"] { width: 150px; }
-        button { background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #45a049; }
-        .status { margin-top: 20px; padding: 15px; background: #e8f5e9; border-radius: 4px; }
-        .section { background: #f8f9fa; padding: 15px; margin-bottom: 20px; border-radius: 4px; }
-        h2 { color: #333; margin-top: 0; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: Arial, sans-serif; 
+            line-height: 1.6;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        .container { 
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 15px;
+        }
+        .header {
+            background: #2C3E50;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2em;
+        }
+        .status-panel, .config-panel {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .status-panel h3, .config-panel h2 {
+            color: #4a9eff;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #3d3d3d;
+            font-size: 1.5em;  /* Ujednolicona wielkość dla wszystkich nagłówków sekcji */
+            font-weight: 500;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #3d3d3d;
+            font-size: 0.95em;  /* Ujednolicona wielkość dla opisów */
+        }
+        .status-item:last-child {
+            border-bottom: none;
+        }
+        .form-group {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #333333;
+            border-radius: 4px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #e0e0e0;
+            font-size: 0.95em;  /* Ujednolicona wielkość dla opisów */
+            font-weight: normal;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-size: 0.95em;  /* Ujednolicona wielkość dla pól input */
+            background: #404040;
+            color: #e0e0e0;
+        }
+        input[type="number"] {
+            width: 200px;
+        }
+        button {
+            background: #4a9eff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            width: 100%;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #3a8eef;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #f44336;
+        }
+        input:focus {
+            outline: none;
+            border-color: #4a9eff;
+        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            input[type="number"] {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>HydroSense - Konfiguracja</h1>
+        <div class="header">
+            <h1>HydroSense</h1>
+        </div>
         
-        <div class="status">
+        <div class="status-panel">
             <h3>Status systemu</h3>
-            <p>Status MQTT: %MQTT_STATUS%</p>
-            <p>Aktualny poziom wody: %WATER_LEVEL%mm</p>
-            <p>Status pompy: %PUMP_STATUS%</p>
+            <div class="status-item">
+                <span>Status MQTT:</span>
+                <span class="%MQTT_STATUS_CLASS%">%MQTT_STATUS%</span>
+            </div>
+            <div class="status-item">
+                <span>Status dźwięku:</span>
+                <span class="%SOUND_STATUS_CLASS%">%SOUND_STATUS%</span>
+            </div>
+            <div class="status-item">
+                <span>Wersja systemu:</span>
+                <span>%SOFTWARE_VERSION%</span>
+            </div>
         </div>
 
         <form method="POST" action="/save">
-            <div class="section">
+            <div class="config-panel">
                 <h2>Ustawienia MQTT</h2>
                 <div class="form-group">
                     <label>Adres serwera MQTT:</label>
@@ -979,7 +1122,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
                 </div>
             </div>
 
-            <div class="section">
+            <div class="config-panel">
                 <h2>Ustawienia zbiornika</h2>
                 <div class="form-group">
                     <label>Poziom pełnego zbiornika (mm):</label>
@@ -999,7 +1142,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
                 </div>
             </div>
 
-            <div class="section">
+            <div class="config-panel">
                 <h2>Ustawienia pompy</h2>
                 <div class="form-group">
                     <label>Opóźnienie pompy (s):</label>
@@ -1022,10 +1165,15 @@ String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
     // Status systemu
-    html.replace("%MQTT_STATUS%", mqtt.isConnected() ? "Połączony" : "Rozłączony");
-    html.replace("%WATER_LEVEL%", String(getCurrentWaterLevel()));
-    html.replace("%PUMP_STATUS%", status.isPumpActive ? "Włączona" : "Wyłączona");
+    bool mqttConnected = mqtt.isConnected();
+    html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
+    html.replace("%MQTT_STATUS_CLASS%", mqttConnected ? "success" : "error");
     
+    html.replace("%SOUND_STATUS%", config.soundEnabled ? "Włączony" : "Wyłączony");
+    html.replace("%SOUND_STATUS_CLASS%", config.soundEnabled ? "success" : "error");
+    
+    html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
+
     // Ustawienia MQTT
     html.replace("%MQTT_SERVER%", config.mqtt_server);
     html.replace("%MQTT_PORT%", String(config.mqtt_port));
