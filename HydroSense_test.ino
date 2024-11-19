@@ -6,6 +6,8 @@
 #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
 #include <EEPROM.h>  // Biblioteka do dostępu do pamięci nieulotnej EEPROM
 #include <WiFiManager.h>  // Biblioteka do zarządzania połączeniami WiFi
+#include <ESP8266WebServer.h>
+//#include <DNSServer.h>
 
 // --- Definicje stałych i zmiennych globalnych
 
@@ -13,9 +15,9 @@
 const char* SOFTWARE_VERSION = "19.11.24";
 
 // Konfiguracja MQTT
-const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
-const char* MQTT_USER = "hydrosense";  // Użytkownik MQTT
-const char* MQTT_PASSWORD = "hydrosense";  // Hasło MQTT
+// const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
+// const char* MQTT_USER = "hydrosense";  // Użytkownik MQTT
+// const char* MQTT_PASSWORD = "hydrosense";  // Hasło MQTT
 
 // Konfiguracja pinów ESP8266
 const int PIN_ULTRASONIC_TRIG = D6;  // Pin TRIG czujnika ultradźwiękowego
@@ -74,27 +76,41 @@ const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
 float lastFilteredDistance = 0;  // Dla filtra EMA (Exponential Moving Average)
 float aktualnaOdleglosc = 0;  // Aktualny dystans
 float lastReportedDistance = 0;
-unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
+float volume = 0;
+float currentDistance = 0;
+float waterLevelBeforePump = 0;
+unsigned long pumpStartTime = 0;
 unsigned long lastMeasurement = 0;
+unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
 const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dni
 
 // Stałe konfiguracyjne
 
+ESP8266WebServer server(80);
+
 // eeprom
 struct Config {
-    uint8_t version;  // Wersja konfiguracji
-    bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
-    char checksum;  // Suma kontrolna
+    char mqtt_server[40];     // Adres IP serwera MQTT
+    char mqtt_user[20];       // Nazwa użytkownika MQTT
+    char mqtt_password[20];   // Hasło MQTT
+    int mqtt_port;           // Port MQTT
+    int tank_full;          // Poziom pełnego zbiornika (mm)
+    int tank_empty;         // Poziom pustego zbiornika (mm)
+    int reserve_level;      // Poziom rezerwy wody (mm)
+    int tank_diameter;      // Średnica zbiornika (mm)
+    int pump_delay;         // Opóźnienie uruchomienia pompy (sekundy)
+    int pump_work_time;     // Czas pracy pompy (sekundy)
+    char checksum;          // Suma kontrolna
 };
+// struct Config {
+//     uint8_t version;  // Wersja konfiguracji
+//     bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
+//     char checksum;  // Suma kontrolna
+// };
 Config config;
 
 const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
 const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
-
-float currentDistance = 0;
-float volume = 0;
-unsigned long pumpStartTime = 0;
-float waterLevelBeforePump = 0;
 
 // Obiekty do komunikacji
 WiFiClient client;  // Klient połączenia WiFi
@@ -143,22 +159,22 @@ Status status;
 // Struktura dla obsługi przycisku
 struct ButtonState {
     bool lastState; // Poprzedni stan przycisku
+    bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia 
+    bool isInitialized = false;
     unsigned long pressedTime = 0; // Czas wciśnięcia przycisku
     unsigned long releasedTime = 0; // Czas puszczenia przycisku
-    bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia
-    bool isInitialized = false; 
 };
 
 // Instancja struktury ButtonState
 ButtonState buttonState;
 
 // Struktura dla dźwięków alarmowych
-struct AlarmTone {
-    uint16_t frequency;  // Częstotliwość dźwięku
-    uint16_t duration;  // Czas trwania
-    uint8_t repeats;  // Liczba powtórzeń
-    uint16_t pauseDuration;  // Przerwa między powtórzeniami
-};
+// struct AlarmTone {
+//     uint16_t frequency;  // Częstotliwość dźwięku
+//     uint16_t duration;  // Czas trwania
+//     uint8_t repeats;  // Liczba powtórzeń
+//     uint16_t pauseDuration;  // Przerwa między powtórzeniami
+// };
 
 // Struktura do przechowywania różnych znaczników czasowych
 struct Timers {
@@ -168,7 +184,11 @@ struct Timers {
     unsigned long lastMQTTLoop;  // Znacznik czasu ostatniego cyklu pętli MQTT
     
     // Konstruktor inicjalizujący wszystkie znaczniki czasowe na 0
-    Timers() : lastMQTTRetry(0), lastMeasurement(0), lastOTACheck(0), lastMQTTLoop(0) {}
+    Timers() : 
+        lastMQTTRetry(0), 
+        lastMeasurement(0), 
+        lastOTACheck(0), 
+        lastMQTTLoop(0) {}
 };
 
 // Instancja struktury Timers
@@ -203,6 +223,19 @@ void setDefaultConfig() {
     config.version = CONFIG_VERSION;
     config.soundEnabled = true;  // Domyślnie dźwięk włączony
     config.checksum = calculateChecksum(config);
+    
+    strlcpy(config.mqtt_server, "192.168.1.14", sizeof(config.mqtt_server));
+    strlcpy(config.mqtt_user, "hydrosense", sizeof(config.mqtt_user));
+    strlcpy(config.mqtt_password, "hydrosense", sizeof(config.mqtt_password));
+    config.mqtt_port = 1883;  // domyślny port MQTT
+    
+    // pozostałe istniejące ustawienia domyślne...
+    config.tank_full = 50;
+    config.tank_empty = 100;
+    config.reserve_level = 80;
+    config.tank_diameter = 100;
+    config.pump_delay = 5;
+    config.pump_work_time = 60;
 
     saveConfig();
     DEBUG_PRINT(F("Utworzono domyślną konfigurację"));
@@ -472,13 +505,30 @@ void setupWiFi() {
  * 
  * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
  */
-bool connectMQTT() {   
-    if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-        DEBUG_PRINT("\nBŁĄD POŁĄCZENIA MQTT!");
-        return false;
-    }
+// bool connectMQTT() {   
+//     if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+//         DEBUG_PRINT("\nBŁĄD POŁĄCZENIA MQTT!");
+//         return false;
+//     }
     
-    DEBUG_PRINT("MQTT połączono pomyślnie!");
+//     DEBUG_PRINT("MQTT połączono pomyślnie!");
+//     return true;
+// }
+
+bool connectMQTT() {
+    if (!mqtt.isConnected()) {
+        // Użyj wartości z konfiguracji zamiast stałych
+        client.setServer(config.mqtt_server, config.mqtt_port);
+        
+        Serial.print("Łączenie z MQTT...");
+        if (mqtt.begin(config.mqtt_user, config.mqtt_password)) {
+            Serial.println("połączono!");
+            return true;
+        } else {
+            Serial.println("nie udało się połączyć!");
+            return false;
+        }
+    }
     return true;
 }
 
@@ -924,6 +974,178 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     DEBUG_PRINTF("Zmieniono stan dźwięku na: ", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
+// Strona HTML
+const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HydroSense - Konfiguracja</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #1a73e8;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: bold;
+        }
+        input[type="text"],
+        input[type="password"],
+        input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .btn {
+            background-color: #1a73e8;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        .btn:hover {
+            background-color: #1557b0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>HydroSense</h1>
+        <form method="POST" action="/save">
+            <div class="form-group">
+                <label>Adres IP serwera MQTT</label>
+                <input type="text" name="mqtt_server" value="%MQTT_SERVER%">
+            </div>
+            <div class="form-group">
+                <label>Port MQTT</label>
+                <input type="number" name="mqtt_port" value="%MQTT_PORT%">
+            </div>
+            <div class="form-group">
+                <label>Użytkownik MQTT</label>
+                <input type="text" name="mqtt_user" value="%MQTT_USER%">
+            </div>
+            <div class="form-group">
+                <label>Hasło MQTT</label>
+                <input type="password" name="mqtt_password" value="%MQTT_PASSWORD%">
+            </div>
+            <div class="form-group">
+                <label>Odległość gdy zbiornik jest pełny (mm)</label>
+                <input type="number" name="tank_full" value="%TANK_FULL%">
+            </div>
+            <div class="form-group">
+                <label>Odległość gdy zbiornik jest pusty (mm)</label>
+                <input type="number" name="tank_empty" value="%TANK_EMPTY%">
+            </div>
+            <div class="form-group">
+                <label>Poziom rezerwy wody (mm)</label>
+                <input type="number" name="reserve_level" value="%RESERVE_LEVEL%">
+            </div>
+            <div class="form-group">
+                <label>Średnica zbiornika (mm)</label>
+                <input type="number" name="tank_diameter" value="%TANK_DIAMETER%">
+            </div>
+            <div class="form-group">
+                <label>Opóźnienie uruchomienia pompy (sekundy)</label>
+                <input type="number" name="pump_delay" value="%PUMP_DELAY%">
+            </div>
+            <div class="form-group">
+                <label>Czas pracy pompy (sekundy)</label>
+                <input type="number" name="pump_work_time" value="%PUMP_WORK_TIME%">
+            </div>
+            <button type="submit" class="btn">Zapisz ustawienia</button>
+        </form>
+    </div>
+</body>
+</html>
+)rawliteral";
+
+// Funkcja zwracająca stronę z podstawionymi wartościami
+String getConfigPage() {
+    String html = FPSTR(CONFIG_PAGE);
+    html.replace("%MQTT_SERVER%", config.mqtt_server);
+    html.replace("%MQTT_PORT%", String(config.mqtt_port));
+    html.replace("%MQTT_USER%", config.mqtt_user);
+    html.replace("%MQTT_PASSWORD%", config.mqtt_password);
+    html.replace("%TANK_FULL%", String(config.tank_full));
+    html.replace("%TANK_EMPTY%", String(config.tank_empty));
+    html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
+    html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
+    html.replace("%PUMP_DELAY%", String(config.pump_delay));
+    html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
+    return html;
+}
+
+void handleRoot() {
+    server.send(200, "text/html", getConfigPage());
+}
+
+void handleSave() {
+    if (server.method() != HTTP_POST) {
+        server.send(405, "text/plain", "Method Not Allowed");
+        return;
+    }
+
+    // Zapisywanie wartości z formularza
+    strlcpy(config.mqtt_server, server.arg("mqtt_server").c_str(), sizeof(config.mqtt_server));
+    config.mqtt_port = server.arg("mqtt_port").toInt();
+    strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
+    strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
+    
+    config.tank_full = server.arg("tank_full").toInt();
+    config.tank_empty = server.arg("tank_empty").toInt();
+    config.reserve_level = server.arg("reserve_level").toInt();
+    config.tank_diameter = server.arg("tank_diameter").toInt();
+    config.pump_delay = server.arg("pump_delay").toInt();
+    config.pump_work_time = server.arg("pump_work_time").toInt();
+
+    // Zapisz konfigurację do EEPROM
+    saveConfig();
+
+    // Przekieruj z powrotem na stronę główną
+    server.sendHeader("Location", "/");
+    server.send(303);
+
+    // Zrestartuj połączenie MQTT z nowymi ustawieniami
+    if (mqtt.connected()) {
+        mqtt.disconnect();
+    }
+    connectMQTT();
+}
+
+void setupWebServer() {
+    server.on("/", HTTP_GET, handleRoot);
+    server.on("/save", HTTP_POST, handleSave);
+    server.begin();
+}
+
 // --- SETUP ---
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
@@ -953,6 +1175,7 @@ void setup() {
     }
     
     firstUpdateHA();
+    setupWebServer();
     status.lastSoundAlert = millis();
     
     // Konfiguracja OTA
@@ -981,6 +1204,7 @@ void loop() {
     // BEZPOŚREDNIA INTERAKCJA
     handleButton();  // Obsługa naciśnięcia przycisku
     checkAlarmConditions();  // Sprawdzenie warunków alarmowych
+    server.handleClient();  // Obsługa serwera www
 
     // POMIARY I AKTUALIZACJE
     if (currentMillis - timers.lastMeasurement >= MEASUREMENT_INTERVAL) {
@@ -1004,7 +1228,8 @@ void loop() {
         (currentMillis - timers.lastMQTTRetry >= MQTT_RETRY_INTERVAL)) {
         timers.lastMQTTRetry = currentMillis;  // Aktualizacja znacznika czasu ostatniej próby połączenia MQTT
         DEBUG_PRINT(F("Brak połączenia MQTT - próba połączenia..."));  // Wydrukuj komunikat debugowania
-        if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+        //if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+        if (mqtt.begin(config.mqtt_server, config.mqtt_port, config.mqtt_user, config.mqtt_password))
             DEBUG_PRINT(F("MQTT połączono ponownie!"));  // Wydrukuj komunikat debugowania
         }
     }
