@@ -5,12 +5,14 @@
 #include <ArduinoOTA.h>  // Aktualizacja oprogramowania przez sieć WiFi (Over-The-Air)
 #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
 #include <EEPROM.h>  // Dostęp do pamięci nieulotnej EEPROM
+#include <WiFiManager.h>
 
 // --- Definicje stałych i zmiennych globalnych
 
-// Konfiguracja WiFi i MQTT
-const char* WIFI_SSID = "pimowo";                  // Nazwa sieci WiFi
-const char* WIFI_PASSWORD = "ckH59LRZQzCDQFiUgj";  // Hasło do sieci WiFi
+// Wersja systemu
+const char* SOFTWARE_VERSION = "18.11.24";
+
+// Konfiguracja MQTT
 const char* MQTT_SERVER = "192.168.1.14";          // Adres IP serwera MQTT (Home Assistant)
 const char* MQTT_USER = "hydrosense";              // Użytkownik MQTT
 const char* MQTT_PASSWORD = "hydrosense";          // Hasło MQTT
@@ -29,14 +31,14 @@ const unsigned long ULTRASONIC_TIMEOUT = 50;       // Timeout pomiaru czujnika u
 const unsigned long MEASUREMENT_INTERVAL = 60000;  // Interwał między pomiarami
 const unsigned long WIFI_CHECK_INTERVAL = 5000;    // Interwał sprawdzania połączenia WiFi
 const unsigned long WATCHDOG_TIMEOUT = 8000;       // Timeout dla watchdoga
-const unsigned long PUMP_MAX_WORK_TIME = 300000;   // Maksymalny czas pracy pompy (5 minut)
-const unsigned long PUMP_DELAY_TIME = 60000;       // Opóźnienie ponownego załączenia pompy (1 minuta)
 const unsigned long SENSOR_READ_INTERVAL = 5000;   // Częstotliwość odczytu czujnika
-const unsigned long MQTT_RETRY_INTERVAL = 5000;    // Interwał prób połączenia MQTT
 const unsigned long WIFI_RETRY_INTERVAL = 10000;   // Interwał prób połączenia WiFi
 const unsigned long BUTTON_DEBOUNCE_TIME = 50;     // Czas debouncingu przycisku
 const unsigned long LONG_PRESS_TIME = 1000;        // Czas długiego naciśnięcia przycisku
 const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnałami dźwiękowymi
+const unsigned long MQTT_LOOP_INTERVAL = 100;    // Obsługa MQTT co 100ms
+const unsigned long OTA_CHECK_INTERVAL = 1000;   // Sprawdzanie OTA co 1s
+const unsigned long MQTT_RETRY_INTERVAL = 10000; // Próba połączenia MQTT co 10s
 
 // Konfiguracja EEPROM
 #define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
@@ -73,7 +75,17 @@ float lastReportedDistance = 0;
 unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
 unsigned long lastMeasurement = 0;
 const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dni
+
 // Stałe konfiguracyjne
+
+// eeprom
+struct Config {
+    uint8_t version;  // Wersja konfiguracji
+    bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
+    char checksum;  // Suma kontrolna
+};
+Config config;
+
 const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
 const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
 
@@ -88,22 +100,22 @@ HADevice device("HydroSense");  // Definicja urządzenia dla Home Assistant
 HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
 
 // Sensory pomiarowe
-HASensor sensorDistance("water_level");                   // Odległość od lustra wody (w mm)
-HASensor sensorLevel("water_level_percent");              // Poziom wody w zbiorniku (w procentach)
-HASensor sensorVolume("water_volume");                    // Objętość wody (w litrach)
+HASensor sensorDistance("water_level");  // Odległość od lustra wody (w mm)
+HASensor sensorLevel("water_level_percent");  // Poziom wody w zbiorniku (w procentach)
+HASensor sensorVolume("water_volume");  // Objętość wody (w litrach)
 
 // Sensory statusu
-HASensor sensorPump("pump");                              // Status pracy pompy (ON/OFF)
-HASensor sensorWater("water");                            // Status czujnika poziomu w akwarium (ON=niski/OFF=ok)
+HASensor sensorPump("pump");  // Status pracy pompy (ON/OFF)
+HASensor sensorWater("water");  // Status czujnika poziomu w akwarium (ON=niski/OFF=ok)
 
 // Sensory alarmowe
-HASensor sensorAlarm("water_alarm");                      // Alarm braku wody w zbiorniku dolewki
-HASensor sensorReserve("water_reserve");                  // Alarm rezerwy w zbiorniku dolewki
+HASensor sensorAlarm("water_alarm");  // Alarm braku wody w zbiorniku dolewki
+HASensor sensorReserve("water_reserve");  // Alarm rezerwy w zbiorniku dolewki
 
 // Przełączniki
-HASwitch switchPumpAlarm("pump_alarm");                        // Przełącznik resetowania blokady pompy
-HASwitch switchService("service_mode");                   // Przełącznik trybu serwisowego
-HASwitch switchSound("sound_switch");                     // Przełącznik dźwięku alarmu
+HASwitch switchPumpAlarm("pump_alarm");  // Przełącznik resetowania blokady pompy
+HASwitch switchService("service_mode");  // Przełącznik trybu serwisowego
+HASwitch switchSound("sound_switch");  // Przełącznik dźwięku alarmu
 
 // --- Deklaracje funkcji i struktury
 
@@ -123,14 +135,6 @@ struct Status {
 };
 Status status;
 
-// eeprom
-struct Config {
-    uint8_t version;  // Wersja konfiguracji
-    bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
-    char checksum;  // Suma kontrolna
-};
-Config config;
-
 // Struktura dla obsługi przycisku
 struct ButtonState {
     bool lastState; // Poprzedni stan przycisku
@@ -143,11 +147,22 @@ ButtonState buttonState;
 
 // Struktura dla dźwięków alarmowych
 struct AlarmTone {
-    uint16_t frequency;        // Częstotliwość dźwięku
-    uint16_t duration;         // Czas trwania
-    uint8_t repeats;          // Liczba powtórzeń
-    uint16_t pauseDuration;   // Przerwa między powtórzeniami
+    uint16_t frequency;  // Częstotliwość dźwięku
+    uint16_t duration;  // Czas trwania
+    uint8_t repeats;  // Liczba powtórzeń
+    uint16_t pauseDuration;  // Przerwa między powtórzeniami
 };
+
+struct Timers {
+    unsigned long lastMQTTRetry;
+    unsigned long lastMeasurement;
+    unsigned long lastOTACheck;
+    unsigned long lastMQTTLoop;
+    
+    Timers() : lastMQTTRetry(0), lastMeasurement(0), lastOTACheck(0), lastMQTTLoop(0) {}
+};
+
+static Timers timers;
 
 // Zerowanie liczników
 
@@ -241,7 +256,7 @@ void playShortWarningSound() {
     }
 }
 
-// Sygnał potwierdzenia
+// Długi sygnał dźwiękowy - pojedyncze piknięcie
 void playConfirmationSound() {
     if (config.soundEnabled) {
         tone(BUZZER_PIN, 2000, 200); // Dłuższe piknięcie (2000Hz, 200ms)
@@ -335,7 +350,7 @@ void updatePump() {
     }
 
     // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
-    if (status.isPumpActive && (currentMillis - status.pumpStartTime > PUMP_WORK_TIME * 1000)) {
+    if (status.isPumpActive && (currentMillis - status.pumpStartTime >= PUMP_WORK_TIME * 1000)) {
         stopPump();
         status.pumpSafetyLock = true;
         switchPumpAlarm.setState(true);
@@ -374,7 +389,7 @@ void updatePump() {
     }
 }
 
-// Ztrzymanie pompy
+// Zatrzymanie pompy
 void stopPump() {
     digitalWrite(POMPA_PIN, LOW);
     status.isPumpActive = false;
@@ -383,7 +398,7 @@ void stopPump() {
     DEBUG_PRINT(F("Pompa zatrzymana"));
 }
 
-// Uruchomienienie pompy
+// Uruchomienie pompy
 void startPump() {
     digitalWrite(POMPA_PIN, HIGH);
     status.isPumpActive = true;
@@ -413,29 +428,34 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 
 // Konfiguracja i zarządzanie połączeniem WiFi
 void setupWiFi() {
-    // Zmienne statyczne zachowujące wartość między wywołaniami
-    static unsigned long lastWiFiCheck = 0;  // Czas ostatniej próby połączenia
-    static bool wifiInitiated = false;  // Flaga pierwszej inicjalizacji WiFi
+    WiFiManager wifiManager;
     
-    ESP.wdtFeed();  // Reset watchdoga
+    // Konfiguracja AP
+    // Nazwa AP będzie "HydroSense-Setup"
+    // Hasło do AP: "hydrosense"
     
-    // Pierwsza inicjalizacja WiFi
-    if (!wifiInitiated) {
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  // Rozpoczęcie połączenia z siecią
-        wifiInitiated = true;  // Ustawienie flagi inicjalizacji
-        return;
-    }
-    
-    // Sprawdzenie stanu połączenia
-    if (WiFi.status() != WL_CONNECTED) {  // Jeśli nie połączono z siecią
-        if (millis() - lastWiFiCheck >= WIFI_CHECK_INTERVAL) {  // Sprawdź czy minął interwał
-            DEBUG_PRINT(".");  // Wskaźnik aktywności
-            lastWiFiCheck = millis();  // Aktualizacja czasu ostatniej próby
-            if (WiFi.status() == WL_DISCONNECTED) {  // Jeśli sieć jest dostępna ale rozłączona
-                WiFi.reconnect();  // Próba ponownego połączenia
-            }
+    wifiManager.setAPCallback([](WiFiManager *myWiFiManager) {
+        DEBUG_PRINT("Tryb punktu dostępowego");
+        DEBUG_PRINT("SSID: HydroSense");
+        DEBUG_PRINT("IP: 192.168.4.1");
+        if (status.soundEnabled) {
+            tone(BUZZER_PIN, 1000, 1000); // Sygnał dźwiękowy informujący o trybie AP
         }
+    });
+    
+    wifiManager.setConfigPortalTimeout(180); // 3 minuty na konfigurację
+    
+    // Próba połączenia lub utworzenia AP
+    if (!wifiManager.autoConnect("HydroSense", "hydrosense")) {
+        DEBUG_PRINT("Nie udało się połączyć i timeout upłynął");
+        ESP.restart(); // Restart ESP w przypadku niepowodzenia
     }
+    
+    DEBUG_PRINT("Połączono z WiFi!");
+    
+    // Pokaż uzyskane IP
+    DEBUG_PRINT("IP: ");
+    DEBUG_PRINT(WiFi.localIP().toString().c_str());
 }
 
 /**
@@ -459,7 +479,7 @@ void setupHA() {
     device.setName("HydroSense");                  // Nazwa urządzenia
     device.setModel("HS ESP8266");                 // Model urządzenia
     device.setManufacturer("PMW");                 // Producent
-    device.setSoftwareVersion("18.11.24");         // Wersja oprogramowania
+    device.setSoftwareVersion(SOFTWARE_VERSION);         // Wersja oprogramowania
 
     // Konfiguracja sensorów pomiarowych w HA
     sensorDistance.setName("Pomiar odległości");
@@ -490,7 +510,7 @@ void setupHA() {
     
     // Konfiguracja przełączników w HA
     switchService.setName("Serwis");
-    switchService.setIcon("mdi:tools");            // Ikona narzędzi
+    switchService.setIcon("mdi:account-wrench-outline");            // Ikona narzędzi
     switchService.onCommand(onServiceSwitchCommand);// Funkcja obsługi zmiany stanu
     switchService.setState(status.isServiceMode);   // Stan początkowy
     // Inicjalizacja stanu - domyślnie wyłączony
@@ -511,16 +531,16 @@ void setupHA() {
 
 // Konfiguracja kierunków pinów i stanów początkowych
 void setupPin() {
-    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);          // Wyjście - trigger czujnika ultradźwiękowego
-    pinMode(PIN_ULTRASONIC_ECHO, INPUT);           // Wejście - echo czujnika ultradźwiękowego
+    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);  // Wyjście - trigger czujnika ultradźwiękowego
+    pinMode(PIN_ULTRASONIC_ECHO, INPUT);  // Wejście - echo czujnika ultradźwiękowego
     digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że TRIG jest LOW na starcie
     
-    pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);        // Wejście z podciąganiem - czujnik poziomu
-    pinMode(PRZYCISK_PIN, INPUT_PULLUP);             // Wejście z podciąganiem - przycisk
-    pinMode(BUZZER_PIN, OUTPUT);                   // Wyjście - buzzer
-    digitalWrite(BUZZER_PIN, LOW);                 // Wyłączenie buzzera
-    pinMode(POMPA_PIN, OUTPUT);                     // Wyjście - pompa
-    digitalWrite(POMPA_PIN, LOW);                   // Wyłączenie pompy
+    pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);  // Wejście z podciąganiem - czujnik poziomu
+    pinMode(PRZYCISK_PIN, INPUT_PULLUP);  // Wejście z podciąganiem - przycisk
+    pinMode(BUZZER_PIN, OUTPUT);  // Wyjście - buzzer
+    digitalWrite(BUZZER_PIN, LOW);  // Wyłączenie buzzera
+    pinMode(POMPA_PIN, OUTPUT);  // Wyjście - pompa
+    digitalWrite(POMPA_PIN, LOW);  // Wyłączenie pompy
 }
 
 // Melodia powitalna
@@ -913,14 +933,7 @@ void setup() {
     setupPin();
     
     // Nawiązanie połączenia WiFi
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    DEBUG_PRINT("Łączenie z WiFi");
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        DEBUG_PRINT(".");
-        ESP.wdtFeed(); // Reset watchdoga podczas łączenia
-    }
-    DEBUG_PRINT("\nPołączono z WiFi");
+    setupWiFi();
 
     // Próba połączenia MQTT
     DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
@@ -950,51 +963,41 @@ void setup() {
 
 void loop() {
     unsigned long currentMillis = millis();
-    static unsigned long lastMQTTRetry = 0;
-    static unsigned long lastMeasurement = 0;
-    static unsigned long lastStatsUpdate = 0;
 
-    // KRYTYCZNE OPERACJE SYSTEMOWE
+    // 1. KRYTYCZNE OPERACJE CZASOWE (zawsze)
+    handleMillisOverflow();  // Musi być pierwsze!
+    updatePump();
+    ESP.wdtFeed();
+    yield();
     
-    // Zabezpieczenie przed zawieszeniem systemu
-    ESP.wdtFeed();  // Resetowanie licznika watchdog
-    yield();  // Obsługa krytycznych zadań systemowych ESP8266
+    // 2. BEZPOŚREDNIA INTERAKCJA (zawsze)
+    handleButton();
+    checkAlarmConditions();
     
-    // System aktualizacji bezprzewodowej
-    ArduinoOTA.handle();  // Nasłuchiwanie żądań aktualizacji OTA
-
-    // ZARZĄDZANIE ŁĄCZNOŚCIĄ
-
-    // Sprawdzanie i utrzymanie połączenia WiFi
-    if (WiFi.status() != WL_CONNECTED) {
-        setupWiFi();    // Próba ponownego połączenia z siecią
-        return;         // Powrót do początku pętli po próbie połączenia
+    // 3. POMIARY I AKTUALIZACJE (z interwałem)
+    if (currentMillis - timers.lastMeasurement >= MEASUREMENT_INTERVAL) {
+        updateWaterLevel();
+        timers.lastMeasurement = currentMillis;
     }
     
-    // Zarządzanie połączeniem MQTT
-    if (!mqtt.isConnected()) {
-        if (currentMillis - lastMQTTRetry >= 10000) { // Ponowna próba co 10 sekund
-            lastMQTTRetry = currentMillis;
-            DEBUG_PRINT("\nBrak połączenia MQTT - próba reconnect...");
-            if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
-                DEBUG_PRINT("MQTT połączono ponownie!");
-            }
+    // 4. KOMUNIKACJA (z różnymi interwałami)
+    if (currentMillis - timers.lastMQTTLoop >= MQTT_LOOP_INTERVAL) {
+        mqtt.loop();
+        timers.lastMQTTLoop = currentMillis;
+    }
+    
+    if (currentMillis - timers.lastOTACheck >= OTA_CHECK_INTERVAL) {
+        ArduinoOTA.handle();
+        timers.lastOTACheck = currentMillis;
+    }
+    
+    // 5. ZARZĄDZANIE POŁĄCZENIEM (gdy potrzebne)
+    if (!mqtt.isConnected() && 
+        (currentMillis - timers.lastMQTTRetry >= MQTT_RETRY_INTERVAL)) {
+        timers.lastMQTTRetry = currentMillis;
+        DEBUG_PRINT(F("Brak połączenia MQTT - próba reconnect..."));
+        if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+            DEBUG_PRINT(F("MQTT połączono ponownie!"));
         }
-    }
-        
-    mqtt.loop();  // Obsługa komunikacji MQTT
-
-    // GŁÓWNE FUNKCJE URZĄDZENIA
-    
-    // Obsługa interfejsu i sterowania
-    handleButton();     // Przetwarzanie sygnałów z przycisków
-    updatePump();       // Sterowanie pompą
-    checkAlarmConditions(); // System ostrzeżeń dźwiękowych
-    handleMillisOverflow();  // Sprawdzenie przepełnienia licznika
-    
-    // Monitoring poziomu wody
-    if (currentMillis - lastMeasurement >= MEASUREMENT_INTERVAL) {
-        updateWaterLevel();  // Pomiar i aktualizacja stanu wody
-        lastMeasurement = currentMillis;
     }
 }
