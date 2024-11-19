@@ -475,6 +475,9 @@ void setupWiFi() {
     WiFiManager wifiManager;
     wifiManager.setDebugOutput(true);
     
+    // Ustaw timeout na 180 sekund
+    wifiManager.setConfigPortalTimeout(180);
+    
     // Próba połączenia lub utworzenia AP
     if (!wifiManager.autoConnect("HydroSense", "hydrosense")) {
         Serial.println("Nie udało się połączyć i timeout został osiągnięty");
@@ -982,126 +985,79 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>HydroSense - Konfiguracja</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f0f2f5;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1 {
-            text-align: center;
-            color: #1a73e8;
-            margin-bottom: 30px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            color: #333;
-            font-weight: bold;
-        }
-        input[type="text"],
-        input[type="password"],
-        input[type="number"] {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            box-sizing: border-box;
-        }
-        .btn {
-            background-color: #1a73e8;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            width: 100%;
-            font-size: 16px;
-            margin-top: 20px;
-        }
-        .btn:hover {
-            background-color: #1557b0;
-        }
+        body { font-family: Arial; margin: 20px; background: #f0f0f0; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        input[type="number"] { width: 150px; }
+        button { background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #45a049; }
+        .status { margin-top: 20px; padding: 15px; background: #e8f5e9; border-radius: 4px; }
+        .section { background: #f8f9fa; padding: 15px; margin-bottom: 20px; border-radius: 4px; }
+        h2 { color: #333; margin-top: 0; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>HydroSense</h1>
+        <h1>HydroSense - Konfiguracja</h1>
+        
+        <div class="status">
+            <h3>Status połączenia</h3>
+            <p>WiFi SSID: %WIFI_SSID%</p>
+            <p>Adres IP: %IP_ADDRESS%</p>
+            <p>Status MQTT: %MQTT_STATUS%</p>
+        </div>
+
         <form method="POST" action="/save">
-            <div class="form-group">
-                <label>Adres IP serwera MQTT</label>
-                <input type="text" name="mqtt_server" value="%MQTT_SERVER%">
+            <div class="section">
+                <h2>Ustawienia MQTT</h2>
+                <div class="form-group">
+                    <label>Adres serwera MQTT:</label>
+                    <input type="text" name="mqtt_server" value="%MQTT_SERVER%" required>
+                </div>
+                <div class="form-group">
+                    <label>Port MQTT:</label>
+                    <input type="number" name="mqtt_port" value="%MQTT_PORT%" required>
+                </div>
+                <div class="form-group">
+                    <label>Użytkownik MQTT:</label>
+                    <input type="text" name="mqtt_user" value="%MQTT_USER%">
+                </div>
+                <div class="form-group">
+                    <label>Hasło MQTT:</label>
+                    <input type="password" name="mqtt_password" value="%MQTT_PASSWORD%">
+                </div>
             </div>
-            <div class="form-group">
-                <label>Port MQTT</label>
-                <input type="number" name="mqtt_port" value="%MQTT_PORT%">
-            </div>
-            <div class="form-group">
-                <label>Użytkownik MQTT</label>
-                <input type="text" name="mqtt_user" value="%MQTT_USER%">
-            </div>
-            <div class="form-group">
-                <label>Hasło MQTT</label>
-                <input type="password" name="mqtt_password" value="%MQTT_PASSWORD%">
-            </div>
-            <div class="form-group">
-                <label>Odległość gdy zbiornik jest pełny (mm)</label>
-                <input type="number" name="tank_full" value="%TANK_FULL%">
-            </div>
-            <div class="form-group">
-                <label>Odległość gdy zbiornik jest pusty (mm)</label>
-                <input type="number" name="tank_empty" value="%TANK_EMPTY%">
-            </div>
-            <div class="form-group">
-                <label>Poziom rezerwy wody (mm)</label>
-                <input type="number" name="reserve_level" value="%RESERVE_LEVEL%">
-            </div>
-            <div class="form-group">
-                <label>Średnica zbiornika (mm)</label>
-                <input type="number" name="tank_diameter" value="%TANK_DIAMETER%">
-            </div>
-            <div class="form-group">
-                <label>Opóźnienie uruchomienia pompy (sekundy)</label>
-                <input type="number" name="pump_delay" value="%PUMP_DELAY%">
-            </div>
-            <div class="form-group">
-                <label>Czas pracy pompy (sekundy)</label>
-                <input type="number" name="pump_work_time" value="%PUMP_WORK_TIME%">
-            </div>
-            <button type="submit" class="btn">Zapisz ustawienia</button>
+
+            <button type="submit">Zapisz ustawienia</button>
         </form>
+
+        <div class="status">
+            <p>Wersja: %VERSION%</p>
+        </div>
     </div>
 </body>
 </html>
 )rawliteral";
 
-// Funkcja zwracająca stronę z podstawionymi wartościami
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
+    
+    // Zastąp placeholdery aktualnymi wartościami
+    html.replace("%WIFI_SSID%", WiFi.SSID());
+    html.replace("%IP_ADDRESS%", WiFi.localIP().toString());
+    html.replace("%MQTT_STATUS%", mqtt.isConnected() ? "Połączony" : "Rozłączony");
+    
     html.replace("%MQTT_SERVER%", config.mqtt_server);
     html.replace("%MQTT_PORT%", String(config.mqtt_port));
     html.replace("%MQTT_USER%", config.mqtt_user);
     html.replace("%MQTT_PASSWORD%", config.mqtt_password);
-    html.replace("%TANK_FULL%", String(config.tank_full));
-    html.replace("%TANK_EMPTY%", String(config.tank_empty));
-    html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
-    html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
-    html.replace("%PUMP_DELAY%", String(config.pump_delay));
-    html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
+    
+    html.replace("%VERSION%", String(CONFIG_VERSION));
+    
     return html;
 }
 
@@ -1115,38 +1071,62 @@ void handleSave() {
         return;
     }
 
-    // Zapisywanie wartości z formularza
+    bool needMqttReconnect = false;
+
+    // Sprawdź czy dane MQTT się zmieniły
+    if (strcmp(config.mqtt_server, server.arg("mqtt_server").c_str()) != 0 ||
+        config.mqtt_port != server.arg("mqtt_port").toInt() ||
+        strcmp(config.mqtt_user, server.arg("mqtt_user").c_str()) != 0 ||
+        strcmp(config.mqtt_password, server.arg("mqtt_password").c_str()) != 0) {
+        needMqttReconnect = true;
+    }
+
+    // Zapisz ustawienia MQTT
     strlcpy(config.mqtt_server, server.arg("mqtt_server").c_str(), sizeof(config.mqtt_server));
     config.mqtt_port = server.arg("mqtt_port").toInt();
     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
-    
-    config.tank_full = server.arg("tank_full").toInt();
-    config.tank_empty = server.arg("tank_empty").toInt();
-    config.reserve_level = server.arg("reserve_level").toInt();
-    config.tank_diameter = server.arg("tank_diameter").toInt();
-    config.pump_delay = server.arg("pump_delay").toInt();
-    config.pump_work_time = server.arg("pump_work_time").toInt();
 
-    // Zapisz konfigurację do EEPROM
+    // Zapisz konfigurację
     saveConfig();
+
+    // Jeśli dane MQTT się zmieniły, zrestartuj połączenie
+    if (needMqttReconnect) {
+        if (mqtt.isConnected()) {
+            mqtt.disconnect();
+        }
+        connectMQTT();
+    }
 
     // Przekieruj z powrotem na stronę główną
     server.sendHeader("Location", "/");
     server.send(303);
-
-    // Zrestartuj połączenie MQTT z nowymi ustawieniami
-    //if (mqtt.connected()) {
-    if (mqtt.isConnected()) {
-        mqtt.disconnect();
-    }
-    connectMQTT();
 }
 
 void setupWebServer() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/save", HTTP_POST, handleSave);
+    
+    // Dodaj obsługę 404
+    server.onNotFound([]() {
+        String message = "File Not Found\n\n";
+        message += "URI: ";
+        message += server.uri();
+        message += "\nMethod: ";
+        message += (server.method() == HTTP_GET) ? "GET" : "POST";
+        message += "\nArguments: ";
+        message += server.args();
+        message += "\n";
+        for (uint8_t i = 0; i < server.args(); i++) {
+            message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+        }
+        server.send(404, "text/plain", message);
+    });
+    
     server.begin();
+    Serial.println("HTTP server started");
+    Serial.print("Web interface available at http://");
+    Serial.println(WiFi.localIP());
 }
 
 // --- SETUP ---
@@ -1184,6 +1164,7 @@ void setup() {
        
     // Nawiązanie połączenia WiFi
     setupWiFi();
+    setupWebServer();
 
     // Próba połączenia MQTT
     DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
@@ -1196,8 +1177,7 @@ void setup() {
         status.soundEnabled = config.soundEnabled;  // Synchronizuj stan dźwięku z wczytanej konfiguracji
     }
     
-    firstUpdateHA();
-    setupWebServer();
+    firstUpdateHA();    
     status.lastSoundAlert = millis();
     
     // Konfiguracja OTA
