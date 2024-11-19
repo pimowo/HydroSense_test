@@ -46,7 +46,7 @@ const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Próba połączenia MQTT co
 #define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
 // Definicja debugowania
-#define DEBUG 0  // 0 wyłącza debug, 1 włącza debug
+#define DEBUG 1  // 0 wyłącza debug, 1 włącza debug
 
 #if DEBUG
     #define DEBUG_PRINT(x) Serial.println(x)
@@ -473,33 +473,18 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 // Konfiguracja i zarządzanie połączeniem WiFi
 void setupWiFi() {
     WiFiManager wifiManager;
-    
-    // Konfiguracja AP
-    // Nazwa AP: "HydroSense-Setup"
-    // Hasło do AP: "hydrosense"
-    
-    wifiManager.setAPCallback([](WiFiManager *myWiFiManager) {
-        DEBUG_PRINT("Tryb punktu dostępowego");
-        DEBUG_PRINT("SSID: HydroSense");
-        DEBUG_PRINT("IP: 192.168.4.1");
-        if (status.soundEnabled) {
-            tone(BUZZER_PIN, 1000, 1000); // Sygnał dźwiękowy informujący o trybie AP
-        }
-    });
-    
-    wifiManager.setConfigPortalTimeout(180); // 3 minuty na konfigurację
+    wifiManager.setDebugOutput(true);
     
     // Próba połączenia lub utworzenia AP
     if (!wifiManager.autoConnect("HydroSense", "hydrosense")) {
-        DEBUG_PRINT("Nie udało się połączyć i timeout upłynął");
-        ESP.restart(); // Restart ESP w przypadku niepowodzenia
+        Serial.println("Nie udało się połączyć i timeout został osiągnięty");
+        delay(3000);
+        ESP.restart();
     }
-    
-    DEBUG_PRINT("Połączono z WiFi!");
-    
-    // Pokaż uzyskane IP
-    DEBUG_PRINT("IP: ");
-    DEBUG_PRINT(WiFi.localIP().toString().c_str());
+
+    Serial.println("Połączono z WiFi");
+    Serial.print("Adres IP: ");
+    Serial.println(WiFi.localIP());
 }
 
 /**
@@ -1168,16 +1153,35 @@ void setupWebServer() {
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
+
+    setupPin();
+
+    // Ustawienia domyślne
+    // po starcie urządzenia usłyszysz podwójny dzwięk,
+    // jeżeli chcesz przywrócić urządzenie do ustawień 
+    // domyślnych to wciśnij przycisk zaraz po dzwiękach
+    // Nastąpi reset Wif-Fi i wszytkich ustawień 
+    // tone(BUZZER_PIN, 1000, 200);
+    // //delay(150);
+    // tone(BUZZER_PIN, 1000, 200);
+    // //delay(150);
+    // delay(2000);
+    // if (digitalRead(BUTTON_PIN) == LOW) {
+    //     Serial.println("USTAWIAM KONFIGURACJĘ DOMYŚLNĄ");
+    //     WiFiManager wifiManager;
+    //     wifiManager.resetSettings();
+    //     ESP.restart();
+    // }
+
     DEBUG_PRINT("\nHydroSense start...");  // Komunikat startowy
     
     // Wczytaj konfigurację
     if (!loadConfig()) {
         DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
         setDefaultConfig();
+        saveConfig();
     }
-    
-    setupPin();
-    
+       
     // Nawiązanie połączenia WiFi
     setupWiFi();
 
