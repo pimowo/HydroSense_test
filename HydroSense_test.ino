@@ -245,7 +245,7 @@ void setDefaultConfig() {
 
 // Wczytywanie konfiguracji
 bool loadConfig() {
-    EEPROM.begin(EEPROM_SIZE);
+    //EEPROM.begin(EEPROM_SIZE);
     EEPROM.get(0, config);
     
     if (config.version != CONFIG_VERSION) {
@@ -475,10 +475,9 @@ void setupWiFi() {
     WiFiManager wifiManager;
     wifiManager.setDebugOutput(true);
     
-    // Ustaw timeout na 180 sekund
+    // Dodaj timeout
     wifiManager.setConfigPortalTimeout(180);
     
-    // Próba połączenia lub utworzenia AP
     if (!wifiManager.autoConnect("HydroSense", "hydrosense")) {
         Serial.println("Nie udało się połączyć i timeout został osiągnięty");
         delay(3000);
@@ -1005,10 +1004,11 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         <h1>HydroSense - Konfiguracja</h1>
         
         <div class="status">
-            <h3>Status połączenia</h3>
+            <h3>Status systemu</h3>
             <p>WiFi SSID: %WIFI_SSID%</p>
             <p>Adres IP: %IP_ADDRESS%</p>
             <p>Status MQTT: %MQTT_STATUS%</p>
+            <p>Aktualny poziom wody: %WATER_LEVEL%mm</p>
         </div>
 
         <form method="POST" action="/save">
@@ -1032,6 +1032,38 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
                 </div>
             </div>
 
+            <div class="section">
+                <h2>Ustawienia zbiornika</h2>
+                <div class="form-group">
+                    <label>Poziom pełnego zbiornika (mm):</label>
+                    <input type="number" name="tank_full" value="%TANK_FULL%" required>
+                </div>
+                <div class="form-group">
+                    <label>Poziom pustego zbiornika (mm):</label>
+                    <input type="number" name="tank_empty" value="%TANK_EMPTY%" required>
+                </div>
+                <div class="form-group">
+                    <label>Poziom rezerwy (mm):</label>
+                    <input type="number" name="reserve_level" value="%RESERVE_LEVEL%" required>
+                </div>
+                <div class="form-group">
+                    <label>Średnica zbiornika (mm):</label>
+                    <input type="number" name="tank_diameter" value="%TANK_DIAMETER%" required>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Ustawienia pompy</h2>
+                <div class="form-group">
+                    <label>Opóźnienie pompy (s):</label>
+                    <input type="number" name="pump_delay" value="%PUMP_DELAY%" required>
+                </div>
+                <div class="form-group">
+                    <label>Czas pracy pompy (s):</label>
+                    <input type="number" name="pump_work_time" value="%PUMP_WORK_TIME%" required>
+                </div>
+            </div>
+
             <button type="submit">Zapisz ustawienia</button>
         </form>
 
@@ -1046,15 +1078,30 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
-    // Zastąp placeholdery aktualnymi wartościami
+    // Status systemu
     html.replace("%WIFI_SSID%", WiFi.SSID());
     html.replace("%IP_ADDRESS%", WiFi.localIP().toString());
     html.replace("%MQTT_STATUS%", mqtt.isConnected() ? "Połączony" : "Rozłączony");
     
+    // Pobierz aktualny poziom wody
+    float currentWaterLevel = getCurrentWaterLevel();
+    html.replace("%WATER_LEVEL%", String(currentWaterLevel));
+    
+    // Ustawienia MQTT
     html.replace("%MQTT_SERVER%", config.mqtt_server);
     html.replace("%MQTT_PORT%", String(config.mqtt_port));
     html.replace("%MQTT_USER%", config.mqtt_user);
     html.replace("%MQTT_PASSWORD%", config.mqtt_password);
+    
+    // Ustawienia zbiornika
+    html.replace("%TANK_FULL%", String(config.tank_full));
+    html.replace("%TANK_EMPTY%", String(config.tank_empty));
+    html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
+    html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
+    
+    // Ustawienia pompy
+    html.replace("%PUMP_DELAY%", String(config.pump_delay));
+    html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
     
     html.replace("%VERSION%", String(CONFIG_VERSION));
     
@@ -1086,6 +1133,16 @@ void handleSave() {
     config.mqtt_port = server.arg("mqtt_port").toInt();
     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
+
+    // Zapisz ustawienia zbiornika
+    config.tank_full = server.arg("tank_full").toInt();
+    config.tank_empty = server.arg("tank_empty").toInt();
+    config.reserve_level = server.arg("reserve_level").toInt();
+    config.tank_diameter = server.arg("tank_diameter").toInt();
+
+    // Zapisz ustawienia pompy
+    config.pump_delay = server.arg("pump_delay").toInt();
+    config.pump_work_time = server.arg("pump_work_time").toInt();
 
     // Zapisz konfigurację
     saveConfig();
@@ -1133,8 +1190,13 @@ void setupWebServer() {
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
-
+    
+    DEBUG_PRINT("\nHydroSense start...");  // Komunikat startowy
+    
     setupPin();
+
+    // Inicjalizacja EEPROM
+    EEPROM.begin(512);
 
     // Ustawienia domyślne
     // po starcie urządzenia usłyszysz podwójny dzwięk,
@@ -1152,32 +1214,25 @@ void setup() {
     //     wifiManager.resetSettings();
     //     ESP.restart();
     // }
-
-    DEBUG_PRINT("\nHydroSense start...");  // Komunikat startowy
     
     // Wczytaj konfigurację
     if (!loadConfig()) {
         DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
         setDefaultConfig();
         saveConfig();
-    }
-       
-    // Nawiązanie połączenia WiFi
-    setupWiFi();
-    setupWebServer();
-
-    // Próba połączenia MQTT
-    DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
-    connectMQTT();
-
-    setupHA();
+    } 
+    
+    setupWiFi();  // Konfiguracja WiFi
+    connectMQTT();  // Próba połączenia MQTT
+    setupWebServer();  // Konfiguracja serwera WWW
+    setupHA();  // Konfiguracja Home Assistant
+    firstUpdateHA();  // Pierwszy pomiar i aktualizacja HA 
    
     // Wczytaj konfigurację z EEPROM
     if (loadConfig()) {        
         status.soundEnabled = config.soundEnabled;  // Synchronizuj stan dźwięku z wczytanej konfiguracji
     }
-    
-    firstUpdateHA();    
+       
     status.lastSoundAlert = millis();
     
     // Konfiguracja OTA
@@ -1187,7 +1242,7 @@ void setup() {
     
     DEBUG_PRINT("Setup zakończony pomyślnie!");
 
-    // Powitanie
+    // Zagraj melodię powitalną
     if (status.soundEnabled) {  // Gdy jest włączony dzwięk
         welcomeMelody();  //  to odegraj muzyczkę, że program poprawnie wystartował
     }  
