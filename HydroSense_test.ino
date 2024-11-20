@@ -1019,6 +1019,10 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             text-align: center;
             margin-bottom: 30px;
             font-size: 2.5em;
+            background-color: #2d2d2d; /* Dodane - taki sam kolor jak w .section */
+            padding: 20px; /* Dodane - taki sam padding jak w .section */
+            border-radius: 8px; /* Dodane - takie samo zaokrąglenie jak w .section */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2); /* Dodane - taki sam cień jak w .section */
         }
         h2 { 
             color: #2196F3; /* Google Blue */ 
@@ -1217,7 +1221,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 
             <!-- Ustawienia zbiornika -->
             <div class="section">
-                <h2>Kalibracja czujnika</h2>
+                <h2>Ustawienia zbiornika</h2>
                 <table>
                     <tr>
                         <td>Odległość przy pustym [mm]</td>
