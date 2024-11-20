@@ -1261,17 +1261,73 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
+// String getConfigPage() {
+//     String html = FPSTR(CONFIG_PAGE);
+    
+//     // Dodaj komunikat o statusie jeśli istnieje
+//     if (server.hasArg("status")) {
+//         if (server.arg("status") == "saved") {
+//             html.replace("%MESSAGE%", "<div class='alert success'>Konfiguracja została zapisana pomyślnie!</div>");
+//         }
+//     } else {
+//         html.replace("%MESSAGE%", "");
+//     }
+    
+//     // Status systemu
+//     bool mqttConnected = mqtt.isConnected();
+//     html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
+//     html.replace("%MQTT_STATUS_CLASS%", mqttConnected ? "success" : "error");
+    
+//     html.replace("%SOUND_STATUS%", config.soundEnabled ? "Włączony" : "Wyłączony");
+//     html.replace("%SOUND_STATUS_CLASS%", config.soundEnabled ? "success" : "error");
+    
+//     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
+
+//     // Sekcja przycisków
+//     String buttons = F("<div class='section'>"
+//                       "<button class='btn btn-blue' onclick='rebootDevice()'>Reboot</button> "
+//                       "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
+//                       "</div>");
+//     html.replace("%BUTTONS%", buttons);
+
+//     // Ustawienia MQTT
+//     html.replace("%MQTT_SERVER%", config.mqtt_server);
+//     html.replace("%MQTT_PORT%", String(config.mqtt_port));
+//     html.replace("%MQTT_USER%", config.mqtt_user);
+//     html.replace("%MQTT_PASSWORD%", config.mqtt_password);
+    
+//     // Ustawienia zbiornika
+//     html.replace("%TANK_FULL%", String(config.tank_full));
+//     html.replace("%TANK_EMPTY%", String(config.tank_empty));
+//     html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
+//     html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
+    
+//     // Ustawienia pompy
+//     html.replace("%PUMP_DELAY%", String(config.pump_delay));
+//     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
+    
+//     return html;
+// }
+
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
-    // Dodaj komunikat o statusie jeśli istnieje
-    if (server.hasArg("status")) {
-        if (server.arg("status") == "saved") {
-            html.replace("%MESSAGE%", "<div class='alert success'>Konfiguracja została zapisana pomyślnie!</div>");
-        }
-    } else {
-        html.replace("%MESSAGE%", "");
-    }
+    // Dodaj skrypt JavaScript do obsługi komunikatu
+    String script = F("<script>"
+                     "window.onload = function() {"
+                     "  const urlParams = new URLSearchParams(window.location.search);"
+                     "  if (urlParams.has('success')) {"
+                     "    const alertDiv = document.createElement('div');"
+                     "    alertDiv.className = 'alert success';"
+                     "    alertDiv.textContent = 'Konfiguracja została zapisana pomyślnie!';"
+                     "    document.body.insertBefore(alertDiv, document.body.firstChild);"
+                     "    window.history.replaceState({}, '', window.location.pathname);"
+                     "  }"
+                     "};"
+                     "</script>");
+    
+    // Dodaj skrypt przed zamknięciem </head>
+    html.replace("</head>", script + "</head>");
     
     // Status systemu
     bool mqttConnected = mqtt.isConnected();
@@ -1285,7 +1341,7 @@ String getConfigPage() {
 
     // Sekcja przycisków
     String buttons = F("<div class='section'>"
-                      "<button class='btn btn-blue' onclick='rebootDevice()'>Reboot</button> "
+                      "<button class='btn btn-blue' onclick='rebootDevice()'>Reboot</button>"
                       "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
                       "</div>");
     html.replace("%BUTTONS%", buttons);
@@ -1306,6 +1362,9 @@ String getConfigPage() {
     html.replace("%PUMP_DELAY%", String(config.pump_delay));
     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
     
+    // Usuń stary placeholder dla wiadomości
+    html.replace("%MESSAGE%", "");
+    
     return html;
 }
 
@@ -1325,6 +1384,60 @@ bool validateConfigValues() {
     }
     return true;
 }
+
+// void handleSave() {
+//     if (server.method() != HTTP_POST) {
+//         server.send(405, "text/plain", "Method Not Allowed");
+//         return;
+//     }
+
+//     // Przed zapisem sprawdź poprawność
+//     if (!validateConfigValues()) {
+//         server.send(400, "text/plain", "Nieprawidłowe wartości! Sprawdź wprowadzone dane.");
+//         return;
+//     }
+
+//     bool needMqttReconnect = false;
+
+//     // Sprawdź czy dane MQTT się zmieniły
+//     if (strcmp(config.mqtt_server, server.arg("mqtt_server").c_str()) != 0 ||
+//         config.mqtt_port != server.arg("mqtt_port").toInt() ||
+//         strcmp(config.mqtt_user, server.arg("mqtt_user").c_str()) != 0 ||
+//         strcmp(config.mqtt_password, server.arg("mqtt_password").c_str()) != 0) {
+//         needMqttReconnect = true;
+//     }
+
+//     // Zapisz ustawienia MQTT
+//     strlcpy(config.mqtt_server, server.arg("mqtt_server").c_str(), sizeof(config.mqtt_server));
+//     config.mqtt_port = server.arg("mqtt_port").toInt();
+//     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
+//     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
+
+//     // Zapisz ustawienia zbiornika
+//     config.tank_full = server.arg("tank_full").toInt();
+//     config.tank_empty = server.arg("tank_empty").toInt();
+//     config.reserve_level = server.arg("reserve_level").toInt();
+//     config.tank_diameter = server.arg("tank_diameter").toInt();
+
+//     // Zapisz ustawienia pompy
+//     config.pump_delay = server.arg("pump_delay").toInt();
+//     config.pump_work_time = server.arg("pump_work_time").toInt();
+
+//     // Zapisz konfigurację
+//     saveConfig();
+
+//     // Jeśli dane MQTT się zmieniły, zrestartuj połączenie
+//     if (needMqttReconnect) {
+//         if (mqtt.isConnected()) {
+//             mqtt.disconnect();
+//         }
+//         connectMQTT();
+//     }
+
+//     // Przekieruj z powrotem na stronę główną z komunikatem sukcesu
+//     server.sendHeader("Location", "/?status=saved");
+//     server.send(303);
+// }
 
 void handleSave() {
     if (server.method() != HTTP_POST) {
@@ -1375,8 +1488,8 @@ void handleSave() {
         connectMQTT();
     }
 
-    // Przekieruj z powrotem na stronę główną z komunikatem sukcesu
-    server.sendHeader("Location", "/?status=saved");
+    // Przekieruj z parametrem success
+    server.sendHeader("Location", "/?success=true");
     server.send(303);
 }
 
