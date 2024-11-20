@@ -60,19 +60,9 @@ const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Próba połączenia MQTT co
 // Stałe konfiguracyjne zbiornika
 // Wszystkie odległości w milimetrach od czujnika do powierzchni wody
 // Mniejsza odległość = wyższy poziom wody
-//const int TANK_FULL = 65;  // Odległość gdy zbiornik jest pełny (mm)
-//const int TANK_EMPTY = 510;  // Odległość gdy zbiornik jest pusty (mm)
-//const int RESERVE_LEVEL = 450;  // Poziom rezerwy wody (mm)
 const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
-//const int TANK_DIAMETER = 150;  // Średnica zbiornika (mm)
-//const int VALID_MARGIN = 25;  // Margines błędu dla poprawnych pomiarów (mm)
-// Stałe dla fizycznych limitów czujnika
 const int SENSOR_MIN_RANGE = 20;   // Minimalny zakres czujnika (mm)
 const int SENSOR_MAX_RANGE = 1020; // Maksymalny zakres czujnika (mm)
-
-//const int PUMP_DELAY = 5;  // Opóźnienie uruchomienia pompy (sekundy)
-//const int PUMP_WORK_TIME = 60;  // Czas pracy pompy (sekundy)
-
 const float EMA_ALPHA = 0.2f;  // Współczynnik wygładzania dla średniej wykładniczej (0-1)
 const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
 
@@ -87,29 +77,59 @@ const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dn
 // Stałe konfiguracyjne
 
 // eeprom
+// struct Config {
+//     uint8_t version;  // Wersja konfiguracji
+//     bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
+
+//     // Ustawienia MQTT
+//     char mqtt_server[40];
+//     uint16_t mqtt_port;
+//     char mqtt_user[32];
+//     char mqtt_password[32];
+    
+//     // Ustawienia zbiornika
+//     int tank_full;
+//     int tank_empty;
+//     int reserve_level;
+//     int tank_diameter;
+    
+//     // Ustawienia pompy
+//     int pump_delay;
+//     int pump_work_time;
+    
+//     // Suma kontrolna
+//     char checksum;
+// };
+// Config config;
+
 struct Config {
-    uint8_t version;  // Wersja konfiguracji
-    bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
+    // Wersja konfiguracji - używana do kontroli kompatybilności przy aktualizacjach
+    uint8_t version;  
+    
+    // Globalne ustawienie dźwięku (true = włączony, false = wyłączony)
+    bool soundEnabled;  
 
     // Ustawienia MQTT
-    char mqtt_server[40];
-    uint16_t mqtt_port;
-    char mqtt_user[32];
-    char mqtt_password[32];
+    char mqtt_server[40];    // Adres brokera MQTT (IP lub nazwa domeny)
+    uint16_t mqtt_port;      // Port serwera MQTT (domyślnie 1883)
+    char mqtt_user[32];      // Nazwa użytkownika do autoryzacji MQTT
+    char mqtt_password[32];  // Hasło do autoryzacji MQTT
     
     // Ustawienia zbiornika
-    int tank_full;
-    int tank_empty;
-    int reserve_level;
-    int tank_diameter;
+    int tank_full;      // Poziom w cm gdy zbiornik jest pełny (odległość od czujnika)
+    int tank_empty;     // Poziom w cm gdy zbiornik jest pusty (odległość od czujnika)
+    int reserve_level;  // Poziom rezerwy w cm (ostrzeżenie o niskim poziomie)
+    int tank_diameter;  // Średnica zbiornika w cm (do obliczania objętości)
     
     // Ustawienia pompy
-    int pump_delay;
-    int pump_work_time;
+    int pump_delay;      // Opóźnienie przed startem pompy w sekundach
+    int pump_work_time;  // Maksymalny czas pracy pompy w sekundach
     
-    // Suma kontrolna
-    char checksum;
+    // Suma kontrolna - używana do weryfikacji integralności danych w EEPROM
+    char checksum;       // XOR wszystkich poprzednich pól
 };
+
+// Globalna instancja struktury konfiguracyjnej
 Config config;
 
 const uint8_t CONFIG_VERSION = 1;  // Wersja konfiguracji
@@ -236,86 +256,98 @@ void handleMillisOverflow() {
 // --- EEPROM
 
 // Ustawienia domyślne
+// Ustawia domyślną konfigurację urządzenia
+// Wywoływana przy pierwszym uruchomieniu lub po resecie do ustawień fabrycznych
 void setDefaultConfig() {
-    config.version = CONFIG_VERSION;
-    config.soundEnabled = true;  // Domyślnie dźwięk włączony
-    config.checksum = calculateChecksum(config);
-
+    // Podstawowa konfiguracja
+    config.version = CONFIG_VERSION;        // Ustawienie wersji konfiguracji
+    config.soundEnabled = true;             // Włączenie powiadomień dźwiękowych
+    
     // MQTT
     strlcpy(config.mqtt_server, "192.168.1.14", sizeof(config.mqtt_server));
     config.mqtt_port = 1883;
     strlcpy(config.mqtt_user, "hydrosense", sizeof(config.mqtt_user));
     strlcpy(config.mqtt_password, "hydrosense", sizeof(config.mqtt_password));
     
-    // Zbiornik
-    config.tank_full = 20;        // Domyślna odległość gdy zbiornik jest pełny (mm)
-    config.tank_empty = 1000;      // Domyślna odległość gdy zbiornik jest pusty (mm)
-    config.reserve_level = 500;   // Domyślny poziom rezerwy wody (mm)
-    config.tank_diameter = 100;   // Domyślna średnica zbiornika (mm)
+    // Konfiguracja zbiornika
+    config.tank_full = 20;        // 20mm = czujnik 2cm od powierzchni przy pełnym zbiorniku
+    config.tank_empty = 1000;     // 1000mm = czujnik 1m od dna przy pustym zbiorniku
+    config.reserve_level = 500;   // 500mm = alarm przy poziomie 50cm od dna
+    config.tank_diameter = 100;   // 100mm = zbiornik o średnicy 10cm
     
-    // Pompa
-    config.pump_delay = 5;        // Domyślne opóźnienie uruchomienia pompy (sekundy)
-    config.pump_work_time = 30;   //Domyślny czas pracy pompy (sekundy)
-
-    saveConfig();
+    // Konfiguracja pompy
+    config.pump_delay = 5;        // 5 sekund opóźnienia przed startem
+    config.pump_work_time = 30;   // Maksymalnie 30 sekund ciągłej pracy
+    
+    // Finalizacja
+    config.checksum = calculateChecksum(config);  // Obliczenie sumy kontrolnej
+    saveConfig();                                 // Zapis do EEPROM
+    
     DEBUG_PRINT(F("Utworzono domyślną konfigurację"));
 }
 
 // Wczytywanie konfiguracji
 bool loadConfig() {
-    EEPROM.begin(EEPROM_SIZE);
-    EEPROM.get(0, config);
+    EEPROM.begin(sizeof(Config) + 1);  // +1 dla sumy kontrolnej
+    
+    // Tymczasowa struktura do wczytania danych
+    Config tempConfig;
+    
+    // Wczytaj dane z EEPROM do tymczasowej struktury
+    uint8_t *p = (uint8_t*)&tempConfig;
+    for (size_t i = 0; i < sizeof(Config); i++) {
+        p[i] = EEPROM.read(i);
+    }
+    
     EEPROM.end();
     
-    // Sprawdź wersję konfiguracji
-    if (config.version != CONFIG_VERSION) {
-        DEBUG_PRINT(F("Niekompatybilna wersja konfiguracji"));
-        setDefaultConfig();
-        return false;
-    }
-    
     // Sprawdź sumę kontrolną
-    char calculatedChecksum = calculateChecksum(config);
-    if (config.checksum != calculatedChecksum) {
-        DEBUG_PRINT(F("Błąd sumy kontrolnej"));
+    char calculatedChecksum = calculateChecksum(tempConfig);
+    if (calculatedChecksum == tempConfig.checksum) {
+        // Jeśli suma kontrolna się zgadza, skopiuj dane do głównej struktury config
+        memcpy(&config, &tempConfig, sizeof(Config));
+        Serial.println("Konfiguracja wczytana pomyślnie");
+        return true;
+    } else {
+        Serial.println("Błąd sumy kontrolnej - ładowanie ustawień domyślnych");
         setDefaultConfig();
         return false;
     }
-    
-    // Synchronizuj stan po wczytaniu
-    status.soundEnabled = config.soundEnabled;
-    switchSound.setState(config.soundEnabled, true);  // force update
-
-    DEBUG_PRINTF("Konfiguracja wczytana. Stan dźwięku: %s\n", 
-                 config.soundEnabled ? "WŁĄCZONY" : "WYŁĄCZONY");
-    return true;
 }
 
 // Zapis do EEPROM
 void saveConfig() {
+    EEPROM.begin(sizeof(Config) + 1);  // +1 dla sumy kontrolnej
+    
     // Oblicz sumę kontrolną przed zapisem
     config.checksum = calculateChecksum(config);
     
-    EEPROM.begin(EEPROM_SIZE);
-    EEPROM.put(0, config);
+    // Zapisz strukturę do EEPROM
+    uint8_t *p = (uint8_t*)&config;
+    for (size_t i = 0; i < sizeof(Config); i++) {
+        EEPROM.write(i, p[i]);
+    }
+    
+    // Wykonaj faktyczny zapis do EEPROM
     bool success = EEPROM.commit();
     EEPROM.end();
-
+    
     if (success) {
-        DEBUG_PRINT(F("Konfiguracja zapisana pomyślnie"));
+        Serial.println("Konfiguracja zapisana pomyślnie");
     } else {
-        DEBUG_PRINT(F("Błąd zapisu konfiguracji!"));
+        Serial.println("Błąd zapisu konfiguracji!");
     }
 }
 
 // Obliczanie sumy kontrolnej
 char calculateChecksum(const Config& cfg) {
-    const byte* p = (const byte*)(&cfg);
-    char sum = 0;
-    for (int i = 0; i < sizeof(Config) - 1; i++) {
-        sum ^= p[i];
+    const uint8_t* p = (const uint8_t*)&cfg;
+    char checksum = 0;
+    // Oblicz sumę kontrolną pomijając pole checksum
+    for (size_t i = 0; i < offsetof(Config, checksum); i++) {
+        checksum ^= p[i];
     }
-    return sum;
+    return checksum;
 }
 
 // --- Deklaracje funkcji alarmów
@@ -1389,60 +1421,7 @@ bool validateConfigValues() {
     return true;
 }
 
-// void handleSave() {
-//     if (server.method() != HTTP_POST) {
-//         server.send(405, "text/plain", "Method Not Allowed");
-//         return;
-//     }
-
-//     // Przed zapisem sprawdź poprawność
-//     if (!validateConfigValues()) {
-//         server.send(400, "text/plain", "Nieprawidłowe wartości! Sprawdź wprowadzone dane.");
-//         return;
-//     }
-
-//     bool needMqttReconnect = false;
-
-//     // Sprawdź czy dane MQTT się zmieniły
-//     if (strcmp(config.mqtt_server, server.arg("mqtt_server").c_str()) != 0 ||
-//         config.mqtt_port != server.arg("mqtt_port").toInt() ||
-//         strcmp(config.mqtt_user, server.arg("mqtt_user").c_str()) != 0 ||
-//         strcmp(config.mqtt_password, server.arg("mqtt_password").c_str()) != 0) {
-//         needMqttReconnect = true;
-//     }
-
-//     // Zapisz ustawienia MQTT
-//     strlcpy(config.mqtt_server, server.arg("mqtt_server").c_str(), sizeof(config.mqtt_server));
-//     config.mqtt_port = server.arg("mqtt_port").toInt();
-//     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
-//     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
-
-//     // Zapisz ustawienia zbiornika
-//     config.tank_full = server.arg("tank_full").toInt();
-//     config.tank_empty = server.arg("tank_empty").toInt();
-//     config.reserve_level = server.arg("reserve_level").toInt();
-//     config.tank_diameter = server.arg("tank_diameter").toInt();
-
-//     // Zapisz ustawienia pompy
-//     config.pump_delay = server.arg("pump_delay").toInt();
-//     config.pump_work_time = server.arg("pump_work_time").toInt();
-
-//     // Zapisz konfigurację
-//     saveConfig();
-
-//     // Jeśli dane MQTT się zmieniły, zrestartuj połączenie
-//     if (needMqttReconnect) {
-//         if (mqtt.isConnected()) {
-//             mqtt.disconnect();
-//         }
-//         connectMQTT();
-//     }
-
-//     // Przekieruj z powrotem na stronę główną z komunikatem sukcesu
-//     server.sendHeader("Location", "/?status=saved");
-//     server.send(303);
-// }
-
+//
 void handleSave() {
     if (server.method() != HTTP_POST) {
         server.send(405, "text/plain", "Method Not Allowed");
@@ -1457,19 +1436,25 @@ void handleSave() {
 
     bool needMqttReconnect = false;
 
-    // Sprawdź czy dane MQTT się zmieniły
-    if (strcmp(config.mqtt_server, server.arg("mqtt_server").c_str()) != 0 ||
-        config.mqtt_port != server.arg("mqtt_port").toInt() ||
-        strcmp(config.mqtt_user, server.arg("mqtt_user").c_str()) != 0 ||
-        strcmp(config.mqtt_password, server.arg("mqtt_password").c_str()) != 0) {
-        needMqttReconnect = true;
-    }
+    // Zapisz poprzednie wartości MQTT do porównania
+    String oldServer = config.mqtt_server;
+    int oldPort = config.mqtt_port;
+    String oldUser = config.mqtt_user;
+    String oldPassword = config.mqtt_password;
 
     // Zapisz ustawienia MQTT
     strlcpy(config.mqtt_server, server.arg("mqtt_server").c_str(), sizeof(config.mqtt_server));
     config.mqtt_port = server.arg("mqtt_port").toInt();
     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
+
+    // Sprawdź czy dane MQTT się zmieniły
+    if (oldServer != config.mqtt_server ||
+        oldPort != config.mqtt_port ||
+        oldUser != config.mqtt_user ||
+        oldPassword != config.mqtt_password) {
+        needMqttReconnect = true;
+    }
 
     // Zapisz ustawienia zbiornika
     config.tank_full = server.arg("tank_full").toInt();
@@ -1481,7 +1466,7 @@ void handleSave() {
     config.pump_delay = server.arg("pump_delay").toInt();
     config.pump_work_time = server.arg("pump_work_time").toInt();
 
-    // Zapisz konfigurację
+    // Zapisz konfigurację do EEPROM
     saveConfig();
 
     // Jeśli dane MQTT się zmieniły, zrestartuj połączenie
@@ -1524,10 +1509,11 @@ void setup() {
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
     DEBUG_PRINT("\nHydroSense start...");  // Komunikat startowy
     
-    // Wczytaj konfigurację
+    // Wczytaj konfigurację na początku
     if (!loadConfig()) {
-        DEBUG_PRINT(F("Tworzenie nowej konfiguracji..."));
+        Serial.println("Błąd wczytywania konfiguracji - używam ustawień domyślnych");
         setDefaultConfig();
+        saveConfig();  // Zapisz domyślną konfigurację do EEPROM
     }
     
     setupPin();
