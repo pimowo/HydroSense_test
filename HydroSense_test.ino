@@ -13,7 +13,7 @@
 ESP8266WebServer server(80);
 
 // Wersja systemu
-const char* SOFTWARE_VERSION = "19.11.24";
+const char* SOFTWARE_VERSION = "20.11.24";
 
 // Konfiguracja MQTT
 const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
@@ -60,15 +60,18 @@ const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Próba połączenia MQTT co
 // Stałe konfiguracyjne zbiornika
 // Wszystkie odległości w milimetrach od czujnika do powierzchni wody
 // Mniejsza odległość = wyższy poziom wody
-const int TANK_FULL = 65;  // Odległość gdy zbiornik jest pełny (mm)
-const int TANK_EMPTY = 510;  // Odległość gdy zbiornik jest pusty (mm)
-const int RESERVE_LEVEL = 450;  // Poziom rezerwy wody (mm)
+//const int TANK_FULL = 65;  // Odległość gdy zbiornik jest pełny (mm)
+//const int TANK_EMPTY = 510;  // Odległość gdy zbiornik jest pusty (mm)
+//const int RESERVE_LEVEL = 450;  // Poziom rezerwy wody (mm)
 const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
-const int TANK_DIAMETER = 150;  // Średnica zbiornika (mm)
-const int VALID_MARGIN = 25;  // Margines błędu dla poprawnych pomiarów (mm)
+//const int TANK_DIAMETER = 150;  // Średnica zbiornika (mm)
+//const int VALID_MARGIN = 25;  // Margines błędu dla poprawnych pomiarów (mm)
+// Stałe dla fizycznych limitów czujnika
+const int SENSOR_MIN_RANGE = 20;   // Minimalny zakres czujnika (mm)
+const int SENSOR_MAX_RANGE = 1020; // Maksymalny zakres czujnika (mm)
 
-const int PUMP_DELAY = 5;  // Opóźnienie uruchomienia pompy (sekundy)
-const int PUMP_WORK_TIME = 60;  // Czas pracy pompy (sekundy)
+//const int PUMP_DELAY = 5;  // Opóźnienie uruchomienia pompy (sekundy)
+//const int PUMP_WORK_TIME = 60;  // Czas pracy pompy (sekundy)
 
 const float EMA_ALPHA = 0.2f;  // Współczynnik wygładzania dla średniej wykładniczej (0-1)
 const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
@@ -109,7 +112,7 @@ struct Config {
 };
 Config config;
 
-const uint8_t CONFIG_VERSION = 1;        // Wersja konfiguracji
+const uint8_t CONFIG_VERSION = 1;  // Wersja konfiguracji
 const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
 
 float currentDistance = 0;
@@ -196,24 +199,27 @@ struct Timers {
 static Timers timers;
 
 // Zerowanie liczników
+//const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967000; // ~49.7 dni
+
 void handleMillisOverflow() {
-    unsigned long currentMillis = millis();  // Pobierz bieżącą wartość millis()
+    unsigned long currentMillis = millis();
     
-    // Sprawdź, czy zbliża się przepełnienie wartości millis()
+    // Sprawdź przepełnienie dla wszystkich timerów
+    if (currentMillis < status.pumpStartTime) status.pumpStartTime = 0;
+    if (currentMillis < status.pumpDelayStartTime) status.pumpDelayStartTime = 0;
+    if (currentMillis < status.lastSoundAlert) status.lastSoundAlert = 0;
+    if (currentMillis < status.lastSuccessfulMeasurement) status.lastSuccessfulMeasurement = 0;
+    if (currentMillis < lastMeasurement) lastMeasurement = 0;
+    
+    // Jeśli zbliża się przepełnienie, zresetuj wszystkie timery
     if (currentMillis > MILLIS_OVERFLOW_THRESHOLD) {
-        // Reset wszystkich liczników czasu w strukturze status
         status.pumpStartTime = 0;
         status.pumpDelayStartTime = 0;
         status.lastSoundAlert = 0;
         status.lastSuccessfulMeasurement = 0;
+        lastMeasurement = 0;
         
-        DEBUG_PRINT(F("Millis overflow - reset timerów"));  // Wydrukuj komunikat debugowania
-    }
-    
-    // Sprawdź, czy wystąpiło przepełnienie wartości millis()
-    if (currentMillis < lastMeasurement) {
-        lastMeasurement = currentMillis;  // Zaktualizuj wartość lastMeasurement
-        DEBUG_PRINT(F("Wykryto przepełnienie millis()"));  // Wydrukuj komunikat debugowania
+        DEBUG_PRINT(F("Reset timerów - zbliża się przepełnienie millis()"));
     }
 }
 
@@ -232,14 +238,14 @@ void setDefaultConfig() {
     strlcpy(config.mqtt_password, "hydrosense", sizeof(config.mqtt_password));
     
     // Zbiornik
-    config.tank_full = 65;      // mm
-    config.tank_empty = 510;    // mm
-    config.reserve_level = 450;  // mm
-    config.tank_diameter = 150; // mm
+    config.tank_full = 20;        // Domyślna odległość gdy zbiornik jest pełny (mm)
+    config.tank_empty = 1000;      // Domyślna odległość gdy zbiornik jest pusty (mm)
+    config.reserve_level = 500;   // Domyślny poziom rezerwy wody (mm)
+    config.tank_diameter = 100;   // Domyślna średnica zbiornika (mm)
     
     // Pompa
-    config.pump_delay = 5;       // sekundy
-    config.pump_work_time = 60;  // sekundy
+    config.pump_delay = 5;        // Domyślne opóźnienie uruchomienia pompy (sekundy)
+    config.pump_work_time = 30;   //Domyślny czas pracy pompy (sekundy)
 
     saveConfig();
     DEBUG_PRINT(F("Utworzono domyślną konfigurację"));
@@ -249,13 +255,16 @@ void setDefaultConfig() {
 bool loadConfig() {
     EEPROM.begin(EEPROM_SIZE);
     EEPROM.get(0, config);
+    EEPROM.end();
     
+    // Sprawdź wersję konfiguracji
     if (config.version != CONFIG_VERSION) {
         DEBUG_PRINT(F("Niekompatybilna wersja konfiguracji"));
         setDefaultConfig();
         return false;
     }
     
+    // Sprawdź sumę kontrolną
     char calculatedChecksum = calculateChecksum(config);
     if (config.checksum != calculatedChecksum) {
         DEBUG_PRINT(F("Błąd sumy kontrolnej"));
@@ -264,7 +273,6 @@ bool loadConfig() {
     }
     
     // Synchronizuj stan po wczytaniu
-    // Dzwięk
     status.soundEnabled = config.soundEnabled;
     switchSound.setState(config.soundEnabled, true);  // force update
 
@@ -275,11 +283,18 @@ bool loadConfig() {
 
 // Zapis do EEPROM
 void saveConfig() {
-    static Config lastConfig;
-    if (memcmp(&lastConfig, &config, sizeof(Config)) != 0) {
-        EEPROM.put(0, config);
-        EEPROM.commit();
-        memcpy(&lastConfig, &config, sizeof(Config));
+    // Oblicz sumę kontrolną przed zapisem
+    config.checksum = calculateChecksum(config);
+    
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.put(0, config);
+    bool success = EEPROM.commit();
+    EEPROM.end();
+
+    if (success) {
+        DEBUG_PRINT(F("Konfiguracja zapisana pomyślnie"));
+    } else {
+        DEBUG_PRINT(F("Błąd zapisu konfiguracji!"));
     }
 }
 
@@ -333,7 +348,7 @@ void updateAlarmStates(float currentDistance) {
     // Włącz alarm jeśli:
     // - odległość jest większa lub równa max (zbiornik pusty)
     // - alarm nie jest jeszcze aktywny
-    if (currentDistance >= TANK_EMPTY && !status.waterAlarmActive) {
+    if (currentDistance >= config.tank_empty && !status.waterAlarmActive) {
         status.waterAlarmActive = true;
         sensorAlarm.setValue("ON");               
         DEBUG_PRINT("Brak wody ON");
@@ -341,7 +356,7 @@ void updateAlarmStates(float currentDistance) {
     // Wyłącz alarm jeśli:
     // - odległość spadła poniżej progu wyłączenia (z histerezą)
     // - alarm jest aktywny
-    else if (currentDistance < (TANK_EMPTY - HYSTERESIS) && status.waterAlarmActive) {
+    else if (currentDistance < (config.tank_empty - HYSTERESIS) && status.waterAlarmActive) {
         status.waterAlarmActive = false;
         sensorAlarm.setValue("OFF");
         DEBUG_PRINT("Brak wody OFF");
@@ -351,7 +366,7 @@ void updateAlarmStates(float currentDistance) {
     // Włącz ostrzeżenie o rezerwie jeśli:
     // - odległość osiągnęła próg rezerwy
     // - ostrzeżenie nie jest jeszcze aktywne
-    if (currentDistance >= RESERVE_LEVEL && !status.waterReserveActive) {
+    if (currentDistance >= config.reserve_level && !status.waterReserveActive) {
         status.waterReserveActive = true;
         sensorReserve.setValue("ON");
         DEBUG_PRINT("Rezerwa ON");
@@ -359,7 +374,7 @@ void updateAlarmStates(float currentDistance) {
     // Wyłącz ostrzeżenie o rezerwie jeśli:
     // - odległość spadła poniżej progu rezerwy (z histerezą)
     // - ostrzeżenie jest aktywne
-    else if (currentDistance < (RESERVE_LEVEL - HYSTERESIS) && status.waterReserveActive) {
+    else if (currentDistance < (config.reserve_level - HYSTERESIS) && status.waterReserveActive) {
         status.waterReserveActive = false;
         sensorReserve.setValue("OFF");
         DEBUG_PRINT("Rezerwa OFF");
@@ -396,7 +411,7 @@ void updatePump() {
     }
 
     // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
-    if (status.isPumpActive && (currentMillis - status.pumpStartTime >= PUMP_WORK_TIME * 1000)) {
+    if (status.isPumpActive && (currentMillis - status.pumpStartTime >= config.pump_work_time * 1000)) {
         stopPump();
         status.pumpSafetyLock = true;
         switchPumpAlarm.setState(true);
@@ -429,7 +444,7 @@ void updatePump() {
     
     // Po upływie opóźnienia, włącz pompę
     if (status.isPumpDelayActive && !status.isPumpActive) {
-        if (currentMillis - status.pumpDelayStartTime >= (PUMP_DELAY * 1000)) {
+        if (currentMillis - status.pumpDelayStartTime >= (config.pump_delay * 1000)) {
             startPump();
         }
     }
@@ -604,8 +619,8 @@ void firstUpdateHA() {
     float initialDistance = measureDistance();
     
     // Ustaw początkowe stany na podstawie pomiaru
-    status.waterAlarmActive = (initialDistance >= TANK_EMPTY);
-    status.waterReserveActive = (initialDistance >= RESERVE_LEVEL);
+    status.waterAlarmActive = (initialDistance >= config.tank_empty);
+    status.waterReserveActive = (initialDistance >= config.reserve_level);
     
     // Wymuś stan OFF na początku
     sensorAlarm.setValue("OFF");
@@ -693,9 +708,9 @@ int measureDistance() {
     int measurements[SENSOR_AVG_SAMPLES];
     int validCount = 0;
 
-    // Rozszerzony zakres akceptowalnych pomiarów o margines
-    const int MIN_VALID_DISTANCE = TANK_FULL - VALID_MARGIN;      // 45mm
-    const int MAX_VALID_DISTANCE = TANK_EMPTY + VALID_MARGIN;     // 530mm
+    // Zakres akceptowalnych pomiarów o margines
+    const int MIN_VALID_DISTANCE = SENSOR_MIN_RANGE;  // 20mm
+    const int MAX_VALID_DISTANCE = SENSOR_MAX_RANGE;  // 1020mm
 
     for (int i = 0; i < SENSOR_AVG_SAMPLES; i++) {
         measurements[i] = -1; // Domyślna wartość błędu
@@ -804,8 +819,8 @@ int measureDistance() {
     lastFilteredDistance = (EMA_ALPHA * medianValue) + ((1 - EMA_ALPHA) * lastFilteredDistance);
 
     // Końcowe ograniczenie do rzeczywistego zakresu zbiornika
-    if (lastFilteredDistance < TANK_FULL) lastFilteredDistance = TANK_FULL;
-    if (lastFilteredDistance > TANK_EMPTY) lastFilteredDistance = TANK_EMPTY;
+    if (lastFilteredDistance < config.tank_full) lastFilteredDistance = config.tank_full;
+    if (lastFilteredDistance > config.tank_empty) lastFilteredDistance = config.tank_empty;
 
     return (int)lastFilteredDistance;
 }
@@ -814,15 +829,15 @@ int measureDistance() {
 //  
 // @param distance - zmierzona odległość od czujnika do lustra wody w mm
 // @return int - poziom wody w procentach (0-100%)
-// Wzór: ((TANK_EMPTY - distance) / (TANK_EMPTY - TANK_FULL)) * 100
+// Wzór: ((config.tank_empty - distance) / (config.tank_empty - config.tank_full)) * 100
 int calculateWaterLevel(int distance) {
     // Ograniczenie wartości do zakresu pomiarowego
-    if (distance < TANK_FULL) distance = TANK_FULL;  // Nie mniej niż przy pełnym
-    if (distance > TANK_EMPTY) distance = TANK_EMPTY;  // Nie więcej niż przy pustym
+    if (distance < config.tank_full) distance = config.tank_full;  // Nie mniej niż przy pełnym
+    if (distance > config.tank_empty) distance = config.tank_empty;  // Nie więcej niż przy pustym
     
     // Obliczenie procentowe poziomu wody
-    float percentage = (float)(TANK_EMPTY - distance) /  // Różnica: pusty - aktualny
-                      (float)(TANK_EMPTY - TANK_FULL) *  // Różnica: pusty - pełny
+    float percentage = (float)(config.tank_empty - distance) /  // Różnica: pusty - aktualny
+                      (float)(config.tank_empty - config.tank_full) *  // Różnica: pusty - pełny
                       100.0;  // Przeliczenie na procenty
     
     return (int)percentage;  // Zwrot wartości całkowitej
@@ -840,11 +855,11 @@ void updateWaterLevel() {
     updateAlarmStates(currentDistance);
 
     // Obliczenie objętości
-    float waterHeight = TANK_EMPTY - currentDistance;    
-    waterHeight = constrain(waterHeight, 0, TANK_EMPTY - TANK_FULL);
+    float waterHeight = config.tank_empty - currentDistance;    
+    waterHeight = constrain(waterHeight, 0, config.tank_empty - config.tank_full);
     
     // Obliczenie objętości w litrach (wszystko w mm)
-    float radius = TANK_DIAMETER / 2.0;
+    float radius = config.tank_diameter / 2.0;
     volume = PI * (radius * radius) * waterHeight / 1000000.0; // mm³ na litry
     
     // Aktualizacja sensorów pomiarowych
@@ -966,8 +981,8 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HydroSense</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HydroSense - Konfiguracja</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
@@ -1059,11 +1074,31 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         button:hover {
             background: #3a8eef;
         }
+        .alert {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .alert.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
         .success {
-            color: #4CAF50;
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
         }
         .error {
-            color: #f44336;
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
         }
         input:focus {
             outline: none;
@@ -1077,9 +1112,26 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
                 width: 100%;
             }
         }
+                /* Style dla statusów */
+        .status-item span:last-child {
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .status-item .success {
+            color: #3c763d;
+            background-color: #dff0d8;
+            border: 1px solid #d6e9c6;
+        }
+        .status-item .error {
+            color: #a94442;
+            background-color: #f2dede;
+            border: 1px solid #ebccd1;
+        }
     </style>
 </head>
 <body>
+    %MESSAGE%
     <div class="container">
         <div class="header">
             <h1>HydroSense</h1>
@@ -1164,6 +1216,15 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
+    // Dodaj komunikat o statusie jeśli istnieje
+    if (server.hasArg("status")) {
+        if (server.arg("status") == "saved") {
+            html.replace("%MESSAGE%", "<div class='alert success'>Konfiguracja została zapisana pomyślnie!</div>");
+        }
+    } else {
+        html.replace("%MESSAGE%", "");
+    }
+    
     // Status systemu
     bool mqttConnected = mqtt.isConnected();
     html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
@@ -1197,9 +1258,28 @@ void handleRoot() {
     server.send(200, "text/html", getConfigPage());
 }
 
+// Dodaj tę funkcję przed handleSave()
+bool validateConfigValues() {
+    // Sprawdź sensowność wartości
+    if (server.arg("tank_full").toInt() >= server.arg("tank_empty").toInt() ||
+        server.arg("reserve_level").toInt() >= server.arg("tank_empty").toInt() ||
+        server.arg("tank_diameter").toInt() <= 0 ||
+        server.arg("pump_delay").toInt() < 0 ||
+        server.arg("pump_work_time").toInt() <= 0) {
+        return false;
+    }
+    return true;
+}
+
 void handleSave() {
     if (server.method() != HTTP_POST) {
         server.send(405, "text/plain", "Method Not Allowed");
+        return;
+    }
+
+    // Przed zapisem sprawdź poprawność
+    if (!validateConfigValues()) {
+        server.send(400, "text/plain", "Nieprawidłowe wartości! Sprawdź wprowadzone dane.");
         return;
     }
 
@@ -1240,8 +1320,8 @@ void handleSave() {
         connectMQTT();
     }
 
-    // Przekieruj z powrotem na stronę główną
-    server.sendHeader("Location", "/");
+    // Przekieruj z powrotem na stronę główną z komunikatem sukcesu
+    server.sendHeader("Location", "/?status=saved");
     server.send(303);
 }
 
