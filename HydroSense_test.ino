@@ -986,237 +986,263 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     DEBUG_PRINTF("Zmieniono stan dźwięku na: ", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
+// 
+
 const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>HydroSense - Konfiguracja</title>
+    <meta charset='UTF-8'>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
             font-family: Arial, sans-serif; 
-            line-height: 1.6;
-            background: #1a1a1a;
-            color: #e0e0e0;
-            min-height: 100vh;
+            margin: 0; 
+            padding: 20px; 
+            background-color: #1a1a1a;
+            color: #ffffff;
         }
         .container { 
-            width: 100%;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 15px;
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 0 15px;
         }
-        .header {
-            background: #2C3E50;
-            color: white;
-            padding: 1rem;
-            text-align: center;
-            margin-bottom: 20px;
-            border-radius: 4px;
-        }
-        .header h1 {
-            margin: 0;
-            font-size: 2em;
-        }
-        .status-panel, .config-panel {
-            background: #2d2d2d;
-            padding: 20px;
-            border-radius: 4px;
-            margin-bottom: 20px;
+        .section { 
+            background-color: #2d2d2d; 
+            padding: 20px; 
+            margin-bottom: 20px; 
+            border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
-        .status-panel h3, .config-panel h2 {
-            color: #4a9eff;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #3d3d3d;
-            font-size: 1.5em;  /* Ujednolicona wielkość dla wszystkich nagłówków sekcji */
-            font-weight: 500;
-        }
-        .status-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #3d3d3d;
-            font-size: 0.95em;  /* Ujednolicona wielkość dla opisów */
-        }
-        .status-item:last-child {
-            border-bottom: none;
-        }
-        .form-group {
-            margin-bottom: 15px;
-            padding: 10px;
-            background: #333333;
-            border-radius: 4px;
-        }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #e0e0e0;
-            font-size: 0.95em;  /* Ujednolicona wielkość dla opisów */
-            font-weight: normal;
-        }
-        input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #444;
-            border-radius: 4px;
-            font-size: 0.95em;  /* Ujednolicona wielkość dla pól input */
-            background: #404040;
-            color: #e0e0e0;
-        }
-        input[type="number"] {
-            width: 200px;
-        }
-        button {
-            background: #4a9eff;
-            color: white;
-            padding: 12px 24px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 1em;
-            width: 100%;
-            margin-top: 20px;
-        }
-        button:hover {
-            background: #3a8eef;
-        }
-        .alert {
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
+        h1 { 
+            color: #ffffff; 
             text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
         }
-        .alert.success {
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+        h2 { 
+            color: #2196F3; /* Google Blue */ 
+            margin-top: 0;
+            font-size: 1.5em;
         }
-        .success {
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+        table { 
+            width: 100%; 
+            border-collapse: collapse;
         }
-        .alert.error {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+        td { 
+            padding: 12px 8px;
+            border-bottom: 1px solid #3d3d3d;
         }
-        .error {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+        input[type="text"], 
+        input[type="password"], 
+        input[type="number"] { 
+            width: 100%;
+            max-width: 200px;
+            padding: 8px; 
+            border: 1px solid #3d3d3d;
+            border-radius: 4px;
+            background-color: #1a1a1a;
+            color: #ffffff;
         }
-        input:focus {
-            outline: none;
-            border-color: #4a9eff;
+        input[type="submit"] { 
+            background-color: #4CAF50; 
+            color: white; 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
         }
-        @media (max-width: 768px) {
-            .container {
+        input[type="submit"]:hover { 
+            background-color: #45a049; 
+        }
+        .success { 
+            color: #4CAF50; 
+        }
+        .error { 
+            color: #f44336; 
+        }
+        .alert { 
+            padding: 15px; 
+            margin-bottom: 20px; 
+            border-radius: 0; /* Usunięte zaokrąglenie */
+            position: fixed; /* Pozycjonowanie stałe */
+            top: 0; /* Przyczepione do samej góry */
+            left: 0; /* Od lewej krawędzi */
+            right: 0; /* Do prawej krawędzi */
+            width: 100%; /* Pełna szerokość */
+            z-index: 1000; /* Zawsze na wierzchu */
+            text-align: center; /* Wycentrowany tekst */
+            animation: fadeOut 0.5s ease-in-out 5s forwards; /* Znikanie po 5 sekundach */
+        }
+        .alert.success { 
+            background-color: #4CAF50; /* Zielony kolor Google */
+            color: white;
+            border: none;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .btn { 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            margin: 5px;
+            font-size: 14px;
+            width: calc(50% - 10px);
+        }
+        .btn-blue { 
+            background-color: #2196F3; /* Google Blue */
+            color: white; 
+        }
+        .btn-red { 
+            background-color: #F44336; /* Google Red */
+            color: white; 
+        }
+        @media (max-width: 600px) {
+            body {
                 padding: 10px;
             }
+            .container {
+                padding: 0;
+            }
+            .section {
+                padding: 15px;
+                margin-bottom: 15px;
+            }
+            td {
+                display: block;
+                padding: 8px 0;
+            }
+            input[type="text"],
+            input[type="password"],
             input[type="number"] {
+                max-width: 100%;
+            }
+            .btn {
                 width: 100%;
+                margin: 5px 0;
             }
         }
-                /* Style dla statusów */
-        .status-item span:last-child {
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-weight: bold;
-        }
-        .status-item .success {
-            color: #3c763d;
-            background-color: #dff0d8;
-            border: 1px solid #d6e9c6;
-        }
-        .status-item .error {
-            color: #a94442;
-            background-color: #f2dede;
-            border: 1px solid #ebccd1;
+        @keyframes fadeOut {
+            from {opacity: 1;}
+            to {opacity: 0; visibility: hidden;}
         }
     </style>
+    <script>
+    function confirmReset() {
+        return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień.');
+    }
+    function rebootDevice() {
+        if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {
+            fetch('/reboot', {method: 'POST'}).then(() => {
+                alert('Urządzenie zostanie zrestartowane...');
+                setTimeout(() => { window.location.reload(); }, 5000);
+            });
+        }
+    }
+    function factoryReset() {
+        if(confirmReset()) {
+            fetch('/factory-reset', {method: 'POST'}).then(() => {
+                alert('Przywracanie ustawień fabrycznych...');
+                setTimeout(() => { window.location.reload(); }, 5000);
+            });
+        }
+    }
+    </script>
+    <title>HydroSense</title>
 </head>
 <body>
-    %MESSAGE%
     <div class="container">
-        <div class="header">
-            <h1>HydroSense</h1>
-        </div>
+        <h1>HydroSense</h1>
+        %MESSAGE%
         
-        <div class="status-panel">
-            <h3>Status systemu</h3>
-            <div class="status-item">
-                <span>Status MQTT:</span>
-                <span class="%MQTT_STATUS_CLASS%">%MQTT_STATUS%</span>
-            </div>
-            <div class="status-item">
-                <span>Status dźwięku:</span>
-                <span class="%SOUND_STATUS_CLASS%">%SOUND_STATUS%</span>
-            </div>
-            <div class="status-item">
-                <span>Wersja systemu:</span>
-                <span>%SOFTWARE_VERSION%</span>
-            </div>
+        <!-- Status systemu -->
+        <div class="section">
+            <h2>System</h2>
+            <table>
+                <tr>
+                    <td>Status MQTT</td>
+                    <td class="%MQTT_STATUS_CLASS%">%MQTT_STATUS%</td>
+                </tr>
+                <tr>
+                    <td>Status dźwięku</td>
+                    <td class="%SOUND_STATUS_CLASS%">%SOUND_STATUS%</td>
+                </tr>
+                <tr>
+                    <td>Wersja oprogramowania</td>
+                    <td>%SOFTWARE_VERSION%</td>
+                </tr>
+            </table>
         </div>
+
+        %BUTTONS%
 
         <form method="POST" action="/save">
-            <div class="config-panel">
-                <h2>Ustawienia MQTT</h2>
-                <div class="form-group">
-                    <label>Adres serwera MQTT:</label>
-                    <input type="text" name="mqtt_server" value="%MQTT_SERVER%" required>
-                </div>
-                <div class="form-group">
-                    <label>Port MQTT:</label>
-                    <input type="number" name="mqtt_port" value="%MQTT_PORT%" required>
-                </div>
-                <div class="form-group">
-                    <label>Użytkownik MQTT:</label>
-                    <input type="text" name="mqtt_user" value="%MQTT_USER%">
-                </div>
-                <div class="form-group">
-                    <label>Hasło MQTT:</label>
-                    <input type="password" name="mqtt_password" value="%MQTT_PASSWORD%">
-                </div>
+            <!-- Ustawienia MQTT -->
+            <div class="section">
+                <h2>Konfiguracja MQTT</h2>
+                <table>
+                    <tr>
+                        <td>Serwer</td>
+                        <td><input type="text" name="mqtt_server" value="%MQTT_SERVER%"></td>
+                    </tr>
+                    <tr>
+                        <td>Port</td>
+                        <td><input type="number" name="mqtt_port" value="%MQTT_PORT%"></td>
+                    </tr>
+                    <tr>
+                        <td>Użytkownik</td>
+                        <td><input type="text" name="mqtt_user" value="%MQTT_USER%"></td>
+                    </tr>
+                    <tr>
+                        <td>Hasło</td>
+                        <td><input type="password" name="mqtt_password" value="%MQTT_PASSWORD%"></td>
+                    </tr>
+                </table>
             </div>
 
-            <div class="config-panel">
-                <h2>Ustawienia zbiornika</h2>
-                <div class="form-group">
-                    <label>Poziom pełnego zbiornika (mm):</label>
-                    <input type="number" name="tank_full" value="%TANK_FULL%" required>
-                </div>
-                <div class="form-group">
-                    <label>Poziom pustego zbiornika (mm):</label>
-                    <input type="number" name="tank_empty" value="%TANK_EMPTY%" required>
-                </div>
-                <div class="form-group">
-                    <label>Poziom rezerwy (mm):</label>
-                    <input type="number" name="reserve_level" value="%RESERVE_LEVEL%" required>
-                </div>
-                <div class="form-group">
-                    <label>Średnica zbiornika (mm):</label>
-                    <input type="number" name="tank_diameter" value="%TANK_DIAMETER%" required>
-                </div>
+            <!-- Ustawienia zbiornika -->
+            <div class="section">
+                <h2>Kalibracja czujnika</h2>
+                <table>
+                    <tr>
+                        <td>Odległość przy pustym [mm]</td>
+                        <td><input type="number" name="tank_empty" value="%TANK_EMPTY%"></td>
+                    </tr>
+                    <tr>
+                        <td>Odległość przy pełnym [mm]</td>
+                        <td><input type="number" name="tank_full" value="%TANK_FULL%"></td>
+                    </tr>
+                    <tr>
+                        <td>Odległość przy rezerwie [mm]</td>
+                        <td><input type="number" name="reserve_level" value="%RESERVE_LEVEL%"></td>
+                    </tr>
+                    <tr>
+                        <td>Średnica zbiornika [mm]</td>
+                        <td><input type="number" name="tank_diameter" value="%TANK_DIAMETER%"></td>
+                    </tr>
+                </table>
             </div>
 
-            <div class="config-panel">
+            <!-- Ustawienia pompy -->
+            <div class="section">
                 <h2>Ustawienia pompy</h2>
-                <div class="form-group">
-                    <label>Opóźnienie pompy (s):</label>
-                    <input type="number" name="pump_delay" value="%PUMP_DELAY%" required>
-                </div>
-                <div class="form-group">
-                    <label>Czas pracy pompy (s):</label>
-                    <input type="number" name="pump_work_time" value="%PUMP_WORK_TIME%" required>
-                </div>
+                <table>
+                    <tr>
+                        <td>Opóźnienie załączenia pompy [s]</td>
+                        <td><input type="number" name="pump_delay" value="%PUMP_DELAY%"></td>
+                    </tr>
+                    <tr>
+                        <td>Czas pracy pompy [s]</td>
+                        <td><input type="number" name="pump_work_time" value="%PUMP_WORK_TIME%"></td>
+                    </tr>
+                </table>
             </div>
 
-            <button type="submit">Zapisz ustawienia</button>
+            <div class="section">
+                <input type="submit" value="Zapisz ustawienia">
+            </div>
         </form>
     </div>
 </body>
@@ -1244,6 +1270,13 @@ String getConfigPage() {
     html.replace("%SOUND_STATUS_CLASS%", config.soundEnabled ? "success" : "error");
     
     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
+
+    // Sekcja przycisków
+    String buttons = F("<div class='section'>"
+                      "<button class='btn btn-blue' onclick='rebootDevice()'>Reboot</button> "
+                      "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
+                      "</div>");
+    html.replace("%BUTTONS%", buttons);
 
     // Ustawienia MQTT
     html.replace("%MQTT_SERVER%", config.mqtt_server);
@@ -1338,8 +1371,22 @@ void handleSave() {
 void setupWebServer() {
     server.on("/", handleRoot);
     server.on("/save", handleSave);
+    
+    server.on("/reboot", HTTP_POST, []() {
+        server.send(200, "text/plain", "Restarting...");
+        delay(1000);
+        ESP.restart();
+    });
+    
+    server.on("/factory-reset", HTTP_POST, []() {
+        server.send(200, "text/plain", "Resetting to factory defaults...");
+        delay(1000);
+        setDefaultConfig();
+        saveConfig();
+        ESP.restart();
+    });
+    
     server.begin();
-    Serial.println("HTTP server started");
 }
 
 // --- SETUP ---
