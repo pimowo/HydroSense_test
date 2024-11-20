@@ -198,9 +198,19 @@ struct Timers {
 // Instancja struktury Timers
 static Timers timers;
 
-// Zerowanie liczników
-//const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967000; // ~49.7 dni
+// Funkcja do resetowania do ustawień fabrycznych
+void factoryReset() {
+    setDefaultConfig();  // Wczytaj domyślne ustawienia
+    saveConfig();       // Zapisz je do EEPROM
+    ESP.restart();      // Zrestartuj ESP
+}
 
+// Funkcja do restartu ESP
+void rebootDevice() {
+    ESP.restart();
+}
+
+// Zerowanie liczników
 void handleMillisOverflow() {
     unsigned long currentMillis = millis();
     
@@ -832,9 +842,9 @@ int measureDistance() {
 // Wzór: ((config.tank_empty - distance) / (config.tank_empty - config.tank_full)) * 100
 int calculateWaterLevel(int distance) {
     // Ograniczenie wartości do zakresu pomiarowego
-    if (distance < config.tank_full) distance = config.tank_full;  // Nie mniej niż przy pełnym
-    if (distance > config.tank_empty) distance = config.tank_empty;  // Nie więcej niż przy pustym
-    
+    if (distance < SENSOR_MIN_RANGE) distance = SENSOR_MIN_RANGE;  // Nie mniej niż przy pełnym
+    if (distance > SENSOR_MAX_RANGE) distance = SENSOR_MAX_RANGE;  // Nie więcej niż przy pustym
+   
     // Obliczenie procentowe poziomu wody
     float percentage = (float)(config.tank_empty - distance) /  // Różnica: pusty - aktualny
                       (float)(config.tank_empty - config.tank_full) *  // Różnica: pusty - pełny
@@ -1214,44 +1224,99 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 String getConfigPage() {
-    String html = FPSTR(CONFIG_PAGE);
-    
-    // Dodaj komunikat o statusie jeśli istnieje
-    if (server.hasArg("status")) {
-        if (server.arg("status") == "saved") {
-            html.replace("%MESSAGE%", "<div class='alert success'>Konfiguracja została zapisana pomyślnie!</div>");
-        }
-    } else {
-        html.replace("%MESSAGE%", "");
-    }
-    
-    // Status systemu
-    bool mqttConnected = mqtt.isConnected();
-    html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
-    html.replace("%MQTT_STATUS_CLASS%", mqttConnected ? "success" : "error");
-    
-    html.replace("%SOUND_STATUS%", config.soundEnabled ? "Włączony" : "Wyłączony");
-    html.replace("%SOUND_STATUS_CLASS%", config.soundEnabled ? "success" : "error");
-    
-    html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
+    String page = F("<!DOCTYPE html>"
+                   "<html><head>"
+                   "<title>HydroSense - Konfiguracja</title>"
+                   "<meta charset='UTF-8'>"
+                   "<style>"
+                   "body { font-family: Arial; margin: 20px; }"
+                   ".container { max-width: 800px; margin: 0 auto; }"
+                   "input[type='number'] { width: 100px; }"
+                   ".section { background-color: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 5px; }"
+                   ".btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }"
+                   ".btn-blue { background-color: #007bff; color: white; }"
+                   ".btn-red { background-color: #dc3545; color: white; }"
+                   "table { width: 100%; border-collapse: collapse; }"
+                   "td { padding: 5px; }"
+                   "input[type='submit'] { background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }"
+                   "</style>"
+                   "<script>"
+                   "function confirmReset() {"
+                   "  return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień.');"
+                   "}"
+                   "function rebootDevice() {"
+                   "  if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {"
+                   "    fetch('/reboot', {method: 'POST'});"
+                   "  }"
+                   "}"
+                   "function factoryReset() {"
+                   "  if(confirmReset()) {"
+                   "    fetch('/factory-reset', {method: 'POST'});"
+                   "  }"
+                   "}"
+                   "</script>"
+                   "</head><body><div class='container'>"
+                   "<h1>HydroSense - Konfiguracja</h1>");
 
-    // Ustawienia MQTT
-    html.replace("%MQTT_SERVER%", config.mqtt_server);
-    html.replace("%MQTT_PORT%", String(config.mqtt_port));
-    html.replace("%MQTT_USER%", config.mqtt_user);
-    html.replace("%MQTT_PASSWORD%", config.mqtt_password);
+    // Sekcja statusu systemu
+    page += F("<div class='section'><h2>Status systemu</h2>");
+    page += F("<table>");
+    page += F("<tr><td>Poziom wody:</td><td>") + String(currentWaterLevel) + F("%</td></tr>");
+    page += F("<tr><td>Objętość wody:</td><td>") + String(currentWaterVolume) + F(" L</td></tr>");
+    page += F("<tr><td>Ostatni pomiar:</td><td>") + String(lastMeasurementDistance) + F(" mm</td></tr>");
+    page += F("<tr><td>Stan pompy:</td><td>") + String(pumpState ? "Włączona" : "Wyłączona") + F("</td></tr>");
+    page += F("<tr><td>Stan alarmu:</td><td>") + String(alarmState ? "Aktywny" : "Nieaktywny") + F("</td></tr>");
+    page += F("</table></div>");
+
+    // Sekcja z przyciskami
+    page += F("<div class='section'>"
+             "<button class='btn btn-blue' onclick='rebootDevice()'>Reboot</button>"
+             "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
+             "</div>");
+
+    // Formularz z ustawieniami
+    page += F("<form method='POST' action='/save'>");
+
+    // Sekcja ustawień MQTT
+    page += F("<div class='section'><h2>Ustawienia MQTT</h2>");
+    page += F("<table>");
+    page += F("<tr><td>MQTT Host:</td><td><input type='text' name='mqtt_host' value='") + String(config.mqtt_host) + F("'></td></tr>");
+    page += F("<tr><td>MQTT Port:</td><td><input type='number' name='mqtt_port' value='") + String(config.mqtt_port) + F("'></td></tr>");
+    page += F("<tr><td>MQTT User:</td><td><input type='text' name='mqtt_user' value='") + String(config.mqtt_user) + F("'></td></tr>");
+    page += F("<tr><td>MQTT Password:</td><td><input type='password' name='mqtt_password' value='") + String(config.mqtt_password) + F("'></td></tr>");
+    page += F("</table></div>");
+
+    // Sekcja ustawień zbiornika
+    page += F("<div class='section'><h2>Wymiary zbiornika</h2>");
+    page += F("<table>");
+    page += F("<tr><td>Szerokość [mm]:</td><td><input type='number' name='tank_width' value='") + String(config.tank_width) + F("'></td></tr>");
+    page += F("<tr><td>Długość [mm]:</td><td><input type='number' name='tank_length' value='") + String(config.tank_length) + F("'></td></tr>");
+    page += F("<tr><td>Wysokość [mm]:</td><td><input type='number' name='tank_height' value='") + String(config.tank_height) + F("'></td></tr>");
+    page += F("</table></div>");
+
+    // Sekcja ustawień czujnika
+    page += F("<div class='section'><h2>Kalibracja czujnika</h2>");
+    page += F("<table>");
+    page += F("<tr><td>Odległość przy pustym [mm]:</td><td><input type='number' name='tank_empty' value='") + String(config.tank_empty) + F("'></td></tr>");
+    page += F("<tr><td>Odległość przy pełnym [mm]:</td><td><input type='number' name='tank_full' value='") + String(config.tank_full) + F("'></td></tr>");
+    page += F("<tr><td>Poziom rezerwy [%]:</td><td><input type='number' name='reserve_level' value='") + String(config.reserve_level) + F("'></td></tr>");
+    page += F("</table></div>");
+
+    // Sekcja ustawień pompy
+    page += F("<div class='section'><h2>Ustawienia pompy</h2>");
+    page += F("<table>");
+    page += F("<tr><td>Opóźnienie pompy [s]:</td><td><input type='number' name='pump_delay' value='") + String(config.pump_delay) + F("'></td></tr>");
+    page += F("<tr><td>Czas pracy pompy [s]:</td><td><input type='number' name='pump_time' value='") + String(config.pump_time) + F("'></td></tr>");
+    page += F("</table></div>");
+
+    // Przycisk zapisu
+    page += F("<div class='section'>");
+    page += F("<input type='submit' value='Zapisz ustawienia'>");
+    page += F("</div>");
     
-    // Ustawienia zbiornika
-    html.replace("%TANK_FULL%", String(config.tank_full));
-    html.replace("%TANK_EMPTY%", String(config.tank_empty));
-    html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
-    html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
-    
-    // Ustawienia pompy
-    html.replace("%PUMP_DELAY%", String(config.pump_delay));
-    html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
-    
-    return html;
+    page += F("</form></div></body></html>");
+
+    return page;
 }
 
 void handleRoot() {
@@ -1328,8 +1393,21 @@ void handleSave() {
 void setupWebServer() {
     server.on("/", handleRoot);
     server.on("/save", handleSave);
+    
+    // Dodaj nowe endpointy
+    server.on("/reboot", HTTP_POST, []() {
+        server.send(200, "text/plain", "Restarting...");
+        delay(1000);
+        rebootDevice();
+    });
+    
+    server.on("/factory-reset", HTTP_POST, []() {
+        server.send(200, "text/plain", "Resetting to factory defaults...");
+        delay(1000);
+        factoryReset();
+    });
+    
     server.begin();
-    Serial.println("HTTP server started");
 }
 
 // --- SETUP ---
