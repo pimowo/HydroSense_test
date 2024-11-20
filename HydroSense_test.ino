@@ -754,7 +754,7 @@ int measureDistance() {
                 unsigned long duration = micros() - startTime;
                 int distance = (duration * 343) / 2000; // Prędkość dźwięku 343 m/s
 
-                // Walidacja odległości z uwzględnieniem marginesu
+                // Walidacja odległości
                 if (distance >= MIN_VALID_DISTANCE && distance <= MAX_VALID_DISTANCE) {
                     measurements[i] = distance;
                     validCount++;
