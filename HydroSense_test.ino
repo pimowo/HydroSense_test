@@ -1061,7 +1061,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             color: #4CAF50; 
         }
         .error { 
-            color: #f44336; 
+            color: #F44336; /* Google Red */
         }
         .alert { 
             padding: 15px; 
@@ -1087,9 +1087,9 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             border: none; 
             border-radius: 4px; 
             cursor: pointer; 
-            margin: 5px;
+            margin: 5px 0;  /* Zmienione z margin: 5px */
             font-size: 14px;
-            width: calc(50% - 10px);
+            width: 100%;    /* Zmienione z calc(50% - 10px) */
         }
         .btn-blue { 
             background-color: #2196F3; /* Google Blue */
@@ -1103,12 +1103,22 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             body {
                 padding: 10px;
             }
+            .status-table {
+                display: table !important;
+                width: 100%;
+            }
+            .status-table td {
+                display: table-cell !important; /* Wymusza wyświetlanie w linii */
+                width: auto !important; /* Automatyczna szerokość */
+                padding: 8px 16px 8px 0 !important; /* Padding z prawej strony */
+            }
             .container {
                 padding: 0;
             }
             .section {
                 padding: 15px;
                 margin-bottom: 15px;
+                background-color: #303030; /* Google Dark Grey */
             }
             td {
                 display: block;
@@ -1117,7 +1127,10 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             input[type="text"],
             input[type="password"],
             input[type="number"] {
-                max-width: 100%;
+                max-width: none;  /* usuwa poprzednie ograniczenie */
+                width: 100%;      /* ustawia pełną szerokość */
+                box-sizing: border-box; /* zapewnia, że padding nie zwiększa szerokości */
+                border: 1px solid #424242; /* Google Dark Grey */
             }
             .btn {
                 width: 100%;
@@ -1159,8 +1172,8 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         
         <!-- Status systemu -->
         <div class="section">
-            <h2>System</h2>
-            <table>
+            <h2>Status systemu</h2>
+            <table class="status-table">
                 <tr>
                     <td>Status MQTT</td>
                     <td class="%MQTT_STATUS_CLASS%">%MQTT_STATUS%</td>
@@ -1239,7 +1252,6 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
                     </tr>
                 </table>
             </div>
-
             <div class="section">
                 <input type="submit" value="Zapisz ustawienia">
             </div>
