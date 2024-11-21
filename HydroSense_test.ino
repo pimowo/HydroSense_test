@@ -1022,8 +1022,7 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
     DEBUG_PRINTF("Zmieniono stan dźwięku na: ", state ? "WŁĄCZONY" : "WYŁĄCZONY");
 }
 
-// 
-
+// Strona www
 const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -1190,7 +1189,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {
             fetch('/reboot', {method: 'POST'}).then(() => {
                 alert('Urządzenie zostanie zrestartowane...');
-                setTimeout(() => { window.location.reload(); }, 5000);
+                setTimeout(() => { window.location.reload(); }, 4000);
             });
         }
     }
@@ -1198,7 +1197,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         if(confirmReset()) {
             fetch('/factory-reset', {method: 'POST'}).then(() => {
                 alert('Przywracanie ustawień fabrycznych...');
-                setTimeout(() => { window.location.reload(); }, 5000);
+                setTimeout(() => { window.location.reload(); }, 4000);
             });
         }
     }
@@ -1301,54 +1300,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
-// String getConfigPage() {
-//     String html = FPSTR(CONFIG_PAGE);
-    
-//     // Dodaj komunikat o statusie jeśli istnieje
-//     if (server.hasArg("status")) {
-//         if (server.arg("status") == "saved") {
-//             html.replace("%MESSAGE%", "<div class='alert success'>Konfiguracja została zapisana pomyślnie!</div>");
-//         }
-//     } else {
-//         html.replace("%MESSAGE%", "");
-//     }
-    
-//     // Status systemu
-//     bool mqttConnected = mqtt.isConnected();
-//     html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
-//     html.replace("%MQTT_STATUS_CLASS%", mqttConnected ? "success" : "error");
-    
-//     html.replace("%SOUND_STATUS%", config.soundEnabled ? "Włączony" : "Wyłączony");
-//     html.replace("%SOUND_STATUS_CLASS%", config.soundEnabled ? "success" : "error");
-    
-//     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
-
-//     // Sekcja przycisków
-//     String buttons = F("<div class='section'>"
-//                       "<button class='btn btn-blue' onclick='rebootDevice()'>Reboot</button> "
-//                       "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
-//                       "</div>");
-//     html.replace("%BUTTONS%", buttons);
-
-//     // Ustawienia MQTT
-//     html.replace("%MQTT_SERVER%", config.mqtt_server);
-//     html.replace("%MQTT_PORT%", String(config.mqtt_port));
-//     html.replace("%MQTT_USER%", config.mqtt_user);
-//     html.replace("%MQTT_PASSWORD%", config.mqtt_password);
-    
-//     // Ustawienia zbiornika
-//     html.replace("%TANK_FULL%", String(config.tank_full));
-//     html.replace("%TANK_EMPTY%", String(config.tank_empty));
-//     html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
-//     html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
-    
-//     // Ustawienia pompy
-//     html.replace("%PUMP_DELAY%", String(config.pump_delay));
-//     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
-    
-//     return html;
-// }
-
+// Obsługa strony www
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
@@ -1520,25 +1472,22 @@ void setup() {
         saveConfig();  // Zapisz domyślną konfigurację do EEPROM
     }
     
-    setupPin();
-    
-    // Nawiązanie połączenia WiFi
-    setupWiFi();
-
-    setupWebServer();
+    setupPin();  // Ustawienia GPIO
+    setupWiFi();  // Nawiązanie połączenia WiFi
+    setupWebServer();  // Serwer www
 
     // Próba połączenia MQTT
     DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
     connectMQTT();
 
-    setupHA();
+    setupHA();  // Konfiguracja Home Assistant
    
     // Wczytaj konfigurację z EEPROM
     if (loadConfig()) {        
         status.soundEnabled = config.soundEnabled;  // Synchronizuj stan dźwięku z wczytanej konfiguracji
     }
     
-    firstUpdateHA();
+    firstUpdateHA();  // Wyślij pierwsze odczyty do Home Assistant
     status.lastSoundAlert = millis();
     
     // Konfiguracja OTA
