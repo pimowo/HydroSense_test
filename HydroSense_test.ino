@@ -76,32 +76,7 @@ const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dn
 
 // Stałe konfiguracyjne
 
-// eeprom
-// struct Config {
-//     uint8_t version;  // Wersja konfiguracji
-//     bool soundEnabled;  // Status dźwięku (włączony/wyłączony)
-
-//     // Ustawienia MQTT
-//     char mqtt_server[40];
-//     uint16_t mqtt_port;
-//     char mqtt_user[32];
-//     char mqtt_password[32];
-    
-//     // Ustawienia zbiornika
-//     int tank_full;
-//     int tank_empty;
-//     int reserve_level;
-//     int tank_diameter;
-    
-//     // Ustawienia pompy
-//     int pump_delay;
-//     int pump_work_time;
-    
-//     // Suma kontrolna
-//     char checksum;
-// };
-// Config config;
-
+// 
 struct Config {
     // Wersja konfiguracji - używana do kontroli kompatybilności przy aktualizacjach
     uint8_t version;  
@@ -271,18 +246,18 @@ void setDefaultConfig() {
     strlcpy(config.mqtt_password, "", sizeof(config.mqtt_password));
     
     // Konfiguracja zbiornika
-    config.tank_full = 50;        // 20mm = czujnik 2cm od powierzchni przy pełnym zbiorniku
-    config.tank_empty = 1050;     // 1000mm = czujnik 1m od dna przy pustym zbiorniku
-    config.reserve_level = 550;   // 500mm = alarm przy poziomie 50cm od dna
-    config.tank_diameter = 100;   // 100mm = zbiornik o średnicy 10cm
+    config.tank_full = 50;  // czujnik od powierzchni przy pełnym zbiorniku
+    config.tank_empty = 1050;  // czujnik od dna przy pustym zbiorniku
+    config.reserve_level = 550;  // czujnik od poziomu rezerwy
+    config.tank_diameter = 100;  // średnica zbiornika
     
     // Konfiguracja pompy
-    config.pump_delay = 5;        // 5 sekund opóźnienia przed startem
-    config.pump_work_time = 30;   // Maksymalnie 30 sekund ciągłej pracy
+    config.pump_delay = 5;  // opóźnienie przed startem pompy
+    config.pump_work_time = 30;  // Maksymalny czas ciągłej pracy pompy
     
     // Finalizacja
     config.checksum = calculateChecksum(config);  // Obliczenie sumy kontrolnej
-    saveConfig();                                 // Zapis do EEPROM
+    saveConfig();  // Zapis do EEPROM
     
     DEBUG_PRINT(F("Utworzono domyślną konfigurację"));
 }
