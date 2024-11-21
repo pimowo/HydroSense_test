@@ -132,7 +132,7 @@ struct Config {
 // Globalna instancja struktury konfiguracyjnej
 Config config;
 
-const uint8_t CONFIG_VERSION = 1;  // Wersja konfiguracji
+const uint8_t CONFIG_VERSION = 2;  // Wersja konfiguracji
 const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
 
 float currentDistance = 0;
@@ -874,9 +874,13 @@ int measureDistance() {
 // Wzór: ((config.tank_empty - distance) / (config.tank_empty - config.tank_full)) * 100
 int calculateWaterLevel(int distance) {
     // Ograniczenie wartości do zakresu pomiarowego
-    if (distance < SENSOR_MIN_RANGE) distance = SENSOR_MIN_RANGE;  // Nie mniej niż przy pełnym
-    if (distance > SENSOR_MAX_RANGE) distance = SENSOR_MAX_RANGE;  // Nie więcej niż przy pustym
+    //if (distance < SENSOR_MIN_RANGE) distance = SENSOR_MIN_RANGE;  // Nie mniej niż przy pełnym
+    //if (distance > SENSOR_MAX_RANGE) distance = SENSOR_MAX_RANGE;  // Nie więcej niż przy pustym
    
+    // Ograniczenie do zakresu zbiornika dla obliczenia procentów
+    if (distance < config.tank_full) distance = config.tank_full;
+    if (distance > config.tank_empty) distance = config.tank_empty;
+
     // Obliczenie procentowe poziomu wody
     float percentage = (float)(config.tank_empty - distance) /  // Różnica: pusty - aktualny
                       (float)(config.tank_empty - config.tank_full) *  // Różnica: pusty - pełny
