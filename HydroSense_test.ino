@@ -16,9 +16,9 @@ ESP8266WebServer server(80);
 const char* SOFTWARE_VERSION = "21.11.24";
 
 // Konfiguracja MQTT
-const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
-const char* MQTT_USER = "hydrosense";  // Użytkownik MQTT
-const char* MQTT_PASSWORD = "hydrosense";  // Hasło MQTT
+// const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
+// const char* MQTT_USER = "hydrosense";  // Użytkownik MQTT
+// const char* MQTT_PASSWORD = "hydrosense";  // Hasło MQTT
 
 // Konfiguracja pinów ESP8266
 const int PIN_ULTRASONIC_TRIG = D6;  // Pin TRIG czujnika ultradźwiękowego
@@ -186,23 +186,23 @@ Status status;
 
 // Struktura dla obsługi przycisku
 struct ButtonState {
-    bool lastState; // Poprzedni stan przycisku
-    unsigned long pressedTime = 0; // Czas wciśnięcia przycisku
-    unsigned long releasedTime = 0; // Czas puszczenia przycisku
-    bool isLongPressHandled = false; // Flaga obsłużonego długiego naciśnięcia
+    bool lastState;  // Poprzedni stan przycisku
     bool isInitialized = false; 
+    bool isLongPressHandled = false;  // Flaga obsłużonego długiego naciśnięcia
+    unsigned long pressedTime = 0;  // Czas wciśnięcia przycisku
+    unsigned long releasedTime = 0;  // Czas puszczenia przycisku
 };
 
 // Instancja struktury ButtonState
 ButtonState buttonState;
 
 // Struktura dla dźwięków alarmowych
-struct AlarmTone {
-    uint16_t frequency;  // Częstotliwość dźwięku
-    uint16_t duration;  // Czas trwania
-    uint8_t repeats;  // Liczba powtórzeń
-    uint16_t pauseDuration;  // Przerwa między powtórzeniami
-};
+// struct AlarmTone {
+//     uint8_t repeats;  // Liczba powtórzeń
+//     uint16_t frequency;  // Częstotliwość dźwięku
+//     uint16_t duration;  // Czas trwania
+//     uint16_t pauseDuration;  // Przerwa między powtórzeniami
+// };
 
 // Struktura do przechowywania różnych znaczników czasowych
 struct Timers {
@@ -264,15 +264,15 @@ void setDefaultConfig() {
     config.soundEnabled = true;             // Włączenie powiadomień dźwiękowych
     
     // MQTT
-    strlcpy(config.mqtt_server, "192.168.1.14", sizeof(config.mqtt_server));
+    strlcpy(config.mqtt_server, "", sizeof(config.mqtt_server));
     config.mqtt_port = 1883;
-    strlcpy(config.mqtt_user, "hydrosense", sizeof(config.mqtt_user));
-    strlcpy(config.mqtt_password, "hydrosense", sizeof(config.mqtt_password));
+    strlcpy(config.mqtt_user, "", sizeof(config.mqtt_user));
+    strlcpy(config.mqtt_password, "", sizeof(config.mqtt_password));
     
     // Konfiguracja zbiornika
-    config.tank_full = 20;        // 20mm = czujnik 2cm od powierzchni przy pełnym zbiorniku
-    config.tank_empty = 1000;     // 1000mm = czujnik 1m od dna przy pustym zbiorniku
-    config.reserve_level = 500;   // 500mm = alarm przy poziomie 50cm od dna
+    config.tank_full = 50;        // 20mm = czujnik 2cm od powierzchni przy pełnym zbiorniku
+    config.tank_empty = 1050;     // 1000mm = czujnik 1m od dna przy pustym zbiorniku
+    config.reserve_level = 550;   // 500mm = alarm przy poziomie 50cm od dna
     config.tank_diameter = 100;   // 100mm = zbiornik o średnicy 10cm
     
     // Konfiguracja pompy
