@@ -579,46 +579,46 @@ bool connectMQTT() {
 // Funkcja konfigurująca Home Assistant
 void setupHA() {
     // Konfiguracja urządzenia dla Home Assistant
-    device.setName("HydroSense");                  // Nazwa urządzenia
-    device.setModel("HS ESP8266");                 // Model urządzenia
-    device.setManufacturer("PMW");                 // Producent
-    device.setSoftwareVersion(SOFTWARE_VERSION);         // Wersja oprogramowania
+    device.setName("HydroSense");  // Nazwa urządzenia
+    device.setModel("HS ESP8266");  // Model urządzenia
+    device.setManufacturer("PMW");  // Producent
+    device.setSoftwareVersion(SOFTWARE_VERSION);  // Wersja oprogramowania
 
     // Konfiguracja sensorów pomiarowych w HA
     sensorDistance.setName("Pomiar odległości");
-    sensorDistance.setIcon("mdi:ruler");           // Ikona linijki
-    sensorDistance.setUnitOfMeasurement("mm");     // Jednostka - milimetry
+    sensorDistance.setIcon("mdi:ruler");          
+    sensorDistance.setUnitOfMeasurement("mm");    
     
     sensorLevel.setName("Poziom wody");
-    sensorLevel.setIcon("mdi:cup-water");      // Ikona poziomu wody
-    sensorLevel.setUnitOfMeasurement("%");         // Jednostka - procenty
+    sensorLevel.setIcon("mdi:cup-water");      
+    sensorLevel.setUnitOfMeasurement("%");     
     
     sensorVolume.setName("Objętość wody");
-    sensorVolume.setIcon("mdi:cup-water");             // Ikona wody
-    sensorVolume.setUnitOfMeasurement("L");        // Jednostka - litry
+    sensorVolume.setIcon("mdi:cup-water");     
+    sensorVolume.setUnitOfMeasurement("L");    
     
     // Konfiguracja sensorów statusu w HA
     sensorPump.setName("Status pompy");
-    sensorPump.setIcon("mdi:water-pump");          // Ikona pompy
+    sensorPump.setIcon("mdi:water-pump");      
     
     sensorWater.setName("Czujnik wody");
-    sensorWater.setIcon("mdi:electric-switch");              // Ikona wody
+    sensorWater.setIcon("mdi:electric-switch");
     
     // Konfiguracja sensorów alarmowych w HA
     sensorAlarm.setName("Brak wody");
-    sensorAlarm.setIcon("mdi:alarm-light");        // Ikona alarmu wody
+    sensorAlarm.setIcon("mdi:alarm-light");    
 
     sensorReserve.setName("Rezerwa wody");
-    sensorReserve.setIcon("mdi:alarm-light-outline");    // Ikona ostrzeżenia
+    sensorReserve.setIcon("mdi:alarm-light-outline");   
     
     // Konfiguracja przełączników w HA
     switchService.setName("Serwis");
-    switchService.setIcon("mdi:account-wrench-outline");            // Ikona narzędzi
-    switchService.onCommand(onServiceSwitchCommand);// Funkcja obsługi zmiany stanu
-    switchService.setState(status.isServiceMode);   // Stan początkowy
+    switchService.setIcon("mdi:account-wrench-outline");            
+    switchService.onCommand(onServiceSwitchCommand);  // Funkcja obsługi zmiany stanu
+    switchService.setState(status.isServiceMode);  // Stan początkowy
     // Inicjalizacja stanu - domyślnie wyłączony
     status.isServiceMode = false;
-    switchService.setState(false, true); // force update przy starcie
+    switchService.setState(false, true);  // force update przy starcie
 
     switchSound.setName("Dźwięk");
     switchSound.setIcon("mdi:volume-high");        // Ikona głośnika
