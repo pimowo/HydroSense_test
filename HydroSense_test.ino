@@ -13,7 +13,7 @@
 ESP8266WebServer server(80);
 
 // Wersja systemu
-const char* SOFTWARE_VERSION = "20.11.24";
+const char* SOFTWARE_VERSION = "21.11.24";
 
 // Konfiguracja MQTT
 const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
@@ -861,8 +861,8 @@ int measureDistance() {
     lastFilteredDistance = (EMA_ALPHA * medianValue) + ((1 - EMA_ALPHA) * lastFilteredDistance);
 
     // Końcowe ograniczenie do ustawionego zakresu czujnika
-    if (lastFilteredDistance < MIN_VALID_DISTANCE) lastFilteredDistance = MIN_VALID_DISTANCE;  // 20mm
-    if (lastFilteredDistance > MAX_VALID_DISTANCE) lastFilteredDistance = MAX_VALID_DISTANCE;  // 1020mm
+    if (lastFilteredDistance < MIN_VALID_DISTANCE) lastFilteredDistance = MIN_VALID_DISTANCE;
+    if (lastFilteredDistance > MAX_VALID_DISTANCE) lastFilteredDistance = MAX_VALID_DISTANCE;
 
     return (int)lastFilteredDistance;
 }
