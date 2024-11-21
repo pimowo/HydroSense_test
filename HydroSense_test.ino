@@ -219,10 +219,11 @@ struct Timers {
 static Timers timers;
 
 // Funkcja do resetowania do ustawień fabrycznych
-void factoryReset() {
+void factoryReset() {    
+    resetWiFiSettings();  // Kasowanie ustawień WiFiManager
     setDefaultConfig();  // Wczytaj domyślne ustawienia
-    saveConfig();       // Zapisz je do EEPROM
-    ESP.restart();      // Zrestartuj ESP
+    saveConfig();  // Zapisz je do EEPROM
+    ESP.restart();  // Zrestartuj ESP
 }
 
 // Funkcja do restartu ESP
@@ -528,6 +529,13 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 }
 
 // --- Deklaracje funkcji związanych z siecią
+
+// Funkcja do kasowania ustawień WiFiManager
+void resetWiFiSettings() {
+    WiFiManager wifiManager;
+    wifiManager.resetSettings();
+    DEBUG_PRINT(F("Ustawienia WiFi zostały skasowane"));
+}
 
 // Konfiguracja i zarządzanie połączeniem WiFi
 void setupWiFi() {
