@@ -751,8 +751,8 @@ int measureDistance() {
     int validCount = 0;
 
     // Zakres akceptowalnych pomiarów o margines
-    const int MIN_VALID_DISTANCE = SENSOR_MIN_RANGE;  // 20mm
-    const int MAX_VALID_DISTANCE = SENSOR_MAX_RANGE;  // 1020mm
+    const int MIN_VALID_DISTANCE = SENSOR_MIN_RANGE;
+    const int MAX_VALID_DISTANCE = SENSOR_MAX_RANGE;
 
     for (int i = 0; i < SENSOR_AVG_SAMPLES; i++) {
         measurements[i] = -1; // Domyślna wartość błędu
@@ -860,9 +860,9 @@ int measureDistance() {
     
     lastFilteredDistance = (EMA_ALPHA * medianValue) + ((1 - EMA_ALPHA) * lastFilteredDistance);
 
-    // Końcowe ograniczenie do rzeczywistego zakresu zbiornika
-    if (lastFilteredDistance < config.tank_full) lastFilteredDistance = config.tank_full;
-    if (lastFilteredDistance > config.tank_empty) lastFilteredDistance = config.tank_empty;
+    // Końcowe ograniczenie do ustawionego zakresu czujnika
+    if (lastFilteredDistance < MIN_VALID_DISTANCE) lastFilteredDistance = MIN_VALID_DISTANCE;  // 20mm
+    if (lastFilteredDistance > MAX_VALID_DISTANCE) lastFilteredDistance = MAX_VALID_DISTANCE;  // 1020mm
 
     return (int)lastFilteredDistance;
 }
