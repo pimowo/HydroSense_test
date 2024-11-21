@@ -550,7 +550,7 @@ void setupWiFi() {
  * @return bool - true jeśli połączenie zostało nawiązane, false w przypadku błędu
  */
 bool connectMQTT() {   
-    if (!mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+    if (!mqtt.begin(config.mqtt_server, 1883, config.mqtt_user, config.mqtt_password)) {
         DEBUG_PRINT("\nBŁĄD POŁĄCZENIA MQTT!");
         return false;
     }
@@ -1523,7 +1523,7 @@ void loop() {
         (currentMillis - timers.lastMQTTRetry >= MQTT_RETRY_INTERVAL)) {
         timers.lastMQTTRetry = currentMillis;  // Aktualizacja znacznika czasu ostatniej próby połączenia MQTT
         DEBUG_PRINT(F("Brak połączenia MQTT - próba połączenia..."));  // Wydrukuj komunikat debugowania
-        if (mqtt.begin(MQTT_SERVER, 1883, MQTT_USER, MQTT_PASSWORD)) {
+        if (!mqtt.begin(config.mqtt_server, 1883, config.mqtt_user, config.mqtt_password)) {
             DEBUG_PRINT(F("MQTT połączono ponownie!"));  // Wydrukuj komunikat debugowania
         }
     }
