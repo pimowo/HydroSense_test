@@ -101,8 +101,7 @@ struct Config {
     char checksum;       // XOR wszystkich poprzednich pól
 };
 
-// Globalna instancja struktury konfiguracyjnej
-Config config;
+Config config;  // Globalna instancja struktury konfiguracyjnej
 
 const uint8_t CONFIG_VERSION = 2;  // Wersja konfiguracji
 const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
@@ -166,8 +165,7 @@ struct ButtonState {
     unsigned long releasedTime = 0;  // Czas puszczenia przycisku
 };
 
-// Instancja struktury ButtonState
-ButtonState buttonState;
+ButtonState buttonState;  // Instancja struktury ButtonState
 
 // Struktura do przechowywania różnych znaczników czasowych
 struct Timers {
@@ -180,8 +178,7 @@ struct Timers {
     Timers() : lastMQTTRetry(0), lastMeasurement(0), lastOTACheck(0), lastMQTTLoop(0) {}
 };
 
-// Instancja struktury Timers
-static Timers timers;
+static Timers timers;  // Instancja struktury Timers
 
 // Funkcja do resetowania do ustawień fabrycznych
 void factoryReset() {    
