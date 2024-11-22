@@ -13,7 +13,7 @@
 ESP8266WebServer server(80);
 
 // Wersja systemu
-const char* SOFTWARE_VERSION = "21.11.24";
+const char* SOFTWARE_VERSION = "22.11.24";
 
 // Konfiguracja MQTT
 // const char* MQTT_SERVER = "192.168.1.14";  // Adres IP serwera MQTT (Home Assistant)
@@ -1172,7 +1172,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {
             fetch('/reboot', {method: 'POST'}).then(() => {
                 alert('Urządzenie zostanie zrestartowane...');
-                setTimeout(() => { window.location.reload(); }, 4000);
+                setTimeout(() => { window.location.reload(); }, 3000);
             });
         }
     }
@@ -1180,7 +1180,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         if(confirmReset()) {
             fetch('/factory-reset', {method: 'POST'}).then(() => {
                 alert('Przywracanie ustawień fabrycznych...');
-                setTimeout(() => { window.location.reload(); }, 4000);
+                setTimeout(() => { window.location.reload(); }, 3000);
             });
         }
     }
