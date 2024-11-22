@@ -119,6 +119,7 @@ HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
 HASensor sensorDistance("water_level");  // Odległość od lustra wody (w mm)
 HASensor sensorLevel("water_level_percent");  // Poziom wody w zbiorniku (w procentach)
 HASensor sensorVolume("water_volume");  // Objętość wody (w litrach)
+HASensor sensorPumpWorkTime("pump_work_time");  // Czas pracy pompy
 
 // Sensory statusu
 HASensor sensorPump("pump");  // Praca pompy (ON/OFF)
@@ -406,7 +407,109 @@ void updateAlarmStates(float currentDistance) {
 // --- Deklaracje funkcji pompy
 
 // Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
+// void updatePump() {
+//     // Zabezpieczenie przed przepełnieniem licznika millis()
+//     if (millis() < status.pumpStartTime) {
+//         status.pumpStartTime = millis();
+//     }
+    
+//     if (millis() < status.pumpDelayStartTime) {
+//         status.pumpDelayStartTime = millis();
+//     }
+    
+//     // Odczyt stanu czujnika poziomu wody
+//     // LOW = brak wody - należy uzupełnić
+//     // HIGH = woda obecna - stan normalny
+//     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
+//     sensorWater.setValue(waterPresent ? "ON" : "OFF");
+    
+//     // --- ZABEZPIECZENIE 1: Tryb serwisowy ---
+//     if (status.isServiceMode) {
+//         if (status.isPumpActive) {
+//             digitalWrite(POMPA_PIN, LOW);
+//             status.isPumpActive = false;
+//             status.pumpStartTime = 0;
+//             sensorPump.setValue("OFF");
+//         }
+//         return;
+//     }
+
+//     // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
+//     if (status.isPumpActive && (millis() - status.pumpStartTime > config.pump_work_time * 1000)) {
+//         digitalWrite(POMPA_PIN, LOW);
+//         status.isPumpActive = false;
+//         status.pumpStartTime = 0;
+//         sensorPump.setValue("OFF");
+//         status.pumpSafetyLock = true;
+//         switchPumpAlarm.setState(true);
+//         Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
+//         return;
+//     }
+    
+//     // --- ZABEZPIECZENIE 3: Blokady bezpieczeństwa ---
+//     if (status.pumpSafetyLock || status.waterAlarmActive) {
+//         if (status.isPumpActive) {
+//             digitalWrite(POMPA_PIN, LOW);
+//             status.isPumpActive = false;
+//             status.pumpStartTime = 0;
+//             sensorPump.setValue("OFF");
+//         }
+//         return;
+//     }
+    
+//     // Kontrola poziomu wody w zbiorniku
+//     float currentDistance = measureDistance();
+//     if (status.isPumpActive && currentDistance >= config.tank_empty) {
+//         digitalWrite(POMPA_PIN, LOW);
+//         status.isPumpActive = false;
+//         status.pumpStartTime = 0;
+//         status.isPumpDelayActive = false;
+//         sensorPump.setValue("OFF");
+//         switchPumpAlarm.setState(true);  // Włącz alarm pompy
+//         DEBUG_PRINT(F("ALARM: Zatrzymano pompę - brak wody w zbiorniku!"));
+//         return;
+//     }
+
+//     // --- ZABEZPIECZENIE 4: Ochrona przed przepełnieniem ---
+//     if (!waterPresent && status.isPumpActive) {
+//         digitalWrite(POMPA_PIN, LOW);
+//         status.isPumpActive = false;
+//         status.pumpStartTime = 0;
+//         status.isPumpDelayActive = false;
+//         sensorPump.setValue("OFF");
+//         return;
+//     }
+    
+//     // --- LOGIKA WŁĄCZANIA POMPY ---
+//     if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
+//         status.isPumpDelayActive = true;
+//         status.pumpDelayStartTime = millis();
+//         return;
+//     }
+    
+//     // Po upływie opóźnienia, włącz pompę
+//     if (status.isPumpDelayActive && !status.isPumpActive) {
+//         if (millis() - status.pumpDelayStartTime >= (config.pump_delay * 1000)) {
+//             digitalWrite(POMPA_PIN, HIGH);
+//             status.isPumpActive = true;
+//             status.pumpStartTime = millis();
+//             status.isPumpDelayActive = false;
+//             sensorPump.setValue("ON");
+//         }
+//     }
+// }
+
 void updatePump() {
+    // Funkcja pomocnicza do wysłania całkowitego czasu pracy
+    auto sendPumpWorkTime = [&]() {
+        if (status.pumpStartTime > 0) {
+            unsigned long totalWorkTime = (millis() - status.pumpStartTime) / 1000; // Konwersja na sekundy
+            char timeStr[16];
+            itoa(totalWorkTime, timeStr, 10);  // Konwersja liczby na string
+            sensorPumpWorkTime.setValue(timeStr);  // Wysyłamy całkowity czas do HA
+        }
+    };
+
     // Zabezpieczenie przed przepełnieniem licznika millis()
     if (millis() < status.pumpStartTime) {
         status.pumpStartTime = millis();
@@ -427,6 +530,7 @@ void updatePump() {
         if (status.isPumpActive) {
             digitalWrite(POMPA_PIN, LOW);
             status.isPumpActive = false;
+            sendPumpWorkTime();  // Wyślij czas przy wyłączeniu
             status.pumpStartTime = 0;
             sensorPump.setValue("OFF");
         }
@@ -437,6 +541,7 @@ void updatePump() {
     if (status.isPumpActive && (millis() - status.pumpStartTime > config.pump_work_time * 1000)) {
         digitalWrite(POMPA_PIN, LOW);
         status.isPumpActive = false;
+        sendPumpWorkTime();  // Wyślij czas przy wyłączeniu
         status.pumpStartTime = 0;
         sensorPump.setValue("OFF");
         status.pumpSafetyLock = true;
@@ -450,6 +555,7 @@ void updatePump() {
         if (status.isPumpActive) {
             digitalWrite(POMPA_PIN, LOW);
             status.isPumpActive = false;
+            sendPumpWorkTime();  // Wyślij czas przy wyłączeniu
             status.pumpStartTime = 0;
             sensorPump.setValue("OFF");
         }
@@ -461,6 +567,7 @@ void updatePump() {
     if (status.isPumpActive && currentDistance >= config.tank_empty) {
         digitalWrite(POMPA_PIN, LOW);
         status.isPumpActive = false;
+        sendPumpWorkTime();  // Wyślij czas przy wyłączeniu
         status.pumpStartTime = 0;
         status.isPumpDelayActive = false;
         sensorPump.setValue("OFF");
@@ -473,6 +580,7 @@ void updatePump() {
     if (!waterPresent && status.isPumpActive) {
         digitalWrite(POMPA_PIN, LOW);
         status.isPumpActive = false;
+        sendPumpWorkTime();  // Wyślij czas przy wyłączeniu
         status.pumpStartTime = 0;
         status.isPumpDelayActive = false;
         sensorPump.setValue("OFF");
@@ -601,6 +709,10 @@ void setupHA() {
     sensorVolume.setName("Objętość wody");
     sensorVolume.setIcon("mdi:cup-water");     
     sensorVolume.setUnitOfMeasurement("L");    
+
+    sensorPumpWorkTime.setName("Czas pracy pompy");
+    sensorPumpWorkTime.setIcon("mdi:timer-outline");     
+    sensorPumpWorkTime.setUnitOfMeasurement("s");
     
     // Konfiguracja sensorów statusu w HA
     sensorPump.setName("Status pompy");
@@ -679,6 +791,9 @@ void firstUpdateHA() {
     sensorAlarm.setValue(status.waterAlarmActive ? "ON" : "OFF");
     sensorReserve.setValue(status.waterReserveActive ? "ON" : "OFF");
     switchSound.setState(status.soundEnabled);  // Dodane - ustaw aktualny stan dźwięku
+    mqtt.loop();
+
+    sensorPumpWorkTime.setValue("0");
     mqtt.loop();
 }
 
