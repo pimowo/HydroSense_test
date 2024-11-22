@@ -3,11 +3,13 @@
 #include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
 #include <ArduinoHA.h>  // Biblioteka do integracji z Home Assistant przez protokół MQTT
 #include <ArduinoOTA.h>  // Biblioteka do aktualizacji oprogramowania przez sieć WiFi
+//#include <Update.h>  // Biblioteka do obsługi aktualizacji OTA
 #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
 #include <EEPROM.h>  // Biblioteka do dostępu do pamięci nieulotnej EEPROM
 #include <WiFiManager.h>  // Biblioteka do zarządzania połączeniami WiFi
 #include <ESP8266WebServer.h>  // Biblioteka do obsługi serwera HTTP na ESP8266
 #include <WebSocketsServer.h>  // Biblioteka do obsługi serwera WebSockets na ESP8266
+#include <ESP8266HTTPUpdateServer.h>
 
 // --- Definicje stałych i zmiennych globalnych
 
@@ -1508,7 +1510,8 @@ void handleDoUpdate() {
     
     if(upload.status == UPLOAD_FILE_START) {
         Serial.printf("Update: %s\n", upload.filename.c_str());
-        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+        //if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+        if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) {  
             Update.printError(Serial);
         }
     } 
@@ -1614,7 +1617,7 @@ void setup() {
 
     // Powitanie
     if (status.soundEnabled) {  // Gdy jest włączony dzwięk
-        welcomeMelody();  //  to odegraj muzyczkę, że program poprawnie wystartował
+        //welcomeMelody();  //  to odegraj muzyczkę, że program poprawnie wystartował
     }  
         
     // Ustawienia fabryczne    
