@@ -7,10 +7,12 @@
 #include <EEPROM.h>  // Biblioteka do dostępu do pamięci nieulotnej EEPROM
 #include <WiFiManager.h>  // Biblioteka do zarządzania połączeniami WiFi
 #include <ESP8266WebServer.h>
+#include <WebSocketsServer.h>
 
 // --- Definicje stałych i zmiennych globalnych
 
 ESP8266WebServer server(80);
+WebSocketsServer webSocket = WebSocketsServer(81);
 
 // Wersja systemu
 const char* SOFTWARE_VERSION = "22.11.24";
@@ -27,19 +29,19 @@ const int PRZYCISK_PIN = D3;  // Pin przycisku do kasowania alarmów
 // Stałe czasowe (wszystkie wartości w milisekundach)
 const unsigned long ULTRASONIC_TIMEOUT = 50;  // Timeout pomiaru czujnika ultradźwiękowego
 const unsigned long MEASUREMENT_INTERVAL = 60000;  // Interwał między pomiarami
-const unsigned long WIFI_CHECK_INTERVAL = 5000;  // Interwał sprawdzania połączenia WiFi
+//const unsigned long WIFI_CHECK_INTERVAL = 5000;  // Interwał sprawdzania połączenia WiFi
 const unsigned long WATCHDOG_TIMEOUT = 8000;  // Timeout dla watchdoga
-const unsigned long SENSOR_READ_INTERVAL = 5000;  // Częstotliwość odczytu czujnika
-const unsigned long WIFI_RETRY_INTERVAL = 10000;  // Interwał prób połączenia WiFi
-const unsigned long BUTTON_DEBOUNCE_TIME = 50;  // Czas debouncingu przycisku
+//const unsigned long SENSOR_READ_INTERVAL = 5000;  // Częstotliwość odczytu czujnika
+//const unsigned long WIFI_RETRY_INTERVAL = 10000;  // Interwał prób połączenia WiFi
+//const unsigned long BUTTON_DEBOUNCE_TIME = 50;  // Czas debouncingu przycisku
 const unsigned long LONG_PRESS_TIME = 1000;  // Czas długiego naciśnięcia przycisku
-const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnałami dźwiękowymi
+//const unsigned long SOUND_ALERT_INTERVAL = 60000;  // Interwał między sygnałami dźwiękowymi
 const unsigned long MQTT_LOOP_INTERVAL = 100;  // Obsługa MQTT co 100ms
 const unsigned long OTA_CHECK_INTERVAL = 1000;  // Sprawdzanie OTA co 1s
 const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Próba połączenia MQTT co 10s
 
 // Konfiguracja EEPROM
-#define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
+//#define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
 // Definicja debugowania
 #define DEBUG 0  // 0 wyłącza debug, 1 włącza debug
@@ -63,9 +65,9 @@ const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
 
 // Zmienne globalne
 float lastFilteredDistance = 0;  // Dla filtra EMA (Exponential Moving Average)
-float aktualnaOdleglosc = 0;  // Aktualny dystans
+//float aktualnaOdleglosc = 0;  // Aktualny dystans
 float lastReportedDistance = 0;
-unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
+//unsigned long ostatniCzasDebounce = 0;  // Ostatni czas zmiany stanu przycisku
 unsigned long lastMeasurement = 0;
 const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dni
 
@@ -166,14 +168,6 @@ struct ButtonState {
 
 // Instancja struktury ButtonState
 ButtonState buttonState;
-
-// Struktura dla dźwięków alarmowych
-// struct AlarmTone {
-//     uint8_t repeats;  // Liczba powtórzeń
-//     uint16_t frequency;  // Częstotliwość dźwięku
-//     uint16_t duration;  // Czas trwania
-//     uint16_t pauseDuration;  // Przerwa między powtórzeniami
-// };
 
 // Struktura do przechowywania różnych znaczników czasowych
 struct Timers {
@@ -406,99 +400,6 @@ void updateAlarmStates(float currentDistance) {
 
 // --- Deklaracje funkcji pompy
 
-// Kontrola pompy - funkcja zarządzająca pracą pompy i jej zabezpieczeniami
-// void updatePump() {
-//     // Zabezpieczenie przed przepełnieniem licznika millis()
-//     if (millis() < status.pumpStartTime) {
-//         status.pumpStartTime = millis();
-//     }
-    
-//     if (millis() < status.pumpDelayStartTime) {
-//         status.pumpDelayStartTime = millis();
-//     }
-    
-//     // Odczyt stanu czujnika poziomu wody
-//     // LOW = brak wody - należy uzupełnić
-//     // HIGH = woda obecna - stan normalny
-//     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
-//     sensorWater.setValue(waterPresent ? "ON" : "OFF");
-    
-//     // --- ZABEZPIECZENIE 1: Tryb serwisowy ---
-//     if (status.isServiceMode) {
-//         if (status.isPumpActive) {
-//             digitalWrite(POMPA_PIN, LOW);
-//             status.isPumpActive = false;
-//             status.pumpStartTime = 0;
-//             sensorPump.setValue("OFF");
-//         }
-//         return;
-//     }
-
-//     // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
-//     if (status.isPumpActive && (millis() - status.pumpStartTime > config.pump_work_time * 1000)) {
-//         digitalWrite(POMPA_PIN, LOW);
-//         status.isPumpActive = false;
-//         status.pumpStartTime = 0;
-//         sensorPump.setValue("OFF");
-//         status.pumpSafetyLock = true;
-//         switchPumpAlarm.setState(true);
-//         Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
-//         return;
-//     }
-    
-//     // --- ZABEZPIECZENIE 3: Blokady bezpieczeństwa ---
-//     if (status.pumpSafetyLock || status.waterAlarmActive) {
-//         if (status.isPumpActive) {
-//             digitalWrite(POMPA_PIN, LOW);
-//             status.isPumpActive = false;
-//             status.pumpStartTime = 0;
-//             sensorPump.setValue("OFF");
-//         }
-//         return;
-//     }
-    
-//     // Kontrola poziomu wody w zbiorniku
-//     float currentDistance = measureDistance();
-//     if (status.isPumpActive && currentDistance >= config.tank_empty) {
-//         digitalWrite(POMPA_PIN, LOW);
-//         status.isPumpActive = false;
-//         status.pumpStartTime = 0;
-//         status.isPumpDelayActive = false;
-//         sensorPump.setValue("OFF");
-//         switchPumpAlarm.setState(true);  // Włącz alarm pompy
-//         DEBUG_PRINT(F("ALARM: Zatrzymano pompę - brak wody w zbiorniku!"));
-//         return;
-//     }
-
-//     // --- ZABEZPIECZENIE 4: Ochrona przed przepełnieniem ---
-//     if (!waterPresent && status.isPumpActive) {
-//         digitalWrite(POMPA_PIN, LOW);
-//         status.isPumpActive = false;
-//         status.pumpStartTime = 0;
-//         status.isPumpDelayActive = false;
-//         sensorPump.setValue("OFF");
-//         return;
-//     }
-    
-//     // --- LOGIKA WŁĄCZANIA POMPY ---
-//     if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
-//         status.isPumpDelayActive = true;
-//         status.pumpDelayStartTime = millis();
-//         return;
-//     }
-    
-//     // Po upływie opóźnienia, włącz pompę
-//     if (status.isPumpDelayActive && !status.isPumpActive) {
-//         if (millis() - status.pumpDelayStartTime >= (config.pump_delay * 1000)) {
-//             digitalWrite(POMPA_PIN, HIGH);
-//             status.isPumpActive = true;
-//             status.pumpStartTime = millis();
-//             status.isPumpDelayActive = false;
-//             sensorPump.setValue("ON");
-//         }
-//     }
-// }
-
 void updatePump() {
     // Funkcja pomocnicza do wysłania całkowitego czasu pracy
     auto sendPumpWorkTime = [&]() {
@@ -645,18 +546,14 @@ void resetWiFiSettings() {
 // Konfiguracja i zarządzanie połączeniem WiFi
 void setupWiFi() {
     WiFiManager wifiManager;
-    
-    // Konfiguracja AP
-    // Nazwa AP: "HydroSense-Setup"
-    // Hasło do AP: "hydrosense"
-    
+       
     wifiManager.setAPCallback([](WiFiManager *myWiFiManager) {
         DEBUG_PRINT("Tryb punktu dostępowego");
         DEBUG_PRINT("SSID: HydroSense");
         DEBUG_PRINT("IP: 192.168.4.1");
-        if (status.soundEnabled) {
-            tone(BUZZER_PIN, 1000, 1000); // Sygnał dźwiękowy informujący o trybie AP
-        }
+        // if (status.soundEnabled) {
+        //     tone(BUZZER_PIN, 1000, 1000); // Sygnał dźwiękowy informujący o trybie AP
+        // }
     });
     
     wifiManager.setConfigPortalTimeout(180); // 3 minuty na konfigurację
@@ -1453,7 +1350,7 @@ String getConfigPage() {
 
     // Sekcja przycisków
     String buttons = F("<div class='section'>"
-                      "<button class='btn btn-blue' onclick='rebootDevice()'>Reboot</button>"
+                      "<button class='btn btn-blue' onclick='()'>Reboot</button>"
                       "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
                       "</div>");
     html.replace("%BUTTONS%", buttons);
@@ -1481,17 +1378,68 @@ String getConfigPage() {
 }
 
 void handleRoot() {
-    server.send(200, "text/html", getConfigPage());
+    String content = getConfigPage();
+
+    // Formularz aktualizacji
+    content += "<br><hr><br>";
+    content += "<h2>Aktualizacja firmware</h2>";
+    content += "<form id='updateForm' method='POST' action='/update' enctype='multipart/form-data'>";
+    content += "<input type='file' name='update'>";
+    content += "<input type='submit' value='Aktualizuj'>";
+    content += "</form>";
+    content += "<div id='progressWrapper' style='display:none;'>";
+    content += "<progress id='progressBar' value='0' max='100'></progress>";
+    content += "<span id='progressText'>0%</span>";
+    content += "</div>";
+    content += "<script>";
+    content += "document.getElementById('updateForm').onsubmit = function(event) {";
+    content += "event.preventDefault();";
+    content += "var form = event.target;";
+    content += "var formData = new FormData(form);";
+    content += "var xhr = new XMLHttpRequest();";
+    content += "xhr.open('POST', form.action, true);";
+    content += "xhr.upload.onprogress = function(event) {";
+    content += "var percent = Math.round((event.loaded / event.total) * 100);";
+    content += "document.getElementById('progressWrapper').style.display = 'block';";
+    content += "document.getElementById('progressBar').value = percent;";
+    content += "document.getElementById('progressText').innerText = percent + '%';";
+    content += "};";
+    content += "xhr.onload = function() {";
+    content += "if (xhr.status == 200) {";
+    content += "alert('Aktualizacja zakończona');";
+    content += "} else {";
+    content += "alert('Aktualizacja nie powiodła się');";
+    content += "}";
+    content += "document.getElementById('progressWrapper').style.display = 'none';";
+    content += "form.reset();";
+    content += "};";
+    content += "xhr.send(formData);";
+    content += "};";
+    content += "</script>";
+
+    // Konsolę
+    content += "<br><hr><br>";
+    content += "<h2>Konsola</h2>";
+    content += "<div id='console' style='height: 300px; overflow-y: scroll; background: #f0f0f0; border: 1px solid #ccc; padding: 10px;'></div>";
+    content += "<script>";
+    content += "var socket = new WebSocket('ws://' + window.location.hostname + ':81/');";
+    content += "socket.onmessage = function(event) {";
+    content += "var consoleDiv = document.getElementById('console');";
+    content += "consoleDiv.innerHTML += event.data + '<br>';";
+    content += "consoleDiv.scrollTop = consoleDiv.scrollHeight;";
+    content += "};";
+    content += "</script>";
+
+    server.send(200, "text/html", content);
 }
 
-// Dodaj tę funkcję przed handleSave()
+// Sprawdź sensowność wartości
 bool validateConfigValues() {
-    // Sprawdź sensowność wartości
-    if (server.arg("tank_full").toInt() >= server.arg("tank_empty").toInt() ||
-        server.arg("reserve_level").toInt() >= server.arg("tank_empty").toInt() ||
-        server.arg("tank_diameter").toInt() <= 0 ||
-        server.arg("pump_delay").toInt() < 0 ||
-        server.arg("pump_work_time").toInt() <= 0) {
+    if (server.arg("tank_full").toInt() >= server.arg("tank_empty").toInt() ||  // Sprawdź, czy poziom pełnego zbiornika jest większy lub równy poziomowi pustego zbiornika
+        server.arg("reserve_level").toInt() >= server.arg("tank_empty").toInt() ||  // Sprawdź, czy poziom rezerwy jest większy lub równy poziomowi pustego zbiornika
+        server.arg("tank_diameter").toInt() <= 0 ||  // Sprawdź, czy średnica zbiornika jest większa od 0
+        server.arg("pump_delay").toInt() < 0 ||  // Sprawdź, czy opóźnienie pompy jest większe lub równe 0
+        server.arg("pump_work_time").toInt() <= 0) {  // Sprawdź, czy czas pracy pompy jest większy od 0
         return false;
     }
     return true;
@@ -1558,8 +1506,46 @@ void handleSave() {
     server.send(303);
 }
 
+void handleDoUpdate() {
+    HTTPUpload& upload = server.upload();
+    
+    if(upload.status == UPLOAD_FILE_START) {
+        Serial.printf("Update: %s\n", upload.filename.c_str());
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+            Update.printError(Serial);
+        }
+    } 
+    else if(upload.status == UPLOAD_FILE_WRITE) {
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            Update.printError(Serial);
+        }
+    } 
+    else if(upload.status == UPLOAD_FILE_END) {
+        if (Update.end(true)) {
+            Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+        } else {
+            Update.printError(Serial);
+        }
+    }
+}
+
+void handleUpdateResult() {
+    if (Update.hasError()) {
+        server.send(200, "text/html", 
+            "<h1>Aktualizacja nie powiodła się</h1>"
+            "<a href='/'>Powrót</a>");
+    } else {
+        server.send(200, "text/html", 
+            "<h1>Aktualizacja zakończona powodzeniem</h1>"
+            "Urządzenie zostanie zrestartowane...");
+        delay(1000);
+        ESP.restart();
+    }
+}
+
 void setupWebServer() {
     server.on("/", handleRoot);
+    server.on("/update", HTTP_POST, handleUpdateResult, handleDoUpdate);
     server.on("/save", handleSave);
     
     server.on("/reboot", HTTP_POST, []() {
@@ -1567,14 +1553,6 @@ void setupWebServer() {
         delay(1000);
         ESP.restart();
     });
-    
-    // server.on("/factory-reset", HTTP_POST, []() {
-    //     server.send(200, "text/plain", "Resetting to factory defaults...");
-    //     delay(1000);
-    //     setDefaultConfig();
-    //     saveConfig();
-    //     ESP.restart();
-    // });
 
     // Obsługa resetu przez WWW
     server.on("/factory-reset", HTTP_POST, []() {
@@ -1584,6 +1562,17 @@ void setupWebServer() {
     });
     
     server.begin();
+}
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    if(type == WStype_TEXT) {
+        Serial.printf("[%u] Text: %s\n", num, payload);
+    }
+}
+
+void sendSerialMessage(String message) {
+    Serial.println(message);
+    webSocket.broadcastTXT(message);
 }
 
 // --- SETUP ---
@@ -1602,6 +1591,8 @@ void setup() {
     setupPin();  // Ustawienia GPIO
     setupWiFi();  // Nawiązanie połączenia WiFi
     setupWebServer();  // Serwer www
+    webSocket.begin();
+    webSocket.onEvent(webSocketEvent);
 
     // Próba połączenia MQTT
     DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
@@ -1654,6 +1645,7 @@ void loop() {
     handleButton();  // Obsługa naciśnięcia przycisku
     checkAlarmConditions();  // Sprawdzenie warunków alarmowych
     server.handleClient();  // Obsługa serwera WWW
+    webSocket.loop();
 
     // POMIARY I AKTUALIZACJE
     if (currentMillis - timers.lastMeasurement >= MEASUREMENT_INTERVAL) {
