@@ -6,16 +6,16 @@
 #include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
 #include <EEPROM.h>  // Biblioteka do dostępu do pamięci nieulotnej EEPROM
 #include <WiFiManager.h>  // Biblioteka do zarządzania połączeniami WiFi
-#include <ESP8266WebServer.h>
-#include <WebSocketsServer.h>
+#include <ESP8266WebServer.h>  // Biblioteka do obsługi serwera HTTP na ESP8266
+#include <WebSocketsServer.h>  // Biblioteka do obsługi serwera WebSockets na ESP8266
 
 // --- Definicje stałych i zmiennych globalnych
 
-ESP8266WebServer server(80);
-WebSocketsServer webSocket = WebSocketsServer(81);
+ESP8266WebServer server(80);  // Tworzenie instancji serwera HTTP na porcie 80
+WebSocketsServer webSocket = WebSocketsServer(81);  // Tworzenie instancji serwera WebSockets na porcie 81
 
 // Wersja systemu
-const char* SOFTWARE_VERSION = "22.11.24";
+const char* SOFTWARE_VERSION = "22.11.24";  // Definiowanie wersji oprogramowania
 
 // Konfiguracja pinów ESP8266
 const int PIN_ULTRASONIC_TRIG = D6;  // Pin TRIG czujnika ultradźwiękowego
