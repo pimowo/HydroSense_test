@@ -195,10 +195,19 @@ static Timers timers;
 
 // Funkcja do resetowania do ustawień fabrycznych
 void factoryReset() {    
-    resetWiFiSettings();  // Kasowanie ustawień WiFiManager
-    setDefaultConfig();  // Wczytaj domyślne ustawienia
-    saveConfig();  // Zapisz je do EEPROM
-    ESP.restart();  // Zrestartuj ESP
+    WiFi.disconnect(true);  // true = kasuj zapisane ustawienia
+    WiFi.mode(WIFI_OFF);   
+    delay(100);
+    
+    WiFiManager wm;
+    wm.resetSettings();
+    ESP.eraseConfig();
+    
+    setDefaultConfig();
+    saveConfig();
+    
+    delay(100);
+    ESP.reset();
 }
 
 // Funkcja do restartu ESP
@@ -507,9 +516,20 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 
 // Funkcja do kasowania ustawień WiFiManager
 void resetWiFiSettings() {
-    WiFiManager wifiManager;
-    wifiManager.resetSettings();
+    DEBUG_PRINT(F("Rozpoczynam kasowanie ustawień WiFi..."));
+    
+    // Najpierw rozłącz WiFi i wyczyść wszystkie zapisane ustawienia
+    WiFi.disconnect(false, true);  // false = nie wyłączaj WiFi, true = kasuj zapisane ustawienia
+    
+    // Upewnij się, że WiFi jest w trybie stacji
+    WiFi.mode(WIFI_STA);
+    
+    // Reset przez WiFiManager
+    WiFiManager wm;
+    wm.resetSettings();
+    
     DEBUG_PRINT(F("Ustawienia WiFi zostały skasowane"));
+    delay(100);
 }
 
 // Konfiguracja i zarządzanie połączeniem WiFi
@@ -1431,12 +1451,19 @@ void setupWebServer() {
         ESP.restart();
     });
     
+    // server.on("/factory-reset", HTTP_POST, []() {
+    //     server.send(200, "text/plain", "Resetting to factory defaults...");
+    //     delay(1000);
+    //     setDefaultConfig();
+    //     saveConfig();
+    //     ESP.restart();
+    // });
+
+    // Obsługa resetu przez WWW
     server.on("/factory-reset", HTTP_POST, []() {
         server.send(200, "text/plain", "Resetting to factory defaults...");
-        delay(1000);
-        setDefaultConfig();
-        saveConfig();
-        ESP.restart();
+        delay(200);  // Daj czas na wysłanie odpowiedzi
+        factoryReset();  // Wywołaj tę samą funkcję co przy resecie fizycznym
     });
     
     server.begin();
@@ -1484,6 +1511,16 @@ void setup() {
     if (status.soundEnabled) {  // Gdy jest włączony dzwięk
         welcomeMelody();  //  to odegraj muzyczkę, że program poprawnie wystartował
     }  
+        
+    // Ustawienia fabryczne    
+    // Czekaj 2 sekundy na wciśnięcie przycisku
+    unsigned long startTime = millis();
+    while(millis() - startTime < 2000) {
+        if(digitalRead(PRZYCISK_PIN) == LOW) {
+            playConfirmationSound();
+            factoryReset();
+        }
+    }
 }
 
 // --- LOOP ---
