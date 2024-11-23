@@ -1415,11 +1415,11 @@ String getConfigPage() {
     html.replace("%BUTTONS%", buttons);
 
     // Dodaj stopkę - bez użycia F()
-    String footer = F("<div class='container'><div class='section'>"
-                 "<button class='btn btn-blue' onclick=\"window.location.href='https://github.com/pimowo/HydroSense'\">"
-                 "Project by PMW</button>"
-                 "</div></div>");
-    html.replace("</body>", footer + "</body>");
+    // String footer = F("<div class='container'><div class='section'>"
+    //              "<button class='btn btn-blue' onclick=\"window.location.href='https://github.com/pimowo/HydroSense'\">"
+    //              "Project by PMW</button>"
+    //              "</div></div>");
+    // html.replace("</body>", footer + "</body>");
 
     // Ustawienia MQTT
     html.replace("%MQTT_SERVER%", config.mqtt_server);
@@ -1446,44 +1446,37 @@ String getConfigPage() {
 void handleRoot() {
     String content = getConfigPage();
 
-    // Formularz aktualizacji
-    content += "<br><hr><br>";
-    content += "<h2>Aktualizacja firmware</h2>";
-    content += "<form id='updateForm' method='POST' action='/update' enctype='multipart/form-data'>";
-    content += "<input type='file' name='update'>";
-    content += "<input type='submit' value='Aktualizuj'>";
-    content += "</form>";
-    content += "<div id='progressWrapper' style='display:none;'>";
-    content += "<progress id='progressBar' value='0' max='100'></progress>";
-    content += "<span id='progressText'>0%</span>";
-    content += "</div>";
-    content += "<script>";
-    content += "document.getElementById('updateForm').onsubmit = function(event) {";
-    content += "event.preventDefault();";
-    content += "var form = event.target;";
-    content += "var formData = new FormData(form);";
-    content += "var xhr = new XMLHttpRequest();";
-    content += "xhr.open('POST', form.action, true);";
-    content += "xhr.upload.onprogress = function(event) {";
-    content += "var percent = Math.round((event.loaded / event.total) * 100);";
-    content += "document.getElementById('progressWrapper').style.display = 'block';";
-    content += "document.getElementById('progressBar').value = percent;";
-    content += "document.getElementById('progressText').innerText = percent + '%';";
-    content += "};";
-    content += "xhr.onload = function() {";
-    content += "if (xhr.status == 200) {";
-    content += "alert('Aktualizacja zakończona');";
-    content += "} else {";
-    content += "alert('Aktualizacja nie powiodła się');";
-    content += "}";
-    content += "document.getElementById('progressWrapper').style.display = 'none';";
-    content += "form.reset();";
-    content += "};";
-    content += "xhr.send(formData);";
-    content += "};";
-    content += "</script>";
+// Formularz aktualizacji
+content += "<div class='container'>";
+content += "<div class='section'>";
+content += "<h2>Aktualizacja firmware</h2>";
+content += "<form id='updateForm' method='POST' action='/update' enctype='multipart/form-data' style='margin: 20px 0; display: flex; flex-direction: column; gap: 15px;'>";
+content += "<div>";
+content += "<input type='file' name='update' class='form-control'>";
+content += "</div>";
+content += "<div>";
+content += "<input type='submit' value='Aktualizuj' class='btn btn-orange' id='updateButton'>"; // Dodano id
+content += "</div>";
+content += "</form>";
+content += "<div id='progressWrapper' style='display: none; margin-top: 15px;'>";
+content += "<div style='margin-bottom: 5px;'><span id='progressText'>0%</span></div>";
+content += "<progress id='progressBar' value='0' max='100' style='width: 100%; height: 20px;'></progress>";
+content += "</div>";
+content += "</div>";
+content += "</div>";
 
-    // Konsolę
+// Style z wymuszonymi kolorami
+content += "<style>";
+content += "#updateButton.btn-orange, .btn-orange { background-color: #F4511E !important; color: white !important; }";
+content += "#updateButton.btn-orange:hover, .btn-orange:hover { background-color: #E64A19 !important; }";
+content += ".form-control { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }";
+content += "progress { -webkit-appearance: none; appearance: none; }";
+content += "progress::-webkit-progress-bar { background-color: #f0f0f0; border-radius: 4px; }";
+content += "progress::-webkit-progress-value { background-color: #F4511E !important; border-radius: 4px; }";
+content += "progress::-moz-progress-bar { background-color: #F4511E !important; border-radius: 4px; }";
+content += "</style>";
+
+    // Konsola
     content += "<br><hr><br>";
     content += "<h2>Konsola</h2>";
     content += "<div id='console' style='height: 300px; overflow-y: scroll; background: #f0f0f0; border: 1px solid #ccc; padding: 10px;'></div>";
@@ -1496,6 +1489,14 @@ void handleRoot() {
     content += "};";
     content += "</script>";
 
+    // Project by PMW na końcu
+    content += "<div style='padding: 20px; margin: 20px 0; border-top: 1px solid #ccc;'>"; // Usunięto background-color, dodano górną linię
+    content += "<a href='https://github.com/pimowo/HydroSense' target='_blank' ";
+    content += "style='background-color: #4285f4; color: white; padding: 10px 20px; ";
+    content += "border: none; border-radius: 4px; cursor: pointer; text-decoration: none; ";
+    content += "font-family: Arial, sans-serif; display: block; width: 100%; ";
+    content += "text-align: center; box-sizing: border-box; margin-top: 10px;'>Project by PMW</a></div>";
+    
     server.send(200, "text/html", content);
 }
 
