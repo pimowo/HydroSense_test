@@ -1345,8 +1345,12 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             alertDiv.textContent = 'Konfiguracja została zapisana pomyślnie!';
             document.body.insertBefore(alertDiv, document.body.firstChild);
             window.history.replaceState({}, '', window.location.pathname);
+                
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 3000);
         }
-        
+
         socket = new WebSocket('ws://' + window.location.hostname + ':81/');
         socket.onmessage = function(event) {
             var console = document.getElementById('console');
