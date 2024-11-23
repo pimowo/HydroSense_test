@@ -1113,17 +1113,16 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         }
 
         .config-table td:first-child {
-            width: 70%;
+            width: 65%;
         }
 
         .config-table td:last-child {
-            width: 30%;
+            width: 35%;
         }
 
         .config-table input[type="text"],
         .config-table input[type="password"],
-        .config-table input[type="number"],
-        .config-table input[type="file"] {
+        .config-table input[type="number"] {
             width: 100%;
             padding: 8px;
             border: 1px solid #3d3d3d;
@@ -1387,7 +1386,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             <!-- Ustawienia MQTT -->
             <div class="section">
                 <h2>Konfiguracja MQTT</h2>
-                <table>
+                <table class="config-table">
                     <tr>
                         <td>Serwer</td>
                         <td><input type="text" name="mqtt_server" value="%MQTT_SERVER%"></td>
@@ -1410,7 +1409,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             <!-- Ustawienia zbiornika -->
             <div class="section">
                 <h2>Ustawienia zbiornika</h2>
-                <table>
+                <table class="config-table">
                     <tr>
                         <td>Odległość przy pustym [mm]</td>
                         <td><input type="number" name="tank_empty" value="%TANK_EMPTY%"></td>
@@ -1433,7 +1432,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             <!-- Ustawienia pompy -->
             <div class="section">
                 <h2>Ustawienia pompy</h2>
-                <table>
+                <table class="config-table">
                     <tr>
                         <td>Opóźnienie załączenia pompy [s]</td>
                         <td><input type="number" name="pump_delay" value="%PUMP_DELAY%"></td>
@@ -1459,10 +1458,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         </div>
         
         <!-- Stopka -->
-        <div class="footer">
-            <a href="https://github.com/pimowo" target="_blank">Project by pmw</a>
-        </div>
-    </div>
+        %FOOTER%
 </body>
 </html>
 )rawliteral";        
@@ -1470,7 +1466,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
-    // Ustawienia MQTT
+    // Ustawienia MQTT - to działa poprawnie, więc zachowujemy
     html.replace("%MQTT_SERVER%", config.mqtt_server);
     html.replace("%MQTT_PORT%", String(config.mqtt_port));
     html.replace("%MQTT_USER%", config.mqtt_user);
@@ -1480,10 +1476,8 @@ String getConfigPage() {
     bool mqttConnected = client.connected();
     html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
     html.replace("%MQTT_STATUS_CLASS%", mqttConnected ? "success" : "error");
-    
     html.replace("%SOUND_STATUS%", config.soundEnabled ? "Włączony" : "Wyłączony");
     html.replace("%SOUND_STATUS_CLASS%", config.soundEnabled ? "success" : "error");
-    
     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
 
     // Sekcja przycisków
@@ -1498,7 +1492,7 @@ String getConfigPage() {
     // Formularze konfiguracyjne
     String configForms = F("<form method='POST' action='/save'>");
     
-    // MQTT
+    // MQTT - używamy placeholderów, bo to działa
     configForms += F("<div class='section'>"
                      "<h2>Konfiguracja MQTT</h2>"
                      "<table class='config-table'>"
@@ -1508,35 +1502,35 @@ String getConfigPage() {
                      "<tr><td>Hasło</td><td><input type='password' name='mqtt_password' value='%MQTT_PASSWORD%'></td></tr>"
                      "</table></div>");
     
-    // Zbiornik
-    String tankEmpty = String(config.tank_empty);
-    String tankFull = String(config.tank_full);
-    String reserveLevel = String(config.reserve_level);
-    String tankDiameter = String(config.tank_diameter);
-    
+    // Zbiornik - używamy placeholderów tak samo jak dla MQTT
     configForms += F("<div class='section'>"
                      "<h2>Ustawienia zbiornika</h2>"
-                     "<table class='config-table'>");
-    configForms += "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='" + tankEmpty + "'></td></tr>";
-    configForms += "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='" + tankFull + "'></td></tr>";
-    configForms += "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='" + reserveLevel + "'></td></tr>";
-    configForms += "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='" + tankDiameter + "'></td></tr>";
-    configForms += F("</table></div>");
+                     "<table class='config-table'>"
+                     "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='%TANK_EMPTY%'></td></tr>"
+                     "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='%TANK_FULL%'></td></tr>"
+                     "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='%RESERVE_LEVEL%'></td></tr>"
+                     "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='%TANK_DIAMETER%'></td></tr>"
+                     "</table></div>");
     
-    // Pompa
-    String pumpDelay = String(config.pump_delay);
-    String pumpWorkTime = String(config.pump_work_time);
-    
+    // Pompa - używamy placeholderów tak samo jak dla MQTT
     configForms += F("<div class='section'>"
                      "<h2>Ustawienia pompy</h2>"
-                     "<table class='config-table'>");
-    configForms += "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='" + pumpDelay + "'></td></tr>";
-    configForms += "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='" + pumpWorkTime + "'></td></tr>";
-    configForms += F("</table></div>");
+                     "<table class='config-table'>"
+                     "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='%PUMP_DELAY%'></td></tr>"
+                     "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='%PUMP_WORK_TIME%'></td></tr>"
+                     "</table></div>");
     
     configForms += F("<div class='section'>"
                      "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
                      "</div></form>");
+    
+    // Zastępujemy placeholdery wartościami
+    html.replace("%TANK_EMPTY%", String(config.tank_empty));
+    html.replace("%TANK_FULL%", String(config.tank_full));
+    html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
+    html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
+    html.replace("%PUMP_DELAY%", String(config.pump_delay));
+    html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
     
     html.replace("%CONFIG_FORMS%", configForms);
     
