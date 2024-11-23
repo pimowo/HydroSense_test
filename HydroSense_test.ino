@@ -1053,11 +1053,19 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #1a1a1a;
             color: #ffffff;
         }
+
+        .buttons-container {
+            display: flex;
+            justify-content: space-between;
+            margin: -5px; /* Kompensacja marginesów przycisków */
+        }
+
         .container { 
             max-width: 800px; 
             margin: 0 auto; 
             padding: 0 15px;
         }
+
         .section { 
             background-color: #2d2d2d; 
             padding: 20px; 
@@ -1065,6 +1073,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
+
         h1 { 
             color: #ffffff; 
             text-align: center;
@@ -1075,19 +1084,23 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
+
         h2 { 
             color: #2196F3;
             margin-top: 0;
             font-size: 1.5em;
         }
+
         table { 
             width: 100%; 
             border-collapse: collapse;
         }
+
         td { 
             padding: 12px 8px;
             border-bottom: 1px solid #3d3d3d;
         }
+
         input[type="text"], 
         input[type="password"], 
         input[type="number"] { 
@@ -1099,6 +1112,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #1a1a1a;
             color: #ffffff;
         }
+
         input[type="submit"] { 
             background-color: #4CAF50; 
             color: white; 
@@ -1109,6 +1123,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             width: 100%;
             font-size: 16px;
         }
+
         input[type="submit"]:hover { 
             background-color: #45a049; 
         }
@@ -1141,9 +1156,11 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         .success { 
             color: #4CAF50; 
         }
+
         .error { 
             color: #F44336;
         }
+
         .alert { 
             padding: 15px; 
             margin-bottom: 20px; 
@@ -1157,21 +1174,26 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             text-align: center;
             animation: fadeOut 0.5s ease-in-out 5s forwards;
         }
+
         .alert.success { 
             background-color: #4CAF50;
             color: white;
             border: none;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
-        .btn { 
-            padding: 12px 24px; 
-            border: none; 
-            border-radius: 4px; 
-            cursor: pointer; 
-            margin: 5px 0;
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
             font-size: 14px;
-            width: 100%;
+            width: calc(50% - 10px); /* Zmiana z 100% na 50% minus margines */
+            display: inline-block;
+            margin: 5px;
+            text-align: center;
         }
+
         .btn-blue { 
             background-color: #2196F3;
             color: white; 
@@ -1212,14 +1234,20 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         }
 
         .footer a {
-            color: #2196F3;
-            text-decoration: none;
-            font-weight: bold;
+            display: inline-block;
+            background-color: #2196F3;
+            color: white;
+            text-decoration: underline;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-weight: normal;
+            transition: background-color 0.3s;
         }
 
         .footer a:hover {
-            color: #64B5F6;
+            background-color: #1976D2;
         }
+
         @media (max-width: 600px) {
             body {
                 padding: 10px;
@@ -1424,8 +1452,10 @@ String getConfigPage() {
 
     // Sekcja przycisków
     String buttons = F("<div class='section'>"
+                      "<div class='buttons-container'>"
                       "<button class='btn btn-blue' onclick='rebootDevice()'>Restart urządzenia</button>"
                       "<button class='btn btn-red' onclick='factoryReset()'>Przywróć ustawienia fabryczne</button>"
+                      "</div>"
                       "</div>");
     html.replace("%BUTTONS%", buttons);
 
