@@ -1299,20 +1299,24 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             }
         }
 
-        /* Dodatkowe style dla progress bara */
         .progress {
+            width: 100%;
             background-color: #1a1a1a;
+            border: 1px solid #3d3d3d;
             border-radius: 4px;
-            margin-top: 10px;
-            overflow: hidden;
+            padding: 3px;
+            margin-top: 15px;
         }
 
         .progress-bar {
-            background-color: #FF9800;
-            color: white;
+            width: 0%;
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 2px;
+            transition: width 0.3s ease-in-out;
             text-align: center;
-            padding: 5px;
-            transition: width 0.3s ease;
+            color: white;
+            line-height: 20px;
         }
 
     </style>
@@ -1353,9 +1357,28 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 
         socket = new WebSocket('ws://' + window.location.hostname + ':81/');
         socket.onmessage = function(event) {
-            var console = document.getElementById('console');
-            console.innerHTML += event.data + '<br>';
-            console.scrollTop = console.scrollHeight;
+            var message = event.data;
+            
+            // Sprawdź czy to komunikat o postępie aktualizacji
+            if (message.startsWith('update:')) {
+                var percentage = message.split(':')[1];
+                document.getElementById('update-progress').style.display = 'block';
+                document.getElementById('progress-bar').style.width = percentage + '%';
+                document.getElementById('progress-bar').textContent = percentage + '%';
+                
+                // Jeśli aktualizacja zakończona
+                if (percentage == '100') {
+                    setTimeout(() => {
+                        alert('Aktualizacja zakończona! Urządzenie zostanie zrestartowane...');
+                        setTimeout(() => { window.location.reload(); }, 3000);
+                    }, 500);
+                }
+            } else {
+                // Obsługa normalnych komunikatów konsoli
+                var console = document.getElementById('console');
+                console.innerHTML += message + '<br>';
+                console.scrollTop = console.scrollHeight;
+            }
         };
     };
     </script>
