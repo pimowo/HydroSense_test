@@ -1103,16 +1103,17 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 
         .config-table {
             width: 100%;
-            table-layout: fixed; /* Dodane - wymusza stałe szerokości kolumn */
+            table-layout: fixed; /* Wymusza stałe szerokości kolumn */
+            margin: 0; /* Usuwa marginesy tabeli */
         }
 
         .config-table td:first-child {
-            width: 70%; /* Zwiększamy szerokość pierwszej kolumny */
-            padding-right: 15px; /* Dodajemy odstęp między kolumnami */
+            width: 70%;
+            padding-right: 15px;
         }
 
         .config-table td:last-child {
-            width: 30%; /* Druga kolumna z inputami */
+            width: 30%;
         }
 
         input[type="text"],
@@ -1125,8 +1126,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #1a1a1a;
             color: #ffffff;
             box-sizing: border-box;
-            text-align: right;
-            min-width: 150px; /* Dodane - minimalna szerokość */
+            text-align: left; /* Zmienione z right na left */
         }
 
         input[type="submit"] { 
@@ -1264,6 +1264,12 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 
         .footer a:hover {
             background-color: #1976D2;
+        }
+
+        .section {
+            width: 100%;
+            max-width: none;
+            box-sizing: border-box;
         }
 
         @media (max-width: 600px) {
@@ -1497,18 +1503,28 @@ String getConfigPage() {
     configForms += F("<div class='section'>"
                      "<h2>Ustawienia zbiornika</h2>"
                      "<table class='config-table'>");
-    configForms += "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='" + String(config.tank_empty) + "'></td></tr>";
-    configForms += "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='" + String(config.tank_full) + "'></td></tr>";
-    configForms += "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='" + String(config.reserve_level) + "'></td></tr>";
-    configForms += "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='" + String(config.tank_diameter) + "'></td></tr>";
+    // Konwersja wartości na String przed użyciem
+    String tankEmpty = String(config.tank_empty);
+    String tankFull = String(config.tank_full);
+    String reserveLevel = String(config.reserve_level);
+    String tankDiameter = String(config.tank_diameter);
+    
+    configForms += "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='" + tankEmpty + "'></td></tr>";
+    configForms += "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='" + tankFull + "'></td></tr>";
+    configForms += "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='" + reserveLevel + "'></td></tr>";
+    configForms += "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='" + tankDiameter + "'></td></tr>";
     configForms += F("</table></div>");
     
     // Pompa
     configForms += F("<div class='section'>"
                      "<h2>Ustawienia pompy</h2>"
                      "<table class='config-table'>");
-    configForms += "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='" + String(config.pump_delay) + "'></td></tr>";
-    configForms += "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='" + String(config.pump_work_time) + "'></td></tr>";
+    // Konwersja wartości na String przed użyciem
+    String pumpDelay = String(config.pump_delay);
+    String pumpWorkTime = String(config.pump_work_time);
+    
+    configForms += "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='" + pumpDelay + "'></td></tr>";
+    configForms += "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='" + pumpWorkTime + "'></td></tr>";
     configForms += F("</table></div>");
     
     // Przycisk zapisu
@@ -1537,9 +1553,9 @@ String getConfigPage() {
                          "</div>");
     html.replace("%UPDATE_FORM%", updateForm);
     
-    // Stopka
+    // Stopka z nowym linkiem
     String footer = F("<div class='footer'>"
-                     "<a href='https://github.com/pimowo' target='_blank'>Project by PMW</a>"
+                     "<a href='https://github.com/pimowo/HydroSense' target='_blank'>Project by PMW</a>"
                      "</div>");
     html.replace("%FOOTER%", footer);
     
