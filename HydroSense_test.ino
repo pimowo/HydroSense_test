@@ -1158,33 +1158,33 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #FF9800;
             color: white;
         }
-        .progress {
-            width: 100%;
-            background-color: #f0f0f0;
+        .console {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            padding: 15px;
             border-radius: 4px;
+            font-family: monospace;
+            height: 200px;
+            overflow-y: auto;
             margin-top: 10px;
+            border: 1px solid #3d3d3d;
         }
-        .progress-bar {
-            height: 20px;
-            background-color: #4CAF50;
-            border-radius: 4px;
+        .footer {
             text-align: center;
-            line-height: 20px;
-            color: white;
-            transition: width 0.3s ease;
+            padding: 20px 0;
+            color: #757575;
+            font-size: 0.9em;
+        }
+        .footer a {
+            color: #2196F3;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
         }
         @media (max-width: 600px) {
             body {
                 padding: 10px;
-            }
-            .status-table {
-                display: table !important;
-                width: 100%;
-            }
-            .status-table td {
-                display: table-cell !important;
-                width: auto !important;
-                padding: 8px 16px 8px 0 !important;
             }
             .container {
                 padding: 0;
@@ -1192,31 +1192,13 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             .section {
                 padding: 15px;
                 margin-bottom: 15px;
-                background-color: #303030;
             }
-            td {
-                display: block;
-                padding: 8px 0;
+            .console {
+                height: 150px;
             }
-            input[type="text"],
-            input[type="password"],
-            input[type="number"] {
-                max-width: none;
-                width: 100%;
-                box-sizing: border-box;
-                border: 1px solid #424242;
-            }
-            .btn {
-                width: 100%;
-                margin: 5px 0;
-            }
-        }
-        @keyframes fadeOut {
-            from {opacity: 1;}
-            to {opacity: 0; visibility: hidden;}
         }
     </style>
-<script>
+    <script>
     function confirmReset() {
         return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień.');
     }
@@ -1236,6 +1218,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             });
         }
     }
+    var socket;
     window.onload = function() {
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.has('success')) {
@@ -1245,6 +1228,13 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             document.body.insertBefore(alertDiv, document.body.firstChild);
             window.history.replaceState({}, '', window.location.pathname);
         }
+        
+        socket = new WebSocket('ws://' + window.location.hostname + ':81/');
+        socket.onmessage = function(event) {
+            var console = document.getElementById('console');
+            console.innerHTML += event.data + '<br>';
+            console.scrollTop = console.scrollHeight;
+        };
     };
     </script>
     <title>HydroSense</title>
@@ -1274,8 +1264,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         </div>
 
         %BUTTONS%
-
-        <form method="POST" action="/save">
+<form method="POST" action="/save">
             <!-- Ustawienia MQTT -->
             <div class="section">
                 <h2>Konfiguracja MQTT</h2>
@@ -1342,63 +1331,34 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             </div>
         </form>
 
+        %UPDATE_FORM%
+
+        <!-- Sekcja konsoli -->
         <div class="section">
-            <h2>Aktualizacja firmware</h2>
-            %UPDATE_FORM%
+            <h2>Konsola</h2>
+            <div id="console" class="console"></div>
+        </div>
+        
+        <!-- Stopka -->
+        <div class="footer">
+            <a href="https://github.com/pimowo" target="_blank">Project by pmw</a>
         </div>
     </div>
 </body>
 </html>
-)rawliteral"
+)rawliteral";        
 
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
-    // Dodaj skrypt JavaScript do obsługi komunikatu i paska postępu
-    String script = F("<script>"
-                     "window.onload = function() {"
-                     "  const urlParams = new URLSearchParams(window.location.search);"
-                     "  if (urlParams.has('success')) {"
-                     "    const alertDiv = document.createElement('div');"
-                     "    alertDiv.className = 'alert success';"
-                     "    alertDiv.textContent = 'Konfiguracja została zapisana pomyślnie!';"
-                     "    document.body.insertBefore(alertDiv, document.body.firstChild);"
-                     "    window.history.replaceState({}, '', window.location.pathname);"
-                     "  }"
-                     "};"
-                     
-                     // Obsługa formularza aktualizacji
-                     "document.querySelector('form[action=\"/update\"]').onsubmit = function(e) {"
-                     "  document.getElementById('update-progress').style.display = 'block';"
-                     "  document.getElementById('update-submit').disabled = true;"
-                     "  return true;"
-                     "};"
-                     "</script>");
-
-    // Dodaj style CSS dla paska postępu
-    String styles = F("<style>"
-                     ".progress {"
-                     "  width: 100%;"
-                     "  background-color: #f0f0f0;"
-                     "  border-radius: 4px;"
-                     "  margin-top: 10px;"
-                     "}"
-                     ".progress-bar {"
-                     "  height: 20px;"
-                     "  background-color: #4CAF50;"
-                     "  border-radius: 4px;"
-                     "  text-align: center;"
-                     "  line-height: 20px;"
-                     "  color: white;"
-                     "  transition: width 0.3s ease;"
-                     "}"
-                     "</style>");
-    
-    // Dodaj skrypt i style przed zamknięciem </head>
-    html.replace("</head>", styles + script + "</head>");
+    // Ustawienia MQTT
+    html.replace("%MQTT_SERVER%", config.mqtt_server);
+    html.replace("%MQTT_PORT%", String(config.mqtt_port));
+    html.replace("%MQTT_USER%", config.mqtt_user);
+    html.replace("%MQTT_PASSWORD%", config.mqtt_password);
     
     // Status systemu
-    bool mqttConnected = mqtt.isConnected();
+    bool mqttConnected = client.connected();
     html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
     html.replace("%MQTT_STATUS_CLASS%", mqttConnected ? "success" : "error");
     
@@ -1409,17 +1369,11 @@ String getConfigPage() {
 
     // Sekcja przycisków
     String buttons = F("<div class='section'>"
-                      "<button class='btn btn-blue' onclick='rebootDevice()'>Reboot</button>"
-                      "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
+                      "<button class='btn btn-blue' onclick='rebootDevice()'>Restart urządzenia</button>"
+                      "<button class='btn btn-red' onclick='factoryReset()'>Przywróć ustawienia fabryczne</button>"
                       "</div>");
     html.replace("%BUTTONS%", buttons);
 
-    // Ustawienia MQTT
-    html.replace("%MQTT_SERVER%", config.mqtt_server);
-    html.replace("%MQTT_PORT%", String(config.mqtt_port));
-    html.replace("%MQTT_USER%", config.mqtt_user);
-    html.replace("%MQTT_PASSWORD%", config.mqtt_password);
-    
     // Ustawienia zbiornika
     html.replace("%TANK_FULL%", String(config.tank_full));
     html.replace("%TANK_EMPTY%", String(config.tank_empty));
@@ -1430,7 +1384,31 @@ String getConfigPage() {
     html.replace("%PUMP_DELAY%", String(config.pump_delay));
     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
     
-    // Usuń stary placeholder dla wiadomości
+    // Formularz aktualizacji
+    String updateForm = F("<div class='section'>"
+                         "<h2>Aktualizacja firmware</h2>"
+                         "<form method='POST' action='/update' enctype='multipart/form-data'>"
+                         "<table>"
+                         "<tr>"
+                         "<td>Plik .bin:</td>"
+                         "<td><input type='file' name='update' accept='.bin'></td>"
+                         "</tr>"
+                         "<tr>"
+                         "<td colspan='2'>"
+                         "<input type='submit' value='Aktualizuj firmware' class='btn btn-orange'>"
+                         "</td>"
+                         "</tr>"
+                         "</table>"
+                         "</form>"
+                         "<div id='update-progress' style='display:none'>"
+                         "<div class='progress'>"
+                         "<div id='progress-bar' class='progress-bar' role='progressbar' style='width: 0%'>0%</div>"
+                         "</div>"
+                         "</div>"
+                         "</div>");
+    html.replace("%UPDATE_FORM%", updateForm);
+    
+    // Usuń placeholder dla wiadomości
     html.replace("%MESSAGE%", "");
     
     return html;
@@ -1439,56 +1417,56 @@ String getConfigPage() {
 void handleRoot() {
     String content = getConfigPage();
 
-    // Formularz aktualizacji
-    content += "<div class='container'>";
-    content += "<div class='section'>";
-    content += "<h2>Aktualizacja firmware</h2>";
-    content += "<form id='updateForm' method='POST' action='/update' enctype='multipart/form-data' style='margin: 20px 0; display: flex; flex-direction: column; gap: 15px;'>";
-    content += "<div>";
-    content += "<input type='file' name='update' class='form-control'>";
-    content += "</div>";
-    content += "<div>";
-    content += "<input type='submit' value='Aktualizuj' class='btn btn-orange' id='updateButton'>"; // Dodano id
-    content += "</div>";
-    content += "</form>";
-    content += "<div id='progressWrapper' style='display: none; margin-top: 15px;'>";
-    content += "<div style='margin-bottom: 5px;'><span id='progressText'>0%</span></div>";
-    content += "<progress id='progressBar' value='0' max='100' style='width: 100%; height: 20px;'></progress>";
-    content += "</div>";
-    content += "</div>";
-    content += "</div>";
+    // // Formularz aktualizacji
+    // content += "<div class='container'>";
+    // content += "<div class='section'>";
+    // content += "<h2>Aktualizacja firmware</h2>";
+    // content += "<form id='updateForm' method='POST' action='/update' enctype='multipart/form-data' style='margin: 20px 0; display: flex; flex-direction: column; gap: 15px;'>";
+    // content += "<div>";
+    // content += "<input type='file' name='update' class='form-control'>";
+    // content += "</div>";
+    // content += "<div>";
+    // content += "<input type='submit' value='Aktualizuj' class='btn btn-orange' id='updateButton'>"; // Dodano id
+    // content += "</div>";
+    // content += "</form>";
+    // content += "<div id='progressWrapper' style='display: none; margin-top: 15px;'>";
+    // content += "<div style='margin-bottom: 5px;'><span id='progressText'>0%</span></div>";
+    // content += "<progress id='progressBar' value='0' max='100' style='width: 100%; height: 20px;'></progress>";
+    // content += "</div>";
+    // content += "</div>";
+    // content += "</div>";
 
-    // Style z wymuszonymi kolorami
-    content += "<style>";
-    content += "#updateButton.btn-orange, .btn-orange { background-color: #F4511E !important; color: white !important; }";
-    content += "#updateButton.btn-orange:hover, .btn-orange:hover { background-color: #E64A19 !important; }";
-    content += ".form-control { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }";
-    content += "progress { -webkit-appearance: none; appearance: none; }";
-    content += "progress::-webkit-progress-bar { background-color: #f0f0f0; border-radius: 4px; }";
-    content += "progress::-webkit-progress-value { background-color: #F4511E !important; border-radius: 4px; }";
-    content += "progress::-moz-progress-bar { background-color: #F4511E !important; border-radius: 4px; }";
-    content += "</style>";
+    // // Style z wymuszonymi kolorami
+    // content += "<style>";
+    // content += "#updateButton.btn-orange, .btn-orange { background-color: #F4511E !important; color: white !important; }";
+    // content += "#updateButton.btn-orange:hover, .btn-orange:hover { background-color: #E64A19 !important; }";
+    // content += ".form-control { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }";
+    // content += "progress { -webkit-appearance: none; appearance: none; }";
+    // content += "progress::-webkit-progress-bar { background-color: #f0f0f0; border-radius: 4px; }";
+    // content += "progress::-webkit-progress-value { background-color: #F4511E !important; border-radius: 4px; }";
+    // content += "progress::-moz-progress-bar { background-color: #F4511E !important; border-radius: 4px; }";
+    // content += "</style>";
 
-    // Konsola
-    content += "<br><hr><br>";
-    content += "<h2>Konsola</h2>";
-    content += "<div id='console' style='height: 300px; overflow-y: scroll; background: #f0f0f0; border: 1px solid #ccc; padding: 10px;'></div>";
-    content += "<script>";
-    content += "var socket = new WebSocket('ws://' + window.location.hostname + ':81/');";
-    content += "socket.onmessage = function(event) {";
-    content += "var consoleDiv = document.getElementById('console');";
-    content += "consoleDiv.innerHTML += event.data + '<br>';";
-    content += "consoleDiv.scrollTop = consoleDiv.scrollHeight;";
-    content += "};";
-    content += "</script>";
+    // // Konsola
+    // content += "<br><hr><br>";
+    // content += "<h2>Konsola</h2>";
+    // content += "<div id='console' style='height: 300px; overflow-y: scroll; background: #f0f0f0; border: 1px solid #ccc; padding: 10px;'></div>";
+    // content += "<script>";
+    // content += "var socket = new WebSocket('ws://' + window.location.hostname + ':81/');";
+    // content += "socket.onmessage = function(event) {";
+    // content += "var consoleDiv = document.getElementById('console');";
+    // content += "consoleDiv.innerHTML += event.data + '<br>';";
+    // content += "consoleDiv.scrollTop = consoleDiv.scrollHeight;";
+    // content += "};";
+    // content += "</script>";
 
-    // Project by PMW na końcu
-    content += "<div style='padding: 20px; margin: 20px 0; border-top: 1px solid #ccc;'>"; // Usunięto background-color, dodano górną linię
-    content += "<a href='https://github.com/pimowo/HydroSense' target='_blank' ";
-    content += "style='background-color: #4285f4; color: white; padding: 10px 20px; ";
-    content += "border: none; border-radius: 4px; cursor: pointer; text-decoration: none; ";
-    content += "font-family: Arial, sans-serif; display: block; width: 100%; ";
-    content += "text-align: center; box-sizing: border-box; margin-top: 10px;'>Project by PMW</a></div>";
+    // // Project by PMW na końcu
+    // content += "<div style='padding: 20px; margin: 20px 0; border-top: 1px solid #ccc;'>"; // Usunięto background-color, dodano górną linię
+    // content += "<a href='https://github.com/pimowo/HydroSense' target='_blank' ";
+    // content += "style='background-color: #4285f4; color: white; padding: 10px 20px; ";
+    // content += "border: none; border-radius: 4px; cursor: pointer; text-decoration: none; ";
+    // content += "font-family: Arial, sans-serif; display: block; width: 100%; ";
+    // content += "text-align: center; box-sizing: border-box; margin-top: 10px;'>Project by PMW</a></div>";
     
     server.send(200, "text/html", content);
 }
