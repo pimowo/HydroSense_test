@@ -201,6 +201,41 @@ struct Timers {
 
 static Timers timers;  // Instancja struktury Timers
 
+class WebSerial : public Stream {
+private:
+    String buffer;
+    
+public:
+    WebSerial() {}
+    
+    size_t write(uint8_t data) override {
+        if (data == '\n') {
+            if (buffer.length() > 0) {
+                webSocket.broadcastTXT(buffer);
+                buffer = "";
+            }
+        } else {
+            buffer += (char)data;
+        }
+        Serial.write(data); // Wysyłaj również na standardowy port szeregowy
+        return 1;
+    }
+    
+    size_t write(const uint8_t *buffer, size_t size) override {
+        for(size_t i = 0; i < size; i++) {
+            write(buffer[i]);
+        }
+        return size;
+    }
+    
+    int available() override { return Serial.available(); }
+    int read() override { return Serial.read(); }
+    int peek() override { return Serial.peek(); }
+    void flush() override { Serial.flush(); }
+};
+
+WebSerial webSerial;
+
 // Funkcja do resetowania do ustawień fabrycznych
 void factoryReset() {    
     WiFi.disconnect(true);  // true = kasuj zapisane ustawienia
@@ -299,10 +334,10 @@ bool loadConfig() {
     if (calculatedChecksum == tempConfig.checksum) {
         // Jeśli suma kontrolna się zgadza, skopiuj dane do głównej struktury config
         memcpy(&config, &tempConfig, sizeof(Config));
-        Serial.println("Konfiguracja wczytana pomyślnie");
+        webSerial.println("Konfiguracja wczytana pomyślnie");
         return true;
     } else {
-        Serial.println("Błąd sumy kontrolnej - ładowanie ustawień domyślnych");
+        webSerial.println("Błąd sumy kontrolnej - ładowanie ustawień domyślnych");
         setDefaultConfig();
         return false;
     }
@@ -326,9 +361,9 @@ void saveConfig() {
     EEPROM.end();
     
     if (success) {
-        Serial.println("Konfiguracja zapisana pomyślnie");
+        webSerial.println("Konfiguracja zapisana pomyślnie");
     } else {
-        Serial.println("Błąd zapisu konfiguracji!");
+        webSerial.println("Błąd zapisu konfiguracji!");
     }
 }
 
@@ -1064,6 +1099,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 <head>
     <meta charset='UTF-8'>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HydroSense</title>
     <style>
         body { 
             font-family: Arial, sans-serif; 
@@ -1076,7 +1112,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         .buttons-container {
             display: flex;
             justify-content: space-between;
-            margin: -5px; /* Kompensacja marginesów przycisków */
+            margin: -5px;
         }
 
         .container { 
@@ -1111,7 +1147,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             font-size: 1.5em;
         }
 
-        table { 
+table { 
             width: 100%; 
             border-collapse: collapse;
         }
@@ -1161,7 +1197,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #1a1a1a;
             color: #ffffff;
             box-sizing: border-box;
-            text-align: left; /* Zmienione z right na left */
+            text-align: left;
         }
 
         input[type="submit"] { 
@@ -1179,8 +1215,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #45a049; 
         }
 
-        /* Style dla przycisku wyboru pliku */
-        input[type="file"] {
+input[type="file"] {
             background-color: #1a1a1a;
             color: #ffffff;
             padding: 8px;
@@ -1239,7 +1274,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
-            width: calc(50% - 10px); /* Zmiana z 100% na 50% minus margines */
+            width: calc(50% - 10px);
             display: inline-block;
             margin: 5px;
             text-align: center;
@@ -1255,13 +1290,13 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             color: white; 
         }
 
-        .btn-orange {
-            background-color: #FF9800 !important; /* Pomarańczowy z palety Google */
+.btn-orange {
+            background-color: #FF9800 !important;
             color: white !important;
         }
 
         .btn-orange:hover {
-            background-color: #F57C00 !important; /* Ciemniejszy odcień */
+            background-color: #F57C00 !important;
         }
 
         .console {
@@ -1294,8 +1329,8 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             border-radius: 4px;
             font-weight: normal;
             transition: background-color 0.3s;
-            width: 100%; /* Dodane */
-            box-sizing: border-box; /* Dodane */
+            width: 100%;
+            box-sizing: border-box;
         }
 
         .footer a:hover {
@@ -1318,7 +1353,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             }
         }
 
-        .progress {
+.progress {
             width: 100%;
             background-color: #1a1a1a;
             border: 1px solid #3d3d3d;
@@ -1360,118 +1395,110 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #f44336;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
-
     </style>
     <script>
-    function confirmReset() {
-        return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień.');
-    }
-
-    function rebootDevice() {
-        if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {
-            fetch('/reboot', {method: 'POST'}).then(() => {
-                showMessage('Urządzenie zostanie zrestartowane...', 'success');
-                setTimeout(() => { window.location.reload(); }, 3000);
-            });
+        function confirmReset() {
+            return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień.');
         }
-    }
 
-    function factoryReset() {
-        if(confirmReset()) {
-            fetch('/factory-reset', {method: 'POST'}).then(() => {
-                showMessage('Przywracanie ustawień fabrycznych...', 'success');
-                setTimeout(() => { window.location.reload(); }, 3000);
-            });
+<script>
+        function rebootDevice() {
+            if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {
+                fetch('/reboot', {method: 'POST'}).then(() => {
+                    showMessage('Urządzenie zostanie zrestartowane...', 'success');
+                    setTimeout(() => { window.location.reload(); }, 3000);
+                });
+            }
         }
-    }
 
-    // Funkcja do wyświetlania komunikatów
-    function showMessage(text, type) {
-        // Usuń poprzednie komunikaty
-        var oldMessages = document.querySelectorAll('.message');
-        oldMessages.forEach(function(msg) {
-            msg.remove();
-        });
-        
-        var messageBox = document.createElement('div');
-        messageBox.className = 'message ' + type;
-        messageBox.innerHTML = text;
-        document.body.appendChild(messageBox);
-        
-        // Animacja pojawienia się
-        setTimeout(function() {
-            messageBox.style.opacity = '1';
-        }, 10);
-        
-        // Ukryj komunikat po 3 sekundach
-        setTimeout(function() {
-            messageBox.style.opacity = '0';
+        function factoryReset() {
+            if(confirmReset()) {
+                fetch('/factory-reset', {method: 'POST'}).then(() => {
+                    showMessage('Przywracanie ustawień fabrycznych...', 'success');
+                    setTimeout(() => { window.location.reload(); }, 3000);
+                });
+            }
+        }
+
+        function showMessage(text, type) {
+            var oldMessages = document.querySelectorAll('.message');
+            oldMessages.forEach(function(msg) {
+                msg.remove();
+            });
+            
+            var messageBox = document.createElement('div');
+            messageBox.className = 'message ' + type;
+            messageBox.innerHTML = text;
+            document.body.appendChild(messageBox);
+            
             setTimeout(function() {
-                messageBox.remove();
-            }, 300);
-        }, 3000);
-    }
-
-    var socket;
-    window.onload = function() {
-        // Obsługa formularza zapisu
-        document.querySelector('form[action="/save"]').addEventListener('submit', function(e) {
-            e.preventDefault();
+                messageBox.style.opacity = '1';
+            }, 10);
             
-            var formData = new FormData(this);
-            fetch('/save', {
-                method: 'POST',
-                body: formData
-            }).then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-            }).catch(error => {
-                showMessage('Błąd podczas zapisywania!', 'error');
+            setTimeout(function() {
+                messageBox.style.opacity = '0';
+                setTimeout(function() {
+                    messageBox.remove();
+                }, 300);
+            }, 3000);
+        }
+
+        var socket;
+        window.onload = function() {
+                document.querySelector('form[action="/save"]').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                var formData = new FormData(this);
+                fetch('/save', {
+                    method: 'POST',
+                    body: formData
+                }).then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                }).catch(error => {
+                    showMessage('Błąd podczas zapisywania!', 'error');
+                });
             });
-        });
 
-        socket = new WebSocket('ws://' + window.location.hostname + ':81/');
-        socket.onmessage = function(event) {
-            var message = event.data;
-            
-            if (message.startsWith('update:')) {
-                // Sprawdź czy to komunikat o błędzie
-                if (message.startsWith('update:error:')) {
-                    document.getElementById('update-progress').style.display = 'none';
-                    showMessage(message.split(':')[2], 'error');
-                    return;
-                }
+            socket = new WebSocket('ws://' + window.location.hostname + ':81/');
+            socket.onmessage = function(event) {
+                var message = event.data;
                 
-                // Normalna obsługa aktualizacji
-                var percentage = message.split(':')[1];
-                document.getElementById('update-progress').style.display = 'block';
-                document.getElementById('progress-bar').style.width = percentage + '%';
-                document.getElementById('progress-bar').textContent = percentage + '%';
-                
-                if (percentage == '100') {
-                    document.getElementById('update-progress').style.display = 'none';
-                    showMessage('Aktualizacja zakończona pomyślnie! Trwa restart urządzenia...', 'success');
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 3000);
+                if (message.startsWith('update:')) {
+                    if (message.startsWith('update:error:')) {
+                        document.getElementById('update-progress').style.display = 'none';
+                        showMessage(message.split(':')[2], 'error');
+                        return;
+                    }
+                    
+                    var percentage = message.split(':')[1];
+                    document.getElementById('update-progress').style.display = 'block';
+                    document.getElementById('progress-bar').style.width = percentage + '%';
+                    document.getElementById('progress-bar').textContent = percentage + '%';
+                    
+                    if (percentage == '100') {
+                        document.getElementById('update-progress').style.display = 'none';
+                        showMessage('Aktualizacja zakończona pomyślnie! Trwa restart urządzenia...', 'success');
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 3000);
+                    }
+                } 
+                else if (message.startsWith('save:')) {
+                    var parts = message.split(':');
+                    var type = parts[1];
+                    var text = parts[2];
+                    showMessage(text, type);
                 }
-            } 
-            else if (message.startsWith('save:')) {
-                var parts = message.split(':');
-                var type = parts[1];
-                var text = parts[2];
-                showMessage(text, type);
-            }
-            else {
-                var console = document.getElementById('console');
-                console.innerHTML += message + '<br>';
-                console.scrollTop = console.scrollHeight;
-            }
+                else {
+                    var console = document.getElementById('console');
+                    console.innerHTML += message + '<br>';
+                    console.scrollTop = console.scrollHeight;
+                }
+            };
         };
-    };
     </script>
-    <title>HydroSense</title>
 </head>
 <body>
     <h1>HydroSense</h1>
@@ -1872,8 +1899,19 @@ void setupWebServer() {
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-    if(type == WStype_TEXT) {
-        Serial.printf("[%u] Text: %s\n", num, payload);
+    switch(type) {
+        case WStype_DISCONNECTED:
+            Serial.printf("[%u] Rozłączono!\n", num);
+            break;
+        case WStype_CONNECTED:
+            {
+                IPAddress ip = webSocket.remoteIP(num);
+                Serial.printf("[%u] Połączono z %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
+            }
+            break;
+        case WStype_TEXT:
+            // Tutaj możesz dodać obsługę komend przychodzących z przeglądarki
+            break;
     }
 }
 
@@ -1886,11 +1924,11 @@ void sendSerialMessage(String message) {
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
-    DEBUG_PRINT("\nHydroSense start...");  // Komunikat startowy
+    webSerial.println("\nHydroSense start...");  // Komunikat startowy
     
     // Wczytaj konfigurację na początku
     if (!loadConfig()) {
-        Serial.println("Błąd wczytywania konfiguracji - używam ustawień domyślnych");
+        webSerial.println("Błąd wczytywania konfiguracji - używam ustawień domyślnych");
         setDefaultConfig();
         saveConfig();  // Zapisz domyślną konfigurację do EEPROM
     }
@@ -1898,8 +1936,8 @@ void setup() {
     setupPin();  // Ustawienia GPIO
     setupWiFi();  // Nawiązanie połączenia WiFi
     setupWebServer();  // Serwer www
-    webSocket.begin();
     webSocket.onEvent(webSocketEvent);
+    webSocket.begin();
 
     // Próba połączenia MQTT
     DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
@@ -1981,3 +2019,135 @@ void loop() {
         }
     }
 }
+
+// Aby wyświetlać komunikaty Serial w konsoli webowej, należy zmodyfikować kod w następujący sposób:
+
+// Najpierw stwórz własną klasę do obsługi Serial, która będzie przekazywać komunikaty do WebSocket:
+// C++
+// class WebSerial : public Stream {
+// private:
+//     String buffer;
+    
+// public:
+//     WebSerial() {}
+    
+//     size_t write(uint8_t data) override {
+//         if (data == '\n') {
+//             if (buffer.length() > 0) {
+//                 webSocket.broadcastTXT(buffer);
+//                 buffer = "";
+//             }
+//         } else {
+//             buffer += (char)data;
+//         }
+//         Serial.write(data); // Wysyłaj również na standardowy port szeregowy
+//         return 1;
+//     }
+    
+//     size_t write(const uint8_t *buffer, size_t size) override {
+//         for(size_t i = 0; i < size; i++) {
+//             write(buffer[i]);
+//         }
+//         return size;
+//     }
+    
+//     int available() override { return Serial.available(); }
+//     int read() override { return Serial.read(); }
+//     int peek() override { return Serial.peek(); }
+//     void flush() override { Serial.flush(); }
+// };
+
+// WebSerial webSerial;
+// Następnie zmodyfikuj setup():
+// C++
+// void setup() {
+//     Serial.begin(115200);
+//     // ... pozostały kod setup()
+    
+//     webSocket.onEvent(webSocketEvent);
+//     webSocket.begin();
+// }
+// Dodaj obsługę zdarzeń WebSocket:
+// C++
+// void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+//     switch(type) {
+//         case WStype_DISCONNECTED:
+//             Serial.printf("[%u] Rozłączono!\n", num);
+//             break;
+//         case WStype_CONNECTED:
+//             {
+//                 IPAddress ip = webSocket.remoteIP(num);
+//                 Serial.printf("[%u] Połączono z %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
+//             }
+//             break;
+//         case WStype_TEXT:
+//             // Tutaj możesz dodać obsługę komend przychodzących z przeglądarki
+//             break;
+//     }
+// }
+// Modyfikuj funkcje wysyłające komunikaty, aby używały webSerial:
+// C++
+// // Zamiast:
+// Serial.println("Jakiś komunikat");
+
+// // Użyj:
+// webSerial.println("Jakiś komunikat");
+// Upewnij się, że w JavaScript na stronie jest odpowiednia obsługa WebSocket:
+// JavaScript
+// var socket = new WebSocket('ws://' + window.location.hostname + ':81/');
+// socket.onmessage = function(event) {
+//     var message = event.data;
+//     var console = document.getElementById('console');
+    
+//     // Sprawdź czy to nie jest specjalny komunikat (np. update:)
+//     if (!message.startsWith('update:') && !message.startsWith('save:')) {
+//         console.innerHTML += message + '<br>';
+//         console.scrollTop = console.scrollHeight;
+//     }
+// };
+// Dodaj funkcję pomocniczą do formatowania komunikatów z czasem:
+// C++
+// void logMessage(const char* message) {
+//     char timeStr[9];
+//     unsigned long currentMillis = millis();
+//     unsigned long seconds = currentMillis / 1000;
+//     unsigned long minutes = seconds / 60;
+//     unsigned long hours = minutes / 60;
+    
+//     sprintf(timeStr, "%02lu:%02lu:%02lu", hours % 24, minutes % 60, seconds % 60);
+    
+//     webSerial.printf("[%s] %s\n", timeStr, message);
+// }
+
+// // Użycie:
+// logMessage("Uruchamianie systemu...");
+// Aby zachować komunikaty przy odświeżeniu strony, możesz dodać buforowanie:
+// C++
+// const int MAX_LOG_ENTRIES = 50;
+// String logBuffer[MAX_LOG_ENTRIES];
+// int logIndex = 0;
+
+// void addToLogBuffer(const String& message) {
+//     logBuffer[logIndex] = message;
+//     logIndex = (logIndex + 1) % MAX_LOG_ENTRIES;
+// }
+
+// // W funkcji webSocketEvent, gdy klient się połączy:
+// case WStype_CONNECTED:
+//     {
+//         // Wyślij zbuforowane logi
+//         for(int i = 0; i < MAX_LOG_ENTRIES; i++) {
+//             int idx = (logIndex + i) % MAX_LOG_ENTRIES;
+//             if(logBuffer[idx].length() > 0) {
+//                 webSocket.sendTXT(num, logBuffer[idx]);
+//             }
+//         }
+//     }
+//     break;
+// Pamiętaj o:
+
+// Wywołaniu webSocket.loop() w głównej pętli programu
+// Regularnym sprawdzaniu połączenia WebSocket
+// Ograniczeniu ilości wysyłanych komunikatów, aby nie przeciążyć pamięci
+// Dodaniu stylów CSS dla konsoli, aby była czytelna i dobrze się przewijała
+// Komunikaty będą teraz wyświetlane zarówno w monitorze szeregowym Arduino IDE, jak i w konsoli webowej interfejsu.
