@@ -1310,6 +1310,19 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             <div class="section">
                 <input type="submit" value="Zapisz ustawienia">
             </div>
+
+            <div class="section">
+                <h2>Aktualizacja firmware</h2>
+                <form method='POST' action='/update' enctype='multipart/form-data'>
+                    <input type='file' name='update' accept='.bin'>
+                    <input type='submit' value='Aktualizuj'>
+                </form>
+                <div id="update-progress" style="display:none; margin-top: 10px;">
+                    <div class="progress">
+                        <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
+                    </div>
+                </div>
+            </div>
         </form>
     </div>
 </body>
@@ -1380,7 +1393,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
-    // Dodaj skrypt JavaScript do obsługi komunikatu
+    // Dodaj skrypt JavaScript do obsługi komunikatu i WebSocket
     String script = F("<script>"
                      "window.onload = function() {"
                      "  const urlParams = new URLSearchParams(window.location.search);"
@@ -1392,10 +1405,48 @@ String getConfigPage() {
                      "    window.history.replaceState({}, '', window.location.pathname);"
                      "  }"
                      "};"
+                     
+                     // Obsługa WebSocket dla paska postępu
+                     "var websocket = new WebSocket('ws://' + window.location.hostname + ':81/');"
+                     "websocket.onmessage = function(evt) {"
+                     "  var msg = evt.data;"
+                     "  if(msg.startsWith('Update:')) {"
+                     "    var percentage = msg.split(':')[1];"
+                     "    document.getElementById('update-progress').style.display = 'block';"
+                     "    document.getElementById('progress-bar').style.width = percentage + '%';"
+                     "    document.getElementById('progress-bar').innerHTML = percentage + '%';"
+                     "    if(percentage === '100') {"
+                     "      setTimeout(function() {"
+                     "        alert('Aktualizacja zakończona. Urządzenie zostanie zrestartowane.');"
+                     "      }, 1000);"
+                     "    }"
+                     "  } else if(msg === 'UpdateError') {"
+                     "    alert('Błąd aktualizacji!');"
+                     "  }"
+                     "};"
                      "</script>");
+
+    // Dodaj style CSS dla paska postępu
+    String styles = F("<style>"
+                     ".progress {"
+                     "  width: 100%;"
+                     "  background-color: #f0f0f0;"
+                     "  border-radius: 4px;"
+                     "  margin-top: 10px;"
+                     "}"
+                     ".progress-bar {"
+                     "  height: 20px;"
+                     "  background-color: #4CAF50;"
+                     "  border-radius: 4px;"
+                     "  text-align: center;"
+                     "  line-height: 20px;"
+                     "  color: white;"
+                     "  transition: width 0.3s ease;"
+                     "}"
+                     "</style>");
     
-    // Dodaj skrypt przed zamknięciem </head>
-    html.replace("</head>", script + "</head>");
+    // Dodaj skrypt i style przed zamknięciem </head>
+    html.replace("</head>", styles + script + "</head>");
     
     // Status systemu
     bool mqttConnected = mqtt.isConnected();
@@ -1414,13 +1465,6 @@ String getConfigPage() {
                       "</div>");
     html.replace("%BUTTONS%", buttons);
 
-    // Dodaj stopkę - bez użycia F()
-    // String footer = F("<div class='container'><div class='section'>"
-    //              "<button class='btn btn-blue' onclick=\"window.location.href='https://github.com/pimowo/HydroSense'\">"
-    //              "Project by PMW</button>"
-    //              "</div></div>");
-    // html.replace("</body>", footer + "</body>");
-
     // Ustawienia MQTT
     html.replace("%MQTT_SERVER%", config.mqtt_server);
     html.replace("%MQTT_PORT%", String(config.mqtt_port));
@@ -1436,6 +1480,16 @@ String getConfigPage() {
     // Ustawienia pompy
     html.replace("%PUMP_DELAY%", String(config.pump_delay));
     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
+    
+    // Dodaj element paska postępu do sekcji aktualizacji
+    String updateProgress = F("<div id='update-progress' style='display:none; margin-top: 10px;'>"
+                            "<div class='progress'>"
+                            "<div id='progress-bar' class='progress-bar' role='progressbar' style='width: 0%'>0%</div>"
+                            "</div>"
+                            "</div>");
+    
+    // Znajdź formularz aktualizacji i dodaj po nim pasek postępu
+    html.replace("</form>", "</form>" + updateProgress);
     
     // Usuń stary placeholder dla wiadomości
     html.replace("%MESSAGE%", "");
@@ -1573,15 +1627,44 @@ void handleSave() {
     server.send(303);
 }
 
+// void handleDoUpdate() {
+//     HTTPUpload& upload = server.upload();
+    
+//     if(upload.status == UPLOAD_FILE_START) {
+//         Serial.printf("Update: %s\n", upload.filename.c_str());
+//         //if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+//         if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) {  
+//             Update.printError(Serial);
+//         }
+//     } 
+//     else if(upload.status == UPLOAD_FILE_WRITE) {
+//         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+//             Update.printError(Serial);
+//         }
+//     } 
+//     else if(upload.status == UPLOAD_FILE_END) {
+//         if (Update.end(true)) {
+//             Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+//         } else {
+//             Update.printError(Serial);
+//         }
+//     }
+// }
+
 void handleDoUpdate() {
     HTTPUpload& upload = server.upload();
     
     if(upload.status == UPLOAD_FILE_START) {
         Serial.printf("Update: %s\n", upload.filename.c_str());
-        //if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
         if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) {  
             Update.printError(Serial);
         }
+        // Dodajemy obsługę postępu aktualizacji
+        Update.onProgress([](size_t progress, size_t total) {
+            int percentage = (progress * 100) / total;
+            String progressMessage = "Update:" + String(percentage);
+            webSocket.broadcastTXT(progressMessage);
+        });
     } 
     else if(upload.status == UPLOAD_FILE_WRITE) {
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
@@ -1591,8 +1674,10 @@ void handleDoUpdate() {
     else if(upload.status == UPLOAD_FILE_END) {
         if (Update.end(true)) {
             Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+            webSocket.broadcastTXT("Update:100"); // Informujemy o zakończeniu
         } else {
             Update.printError(Serial);
+            webSocket.broadcastTXT("UpdateError"); // Informujemy o błędzie
         }
     }
 }
