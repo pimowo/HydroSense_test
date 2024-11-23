@@ -1103,27 +1103,30 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 
         .config-table {
             width: 100%;
+            table-layout: fixed; /* Dodane - wymusza stałe szerokości kolumn */
         }
 
         .config-table td:first-child {
-            width: 60%; /* Pierwsza kolumna z etykietami */
+            width: 70%; /* Zwiększamy szerokość pierwszej kolumny */
+            padding-right: 15px; /* Dodajemy odstęp między kolumnami */
         }
 
         .config-table td:last-child {
-            width: 40%; /* Druga kolumna z inputami */
+            width: 30%; /* Druga kolumna z inputami */
         }
 
         input[type="text"],
         input[type="password"],
         input[type="number"] {
-            width: 100%; /* Zmiana z max-width na width */
+            width: 100%;
             padding: 8px;
             border: 1px solid #3d3d3d;
             border-radius: 4px;
             background-color: #1a1a1a;
             color: #ffffff;
             box-sizing: border-box;
-            text-align: right; /* Dodane */
+            text-align: right;
+            min-width: 150px; /* Dodane - minimalna szerokość */
         }
 
         input[type="submit"] { 
@@ -1475,39 +1478,43 @@ String getConfigPage() {
     html.replace("%BUTTONS%", buttons);
 
     // Formularze konfiguracyjne
-    String configForms = F("<form method='POST' action='/save'>"
-                          // MQTT
-                          "<div class='section'>"
-                          "<h2>Konfiguracja MQTT</h2>"
-                          "<table class='config-table'>"
-                          "<tr><td>Serwer</td><td><input type='text' name='mqtt_server' value='%MQTT_SERVER%'></td></tr>"
-                          "<tr><td>Port</td><td><input type='number' name='mqtt_port' value='%MQTT_PORT%'></td></tr>"
-                          "<tr><td>Użytkownik</td><td><input type='text' name='mqtt_user' value='%MQTT_USER%'></td></tr>"
-                          "<tr><td>Hasło</td><td><input type='password' name='mqtt_password' value='%MQTT_PASSWORD%'></td></tr>"
-                          "</table>"
-                          "</div>"
-                          // Zbiornik
-                          "<div class='section'>"
-                          "<h2>Ustawienia zbiornika</h2>"
-                          "<table class='config-table'>"
-                          "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='%TANK_EMPTY%'></td></tr>"
-                          "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='%TANK_FULL%'></td></tr>"
-                          "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='%RESERVE_LEVEL%'></td></tr>"
-                          "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='%TANK_DIAMETER%'></td></tr>"
-                          "</table>"
-                          "</div>"
-                          // Pompa
-                          "<div class='section'>"
-                          "<h2>Ustawienia pompy</h2>"
-                          "<table class='config-table'>"
-                          "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='%PUMP_DELAY%'></td></tr>"
-                          "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='%PUMP_WORK_TIME%'></td></tr>"
-                          "</table>"
-                          "</div>"
-                          "<div class='section'>"
-                          "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
-                          "</div>"
-                          "</form>");
+    String configForms;
+    
+    // Początek formularza
+    configForms = F("<form method='POST' action='/save'>");
+    
+    // MQTT
+    configForms += F("<div class='section'>"
+                     "<h2>Konfiguracja MQTT</h2>"
+                     "<table class='config-table'>");
+    configForms += "<tr><td>Serwer</td><td><input type='text' name='mqtt_server' value='" + String(config.mqtt_server) + "'></td></tr>";
+    configForms += "<tr><td>Port</td><td><input type='number' name='mqtt_port' value='" + String(config.mqtt_port) + "'></td></tr>";
+    configForms += "<tr><td>Użytkownik</td><td><input type='text' name='mqtt_user' value='" + String(config.mqtt_user) + "'></td></tr>";
+    configForms += "<tr><td>Hasło</td><td><input type='password' name='mqtt_password' value='" + String(config.mqtt_password) + "'></td></tr>";
+    configForms += F("</table></div>");
+    
+    // Zbiornik
+    configForms += F("<div class='section'>"
+                     "<h2>Ustawienia zbiornika</h2>"
+                     "<table class='config-table'>");
+    configForms += "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='" + String(config.tank_empty) + "'></td></tr>";
+    configForms += "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='" + String(config.tank_full) + "'></td></tr>";
+    configForms += "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='" + String(config.reserve_level) + "'></td></tr>";
+    configForms += "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='" + String(config.tank_diameter) + "'></td></tr>";
+    configForms += F("</table></div>");
+    
+    // Pompa
+    configForms += F("<div class='section'>"
+                     "<h2>Ustawienia pompy</h2>"
+                     "<table class='config-table'>");
+    configForms += "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='" + String(config.pump_delay) + "'></td></tr>";
+    configForms += "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='" + String(config.pump_work_time) + "'></td></tr>";
+    configForms += F("</table></div>");
+    
+    // Przycisk zapisu
+    configForms += F("<div class='section'>"
+                     "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
+                     "</div></form>");
     
     html.replace("%CONFIG_FORMS%", configForms);
     
