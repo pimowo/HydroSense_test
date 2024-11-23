@@ -1319,6 +1319,24 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             line-height: 20px;
         }
 
+        .message {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 30px;
+            border-radius: 5px;
+            color: white;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            z-index: 1000;
+        }
+
+        .message.success {
+            background-color: #4CAF50;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
     </style>
     <script>
     function confirmReset() {
@@ -1359,22 +1377,33 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         socket.onmessage = function(event) {
             var message = event.data;
             
-            // Sprawdź czy to komunikat o postępie aktualizacji
             if (message.startsWith('update:')) {
                 var percentage = message.split(':')[1];
                 document.getElementById('update-progress').style.display = 'block';
                 document.getElementById('progress-bar').style.width = percentage + '%';
                 document.getElementById('progress-bar').textContent = percentage + '%';
                 
-                // Jeśli aktualizacja zakończona
                 if (percentage == '100') {
-                    setTimeout(() => {
-                        alert('Aktualizacja zakończona! Urządzenie zostanie zrestartowane...');
-                        setTimeout(() => { window.location.reload(); }, 3000);
-                    }, 500);
+                    // Ukryj pasek postępu
+                    document.getElementById('update-progress').style.display = 'none';
+                    
+                    // Pokaż komunikat o sukcesie (podobny do tego przy zapisie konfiguracji)
+                    var messageBox = document.createElement('div');
+                    messageBox.className = 'message success';
+                    messageBox.innerHTML = 'Aktualizacja zakończona pomyślnie! Trwa restart urządzenia...';
+                    document.body.appendChild(messageBox);
+                    
+                    // Animacja pojawienia się
+                    setTimeout(function() {
+                        messageBox.style.opacity = '1';
+                    }, 10);
+                    
+                    // Po 3 sekundach odświeżamy stronę
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 3000);
                 }
             } else {
-                // Obsługa normalnych komunikatów konsoli
                 var console = document.getElementById('console');
                 console.innerHTML += message + '<br>';
                 console.scrollTop = console.scrollHeight;
@@ -1563,28 +1592,26 @@ String getConfigPage() {
     
     // Formularz aktualizacji
     String updateForm = F("<div class='section'>"
-                         "<h2>Aktualizacja firmware</h2>"
-                         "<form method='POST' action='/update' enctype='multipart/form-data'>"
-                         "<table class='config-table' style='margin-bottom: 15px;'>"
-                         "<tr><td colspan='2'><input type='file' name='update' accept='.bin'></td></tr>"
-                         "</table>"
-                         "<input type='submit' value='Aktualizuj firmware' class='btn btn-orange'>"
-                         "</form>"
-                         "<div id='update-progress' style='display:none'>"
-                         "<div class='progress'>"
-                         "<div id='progress-bar' class='progress-bar' role='progressbar' style='width: 0%'>0%</div>"
-                         "</div>"
-                         "</div>"
-                         "</div>");
+                        "<h2>Aktualizacja firmware</h2>"
+                        "<form method='POST' action='/update' enctype='multipart/form-data'>"
+                        "<table class='config-table' style='margin-bottom: 15px;'>"
+                        "<tr><td colspan='2'><input type='file' name='update' accept='.bin'></td></tr>"
+                        "</table>"
+                        "<input type='submit' value='Aktualizuj firmware' class='btn btn-orange'>"
+                        "</form>"
+                        "<div id='update-progress' style='display:none'>"
+                        "<div class='progress'>"
+                        "<div id='progress-bar' class='progress-bar' role='progressbar' style='width: 0%'>0%</div>"
+                        "</div>"
+                        "</div>"
+                        "</div>");
     html.replace("%UPDATE_FORM%", updateForm);
-    
+
     // Stopka
     String footer = F("<div class='footer'>"
-                     "<a href='https://github.com/pimowo/HydroSense' target='_blank'>Project by PMW</a>"
-                     "</div>");
+                    "<a href='https://github.com/pimowo/HydroSense' target='_blank'>Project by PMW</a>"
+                    "</div>");
     html.replace("%FOOTER%", footer);
-    
-    html.replace("%MESSAGE%", "");
     
     return html;
 }
@@ -1671,30 +1698,29 @@ void handleSave() {
 void handleDoUpdate() {
     HTTPUpload& upload = server.upload();
     
-    if(upload.status == UPLOAD_FILE_START) {
-        Serial.printf("Update: %s\n", upload.filename.c_str());
-        if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) {  
+    if (upload.status == UPLOAD_FILE_START) {
+        if (!Update.begin(upload.contentLength)) {
             Update.printError(Serial);
         }
-        // Dodajemy obsługę postępu aktualizacji
-        Update.onProgress([](size_t progress, size_t total) {
-            int percentage = (progress * 100) / total;
-            String progressMessage = "Update:" + String(percentage);
-            webSocket.broadcastTXT(progressMessage);
-        });
+        webSocket.broadcastTXT("update:0");
     } 
-    else if(upload.status == UPLOAD_FILE_WRITE) {
+    else if (upload.status == UPLOAD_FILE_WRITE) {
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
             Update.printError(Serial);
         }
+        int progress = (upload.totalSize * 100) / upload.contentLength;
+        String progressMsg = "update:" + String(progress);
+        webSocket.broadcastTXT(progressMsg);
     } 
-    else if(upload.status == UPLOAD_FILE_END) {
+    else if (upload.status == UPLOAD_FILE_END) {
         if (Update.end(true)) {
-            Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
-            webSocket.broadcastTXT("Update:100"); // Informujemy o zakończeniu
+            webSocket.broadcastTXT("update:100");
+            // Zamiast wysyłać "OK", wysyłamy pustą odpowiedź
+            server.send(204); // 204 No Content
+            delay(1000);
+            ESP.restart();
         } else {
             Update.printError(Serial);
-            webSocket.broadcastTXT("UpdateError"); // Informujemy o błędzie
         }
     }
 }
