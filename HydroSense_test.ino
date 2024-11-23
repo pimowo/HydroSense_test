@@ -1070,13 +1070,13 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             text-align: center;
             margin-bottom: 30px;
             font-size: 2.5em;
-            background-color: #2d2d2d; /* Dodane - taki sam kolor jak w .section */
-            padding: 20px; /* Dodane - taki sam padding jak w .section */
-            border-radius: 8px; /* Dodane - takie samo zaokrąglenie jak w .section */
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2); /* Dodane - taki sam cień jak w .section */
+            background-color: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
         h2 { 
-            color: #2196F3; /* Google Blue */ 
+            color: #2196F3;
             margin-top: 0;
             font-size: 1.5em;
         }
@@ -1116,23 +1116,23 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             color: #4CAF50; 
         }
         .error { 
-            color: #F44336; /* Google Red */
+            color: #F44336;
         }
         .alert { 
             padding: 15px; 
             margin-bottom: 20px; 
-            border-radius: 0; /* Usunięte zaokrąglenie */
-            position: fixed; /* Pozycjonowanie stałe */
-            top: 0; /* Przyczepione do samej góry */
-            left: 0; /* Od lewej krawędzi */
-            right: 0; /* Do prawej krawędzi */
-            width: 100%; /* Pełna szerokość */
-            z-index: 1000; /* Zawsze na wierzchu */
-            text-align: center; /* Wycentrowany tekst */
-            animation: fadeOut 0.5s ease-in-out 5s forwards; /* Znikanie po 5 sekundach */
+            border-radius: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            width: 100%;
+            z-index: 1000;
+            text-align: center;
+            animation: fadeOut 0.5s ease-in-out 5s forwards;
         }
         .alert.success { 
-            background-color: #4CAF50; /* Zielony kolor Google */
+            background-color: #4CAF50;
             color: white;
             border: none;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
@@ -1142,17 +1142,36 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             border: none; 
             border-radius: 4px; 
             cursor: pointer; 
-            margin: 5px 0;  /* Zmienione z margin: 5px */
+            margin: 5px 0;
             font-size: 14px;
-            width: 100%;    /* Zmienione z calc(50% - 10px) */
+            width: 100%;
         }
         .btn-blue { 
-            background-color: #2196F3; /* Google Blue */
+            background-color: #2196F3;
             color: white; 
         }
         .btn-red { 
-            background-color: #F44336; /* Google Red */
+            background-color: #F44336;
             color: white; 
+        }
+        .btn-orange {
+            background-color: #FF9800;
+            color: white;
+        }
+        .progress {
+            width: 100%;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .progress-bar {
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            transition: width 0.3s ease;
         }
         @media (max-width: 600px) {
             body {
@@ -1163,9 +1182,9 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
                 width: 100%;
             }
             .status-table td {
-                display: table-cell !important; /* Wymusza wyświetlanie w linii */
-                width: auto !important; /* Automatyczna szerokość */
-                padding: 8px 16px 8px 0 !important; /* Padding z prawej strony */
+                display: table-cell !important;
+                width: auto !important;
+                padding: 8px 16px 8px 0 !important;
             }
             .container {
                 padding: 0;
@@ -1173,7 +1192,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             .section {
                 padding: 15px;
                 margin-bottom: 15px;
-                background-color: #303030; /* Google Dark Grey */
+                background-color: #303030;
             }
             td {
                 display: block;
@@ -1182,10 +1201,10 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             input[type="text"],
             input[type="password"],
             input[type="number"] {
-                max-width: none;  /* usuwa poprzednie ograniczenie */
-                width: 100%;      /* ustawia pełną szerokość */
-                box-sizing: border-box; /* zapewnia, że padding nie zwiększa szerokości */
-                border: 1px solid #424242; /* Google Dark Grey */
+                max-width: none;
+                width: 100%;
+                box-sizing: border-box;
+                border: 1px solid #424242;
             }
             .btn {
                 width: 100%;
@@ -1197,7 +1216,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             to {opacity: 0; visibility: hidden;}
         }
     </style>
-    <script>
+<script>
     function confirmReset() {
         return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień.');
     }
@@ -1217,6 +1236,16 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             });
         }
     }
+    window.onload = function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('success')) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert success';
+            alertDiv.textContent = 'Konfiguracja została zapisana pomyślnie!';
+            document.body.insertBefore(alertDiv, document.body.firstChild);
+            window.history.replaceState({}, '', window.location.pathname);
+        }
+    };
     </script>
     <title>HydroSense</title>
 </head>
@@ -1307,93 +1336,25 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
                     </tr>
                 </table>
             </div>
+            
             <div class="section">
                 <input type="submit" value="Zapisz ustawienia">
             </div>
-
-            <div class="section">
-                <h2>Aktualizacja firmware</h2>
-                <form method='POST' action='/update' enctype='multipart/form-data'>
-                    <input type='file' name='update' accept='.bin'>
-                    <input type='submit' value='Aktualizuj'>
-                </form>
-                <div id="update-progress" style="display:none; margin-top: 10px;">
-                    <div class="progress">
-                        <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
-                    </div>
-                </div>
-            </div>
         </form>
+
+        <div class="section">
+            <h2>Aktualizacja firmware</h2>
+            %UPDATE_FORM%
+        </div>
     </div>
 </body>
 </html>
-)rawliteral";
-
-// Obsługa strony www
-// String getConfigPage() {
-//     String html = FPSTR(CONFIG_PAGE);
-    
-//     // Dodaj skrypt JavaScript do obsługi komunikatu
-//     String script = F("<script>"
-//                      "window.onload = function() {"
-//                      "  const urlParams = new URLSearchParams(window.location.search);"
-//                      "  if (urlParams.has('success')) {"
-//                      "    const alertDiv = document.createElement('div');"
-//                      "    alertDiv.className = 'alert success';"
-//                      "    alertDiv.textContent = 'Konfiguracja została zapisana pomyślnie!';"
-//                      "    document.body.insertBefore(alertDiv, document.body.firstChild);"
-//                      "    window.history.replaceState({}, '', window.location.pathname);"
-//                      "  }"
-//                      "};"
-//                      "</script>");
-    
-//     // Dodaj skrypt przed zamknięciem </head>
-//     html.replace("</head>", script + "</head>");
-    
-//     // Status systemu
-//     bool mqttConnected = mqtt.isConnected();
-//     html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
-//     html.replace("%MQTT_STATUS_CLASS%", mqttConnected ? "success" : "error");
-    
-//     html.replace("%SOUND_STATUS%", config.soundEnabled ? "Włączony" : "Wyłączony");
-//     html.replace("%SOUND_STATUS_CLASS%", config.soundEnabled ? "success" : "error");
-    
-//     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
-
-//     // Sekcja przycisków
-//     String buttons = F("<div class='section'>"
-//                       "<button class='btn btn-blue' onclick='()'>Reboot</button>"
-//                       "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
-//                       <div class='footer' style='position: fixed; left: 0; bottom: 0; width: 100%; background-color: #333; color: #1E90FF; text-align: center; padding: 10px 0; font-family: Arial, sans-serif; font-size: 16px;'>Project by PMW</div>
-//                       </body>
-//     html.replace("%BUTTONS%", buttons);
-
-//     // Ustawienia MQTT
-//     html.replace("%MQTT_SERVER%", config.mqtt_server);
-//     html.replace("%MQTT_PORT%", String(config.mqtt_port));
-//     html.replace("%MQTT_USER%", config.mqtt_user);
-//     html.replace("%MQTT_PASSWORD%", config.mqtt_password);
-    
-//     // Ustawienia zbiornika
-//     html.replace("%TANK_FULL%", String(config.tank_full));
-//     html.replace("%TANK_EMPTY%", String(config.tank_empty));
-//     html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
-//     html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
-    
-//     // Ustawienia pompy
-//     html.replace("%PUMP_DELAY%", String(config.pump_delay));
-//     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
-    
-//     // Usuń stary placeholder dla wiadomości
-//     html.replace("%MESSAGE%", "");
-    
-//     return html;
-// }
+)rawliteral"
 
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
-    // Dodaj skrypt JavaScript do obsługi komunikatu i WebSocket
+    // Dodaj skrypt JavaScript do obsługi komunikatu i paska postępu
     String script = F("<script>"
                      "window.onload = function() {"
                      "  const urlParams = new URLSearchParams(window.location.search);"
@@ -1406,23 +1367,11 @@ String getConfigPage() {
                      "  }"
                      "};"
                      
-                     // Obsługa WebSocket dla paska postępu
-                     "var websocket = new WebSocket('ws://' + window.location.hostname + ':81/');"
-                     "websocket.onmessage = function(evt) {"
-                     "  var msg = evt.data;"
-                     "  if(msg.startsWith('Update:')) {"
-                     "    var percentage = msg.split(':')[1];"
-                     "    document.getElementById('update-progress').style.display = 'block';"
-                     "    document.getElementById('progress-bar').style.width = percentage + '%';"
-                     "    document.getElementById('progress-bar').innerHTML = percentage + '%';"
-                     "    if(percentage === '100') {"
-                     "      setTimeout(function() {"
-                     "        alert('Aktualizacja zakończona. Urządzenie zostanie zrestartowane.');"
-                     "      }, 1000);"
-                     "    }"
-                     "  } else if(msg === 'UpdateError') {"
-                     "    alert('Błąd aktualizacji!');"
-                     "  }"
+                     // Obsługa formularza aktualizacji
+                     "document.querySelector('form[action=\"/update\"]').onsubmit = function(e) {"
+                     "  document.getElementById('update-progress').style.display = 'block';"
+                     "  document.getElementById('update-submit').disabled = true;"
+                     "  return true;"
                      "};"
                      "</script>");
 
@@ -1458,9 +1407,9 @@ String getConfigPage() {
     
     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
 
-    // Sekcja przycisków - użyj pojedynczego F() dla całej sekcji
+    // Sekcja przycisków
     String buttons = F("<div class='section'>"
-                      "<button class='btn btn-blue' onclick='reboot()'>Reboot</button>"
+                      "<button class='btn btn-blue' onclick='rebootDevice()'>Reboot</button>"
                       "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
                       "</div>");
     html.replace("%BUTTONS%", buttons);
@@ -1481,16 +1430,6 @@ String getConfigPage() {
     html.replace("%PUMP_DELAY%", String(config.pump_delay));
     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
     
-    // Dodaj element paska postępu do sekcji aktualizacji
-    String updateProgress = F("<div id='update-progress' style='display:none; margin-top: 10px;'>"
-                            "<div class='progress'>"
-                            "<div id='progress-bar' class='progress-bar' role='progressbar' style='width: 0%'>0%</div>"
-                            "</div>"
-                            "</div>");
-    
-    // Znajdź formularz aktualizacji i dodaj po nim pasek postępu
-    html.replace("</form>", "</form>" + updateProgress);
-    
     // Usuń stary placeholder dla wiadomości
     html.replace("%MESSAGE%", "");
     
@@ -1500,35 +1439,35 @@ String getConfigPage() {
 void handleRoot() {
     String content = getConfigPage();
 
-// Formularz aktualizacji
-content += "<div class='container'>";
-content += "<div class='section'>";
-content += "<h2>Aktualizacja firmware</h2>";
-content += "<form id='updateForm' method='POST' action='/update' enctype='multipart/form-data' style='margin: 20px 0; display: flex; flex-direction: column; gap: 15px;'>";
-content += "<div>";
-content += "<input type='file' name='update' class='form-control'>";
-content += "</div>";
-content += "<div>";
-content += "<input type='submit' value='Aktualizuj' class='btn btn-orange' id='updateButton'>"; // Dodano id
-content += "</div>";
-content += "</form>";
-content += "<div id='progressWrapper' style='display: none; margin-top: 15px;'>";
-content += "<div style='margin-bottom: 5px;'><span id='progressText'>0%</span></div>";
-content += "<progress id='progressBar' value='0' max='100' style='width: 100%; height: 20px;'></progress>";
-content += "</div>";
-content += "</div>";
-content += "</div>";
+    // Formularz aktualizacji
+    content += "<div class='container'>";
+    content += "<div class='section'>";
+    content += "<h2>Aktualizacja firmware</h2>";
+    content += "<form id='updateForm' method='POST' action='/update' enctype='multipart/form-data' style='margin: 20px 0; display: flex; flex-direction: column; gap: 15px;'>";
+    content += "<div>";
+    content += "<input type='file' name='update' class='form-control'>";
+    content += "</div>";
+    content += "<div>";
+    content += "<input type='submit' value='Aktualizuj' class='btn btn-orange' id='updateButton'>"; // Dodano id
+    content += "</div>";
+    content += "</form>";
+    content += "<div id='progressWrapper' style='display: none; margin-top: 15px;'>";
+    content += "<div style='margin-bottom: 5px;'><span id='progressText'>0%</span></div>";
+    content += "<progress id='progressBar' value='0' max='100' style='width: 100%; height: 20px;'></progress>";
+    content += "</div>";
+    content += "</div>";
+    content += "</div>";
 
-// Style z wymuszonymi kolorami
-content += "<style>";
-content += "#updateButton.btn-orange, .btn-orange { background-color: #F4511E !important; color: white !important; }";
-content += "#updateButton.btn-orange:hover, .btn-orange:hover { background-color: #E64A19 !important; }";
-content += ".form-control { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }";
-content += "progress { -webkit-appearance: none; appearance: none; }";
-content += "progress::-webkit-progress-bar { background-color: #f0f0f0; border-radius: 4px; }";
-content += "progress::-webkit-progress-value { background-color: #F4511E !important; border-radius: 4px; }";
-content += "progress::-moz-progress-bar { background-color: #F4511E !important; border-radius: 4px; }";
-content += "</style>";
+    // Style z wymuszonymi kolorami
+    content += "<style>";
+    content += "#updateButton.btn-orange, .btn-orange { background-color: #F4511E !important; color: white !important; }";
+    content += "#updateButton.btn-orange:hover, .btn-orange:hover { background-color: #E64A19 !important; }";
+    content += ".form-control { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }";
+    content += "progress { -webkit-appearance: none; appearance: none; }";
+    content += "progress::-webkit-progress-bar { background-color: #f0f0f0; border-radius: 4px; }";
+    content += "progress::-webkit-progress-value { background-color: #F4511E !important; border-radius: 4px; }";
+    content += "progress::-moz-progress-bar { background-color: #F4511E !important; border-radius: 4px; }";
+    content += "</style>";
 
     // Konsola
     content += "<br><hr><br>";
