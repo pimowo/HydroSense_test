@@ -1415,13 +1415,11 @@ String getConfigPage() {
     html.replace("%BUTTONS%", buttons);
 
     // Dodaj stopkę - bez użycia F()
-String footer = "<div style='padding: 20px; background-color: #f6f8fa; margin: 20px 0;'>"
-                "<a href='https://github.com/pimowo/HydroSense' target='_blank' "
-                "style='background-color: #4285f4; color: white; padding: 10px 20px; "
-                "border: none; border-radius: 4px; cursor: pointer; text-decoration: none; "
-                "font-family: Arial, sans-serif; display: block; width: 100%; "
-                "text-align: center; box-sizing: border-box;'>Project by PMW</a></div>";
-html.replace("</body>", footer + "</body>");
+    String footer = F("<div class='container'><div class='section'>"
+                 "<button class='btn btn-blue' onclick=\"window.location.href='https://github.com/pimowo/HydroSense'\">"
+                 "Project by PMW</button>"
+                 "</div></div>");
+    html.replace("</body>", footer + "</body>");
 
     // Ustawienia MQTT
     html.replace("%MQTT_SERVER%", config.mqtt_server);
