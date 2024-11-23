@@ -599,60 +599,73 @@ bool connectMQTT() {
 
 // Funkcja konfigurująca Home Assistant
 void setupHA() {
-    // Konfiguracja urządzenia dla Home Assistant
-    device.setName("HydroSense");  // Nazwa urządzenia
-    device.setModel("HS ESP8266");  // Model urządzenia
-    device.setManufacturer("PMW");  // Producent
-    device.setSoftwareVersion(SOFTWARE_VERSION);  // Wersja oprogramowania
+    // Konfiguracja podstawowych informacji o urządzeniu
+    device.setName("HydroSense");
+    device.setModel("HS ESP8266");
+    device.setManufacturer("PMW");
+    device.setSoftwareVersion(SOFTWARE_VERSION);
 
-    // Konfiguracja sensorów pomiarowych w HA
+    // Konfiguracja sensorów pomiarowych
+    
+    // Pomiar odległości
     sensorDistance.setName("Pomiar odległości");
-    sensorDistance.setIcon("mdi:ruler");          
-    sensorDistance.setUnitOfMeasurement("mm");    
+    sensorDistance.setIcon("mdi:ruler");
+    sensorDistance.setUnitOfMeasurement("mm");
     
+    // Pomiar poziomu wody
     sensorLevel.setName("Poziom wody");
-    sensorLevel.setIcon("mdi:cup-water");      
-    sensorLevel.setUnitOfMeasurement("%");     
+    sensorLevel.setIcon("mdi:cup-water");
+    sensorLevel.setUnitOfMeasurement("%");
     
+    // Pomiar objętości wody
     sensorVolume.setName("Objętość wody");
-    sensorVolume.setIcon("mdi:cup-water");     
-    sensorVolume.setUnitOfMeasurement("L");    
+    sensorVolume.setIcon("mdi:cup-water");
+    sensorVolume.setUnitOfMeasurement("L");
 
+    // Pomiar czasu pracy pompy
     sensorPumpWorkTime.setName("Czas pracy pompy");
-    sensorPumpWorkTime.setIcon("mdi:timer-outline");     
+    sensorPumpWorkTime.setIcon("mdi:timer-outline");
     sensorPumpWorkTime.setUnitOfMeasurement("s");
     
-    // Konfiguracja sensorów statusu w HA
-    sensorPump.setName("Status pompy");
-    sensorPump.setIcon("mdi:water-pump");      
+    // Konfiguracja sensorów statusu
     
+    // Status pompy
+    sensorPump.setName("Status pompy");
+    sensorPump.setIcon("mdi:water-pump");
+    
+    // Status czujnika wody
     sensorWater.setName("Czujnik wody");
     sensorWater.setIcon("mdi:electric-switch");
     
-    // Konfiguracja sensorów alarmowych w HA
+    // Konfiguracja sensorów alarmowych
+    
+    // Alarm braku wody
     sensorAlarm.setName("Brak wody");
-    sensorAlarm.setIcon("mdi:alarm-light");    
+    sensorAlarm.setIcon("mdi:alarm-light");
 
+    // Alarm rezerwy wody
     sensorReserve.setName("Rezerwa wody");
-    sensorReserve.setIcon("mdi:alarm-light-outline");   
+    sensorReserve.setIcon("mdi:alarm-light-outline");
     
-    // Konfiguracja przełączników w HA
+    // Konfiguracja przełączników
+    
+    // Przełącznik trybu serwisowego
     switchService.setName("Serwis");
-    switchService.setIcon("mdi:account-wrench-outline");            
-    switchService.onCommand(onServiceSwitchCommand);  // Funkcja obsługi zmiany stanu
-    switchService.setState(status.isServiceMode);  // Stan początkowy
-    // Inicjalizacja stanu - domyślnie wyłączony
-    status.isServiceMode = false;
-    switchService.setState(false, true);  // force update przy starcie
-
-    switchSound.setName("Dźwięk");
-    switchSound.setIcon("mdi:volume-high");        // Ikona głośnika
-    switchSound.onCommand(onSoundSwitchCommand);   // Funkcja obsługi zmiany stanu
-    switchSound.setState(status.soundEnabled);      // Stan początkowy
+    switchService.setIcon("mdi:account-wrench-outline");
+    switchService.onCommand(onServiceSwitchCommand);
+    status.isServiceMode = false;                  // Domyślnie wyłączony
+    switchService.setState(false, true);           // Wymuszenie aktualizacji przy starcie
     
+    // Przełącznik dźwięku
+    switchSound.setName("Dźwięk");
+    switchSound.setIcon("mdi:volume-high");
+    switchSound.onCommand(onSoundSwitchCommand);
+    switchSound.setState(status.soundEnabled);
+    
+    // Przełącznik alarmu pompy
     switchPumpAlarm.setName("Alarm pompy");
-    switchPumpAlarm.setIcon("mdi:alert");               // Ikona alarmu
-    switchPumpAlarm.onCommand(onPumpAlarmCommand);      // Funkcja obsługi zmiany stanu
+    switchPumpAlarm.setIcon("mdi:alert");
+    switchPumpAlarm.onCommand(onPumpAlarmCommand);
 }
 
 // --- Deklaracje funkcji ogólnych
@@ -1054,523 +1067,444 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
 const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
-<head>
-    <meta charset='UTF-8'>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HydroSense</title>
-    <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            margin: 0; 
-            padding: 20px; 
-            background-color: #1a1a1a;
-            color: #ffffff;
-        }
-
-        .buttons-container {
-            display: flex;
-            justify-content: space-between;
-            margin: -5px;
-        }
-
-        .container { 
-            max-width: 800px; 
-            margin: 0 auto; 
-            padding: 0 15px;
-        }
-
-        .section {
-            background-color: #2a2a2a;
-            padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 8px;
-            width: 100%;
-            box-sizing: border-box;
-        }
-
-        h1 { 
-            color: #ffffff; 
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 2.5em;
-            background-color: #2d2d2d;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        }
-
-        h2 { 
-            color: #2196F3;
-            margin-top: 0;
-            font-size: 1.5em;
-        }
-
-table { 
-            width: 100%; 
-            border-collapse: collapse;
-        }
-
-        td { 
-            padding: 12px 8px;
-            border-bottom: 1px solid #3d3d3d;
-        }
-
-        .config-table td {
-            padding: 8px;
-        }
-
-        .config-table {
-            width: 100%;
-            border-collapse: collapse;
-            table-layout: fixed;
-        }
-
-        .config-table td:first-child {
-            width: 65%;
-        }
-
-        .config-table td:last-child {
-            width: 35%;
-        }
-
-        .config-table input[type="text"],
-        .config-table input[type="password"],
-        .config-table input[type="number"] {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #3d3d3d;
-            border-radius: 4px;
-            background-color: #1a1a1a;
-            color: #ffffff;
-            box-sizing: border-box;
-        }
-
-        input[type="text"],
-        input[type="password"],
-        input[type="number"] {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #3d3d3d;
-            border-radius: 4px;
-            background-color: #1a1a1a;
-            color: #ffffff;
-            box-sizing: border-box;
-            text-align: left;
-        }
-
-        input[type="submit"] { 
-            background-color: #4CAF50; 
-            color: white; 
-            padding: 12px 24px; 
-            border: none; 
-            border-radius: 4px; 
-            cursor: pointer;
-            width: 100%;
-            font-size: 16px;
-        }
-
-        input[type="submit"]:hover { 
-            background-color: #45a049; 
-        }
-
-input[type="file"] {
-            background-color: #1a1a1a;
-            color: #ffffff;
-            padding: 8px;
-            border: 1px solid #3d3d3d;
-            border-radius: 4px;
-            width: 100%;
-            cursor: pointer;
-        }
-
-        input[type="file"]::-webkit-file-upload-button {
-            background-color: #2196F3;
-            color: white;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-right: 10px;
-        }
-
-        input[type="file"]::-webkit-file-upload-button:hover {
-            background-color: #1976D2;
-        }
-
-        .success { 
-            color: #4CAF50; 
-        }
-
-        .error { 
-            color: #F44336;
-        }
-
-        .alert { 
-            padding: 15px; 
-            margin-bottom: 20px; 
-            border-radius: 0;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            width: 100%;
-            z-index: 1000;
-            text-align: center;
-            animation: fadeOut 0.5s ease-in-out 5s forwards;
-        }
-
-        .alert.success { 
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-
-        .btn {
-            padding: 12px 24px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            width: calc(50% - 10px);
-            display: inline-block;
-            margin: 5px;
-            text-align: center;
-        }
-
-        .btn-blue { 
-            background-color: #2196F3;
-            color: white; 
-        }
-
-        .btn-red { 
-            background-color: #F44336;
-            color: white; 
-        }
-
-.btn-orange {
-            background-color: #FF9800 !important;
-            color: white !important;
-        }
-
-        .btn-orange:hover {
-            background-color: #F57C00 !important;
-        }
-
-        .console {
-            background-color: #1a1a1a;
-            color: #ffffff;
-            padding: 15px;
-            border-radius: 4px;
-            font-family: monospace;
-            height: 200px;
-            overflow-y: auto;
-            margin-top: 10px;
-            border: 1px solid #3d3d3d;
-        }
-
-        .footer {
-            background-color: #2d2d2d;
-            padding: 20px;
-            margin-top: 20px;
-            border-radius: 8px;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        }
-
-        .footer a {
-            display: inline-block;
-            background-color: #2196F3;
-            color: white;
-            text-decoration: underline;
-            padding: 12px 24px;
-            border-radius: 4px;
-            font-weight: normal;
-            transition: background-color 0.3s;
-            width: 100%;
-            box-sizing: border-box;
-        }
-
-        .footer a:hover {
-            background-color: #1976D2;
-        }
-
-        @media (max-width: 600px) {
-            body {
-                padding: 10px;
+    <head>
+        <meta charset='UTF-8'>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>HydroSense</title>
+        
+        <!-- Style CSS -->
+        <style>
+            /* Podstawowe style strony */
+            body { 
+                font-family: Arial, sans-serif; 
+                margin: 0; 
+                padding: 20px; 
+                background-color: #1a1a1a;
+                color: #ffffff;
             }
-            .container {
-                padding: 0;
+            
+            /* Kontenery i sekcje */
+            .container { 
+                max-width: 800px; 
+                margin: 0 auto; 
+                padding: 0 15px;
             }
+            
             .section {
-                padding: 15px;
-                margin-bottom: 15px;
+                background-color: #2a2a2a;
+                padding: 20px;
+                margin-bottom: 20px;
+                border-radius: 8px;
+                width: 100%;
+                box-sizing: border-box;
             }
+            
+            .buttons-container {
+                display: flex;
+                justify-content: space-between;
+                margin: -5px;
+            }
+            
+            /* Nagłówki */
+            h1 { 
+                color: #ffffff; 
+                text-align: center;
+                margin-bottom: 30px;
+                font-size: 2.5em;
+                background-color: #2d2d2d;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            }
+            
+            h2 { 
+                color: #2196F3;
+                margin-top: 0;
+                font-size: 1.5em;
+            }
+            
+            /* Tabele */
+            table { 
+                width: 100%; 
+                border-collapse: collapse;
+            }
+            
+            td { 
+                padding: 12px 8px;
+                border-bottom: 1px solid #3d3d3d;
+            }
+            
+            .config-table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+            }
+            
+            .config-table td {
+                padding: 8px;
+            }
+            
+            .config-table td:first-child {
+                width: 65%;
+            }
+            
+            .config-table td:last-child {
+                width: 35%;
+            }
+            /* Style formularzy i inputów */
+            .config-table input[type="text"],
+            .config-table input[type="password"],
+            .config-table input[type="number"] {
+                width: 100%;
+                padding: 8px;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                background-color: #1a1a1a;
+                color: #ffffff;
+                box-sizing: border-box;
+            }
+            
+            input[type="text"],
+            input[type="password"],
+            input[type="number"] {
+                width: 100%;
+                padding: 8px;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                background-color: #1a1a1a;
+                color: #ffffff;
+                box-sizing: border-box;
+                text-align: left;
+            }
+            
+            input[type="submit"] { 
+                background-color: #4CAF50; 
+                color: white; 
+                padding: 12px 24px; 
+                border: none; 
+                border-radius: 4px; 
+                cursor: pointer;
+                width: 100%;
+                font-size: 16px;
+            }
+            
+            input[type="submit"]:hover { 
+                background-color: #45a049; 
+            }
+            
+            /* Style dla przycisków wyboru pliku */
+            input[type="file"] {
+                background-color: #1a1a1a;
+                color: #ffffff;
+                padding: 8px;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                width: 100%;
+                cursor: pointer;
+            }
+            
+            input[type="file"]::-webkit-file-upload-button {
+                background-color: #2196F3;
+                color: white;
+                padding: 8px 16px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                margin-right: 10px;
+            }
+            
+            input[type="file"]::-webkit-file-upload-button:hover {
+                background-color: #1976D2;
+            }
+            
+            /* Style komunikatów */
+            .success { 
+                color: #4CAF50; 
+            }
+            
+            .error { 
+                color: #F44336;
+            }
+            
+            .alert { 
+                padding: 15px; 
+                margin-bottom: 20px; 
+                border-radius: 0;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                width: 100%;
+                z-index: 1000;
+                text-align: center;
+                animation: fadeOut 0.5s ease-in-out 5s forwards;
+            }
+            
+            .alert.success { 
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            }
+            
+            /* Style przycisków */
+            .btn {
+                padding: 12px 24px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+                width: calc(50% - 10px);
+                display: inline-block;
+                margin: 5px;
+                text-align: center;
+            }
+            
+            .btn-blue { 
+                background-color: #2196F3;
+                color: white; 
+            }
+            
+            .btn-red { 
+                background-color: #F44336;
+                color: white; 
+            }
+            
+            .btn-orange {
+                background-color: #FF9800 !important;
+                color: white !important;
+            }
+            
+            .btn-orange:hover {
+                background-color: #F57C00 !important;
+            }
+            /* Style konsoli i komunikatów */
             .console {
-                height: 150px;
+                background-color: #1a1a1a;
+                color: #ffffff;
+                padding: 15px;
+                border-radius: 4px;
+                font-family: monospace;
+                height: 200px;
+                overflow-y: auto;
+                margin-top: 10px;
+                border: 1px solid #3d3d3d;
             }
-        }
+            
+            .footer {
+                background-color: #2d2d2d;
+                padding: 20px;
+                margin-top: 20px;
+                border-radius: 8px;
+                text-align: center;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            }
+            
+            .footer a {
+                display: inline-block;
+                background-color: #2196F3;
+                color: white;
+                text-decoration: underline;
+                padding: 12px 24px;
+                border-radius: 4px;
+                font-weight: normal;
+                transition: background-color 0.3s;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            
+            .footer a:hover {
+                background-color: #1976D2;
+            }
+            
+            /* Style paska postępu */
+            .progress {
+                width: 100%;
+                background-color: #1a1a1a;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                padding: 3px;
+                margin-top: 15px;
+            }
+            
+            .progress-bar {
+                width: 0%;
+                height: 20px;
+                background-color: #4CAF50;
+                border-radius: 2px;
+                transition: width 0.3s ease-in-out;
+                text-align: center;
+                color: white;
+                line-height: 20px;
+            }
+            
+            /* Style komunikatów wyskakujących */
+            .message {
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                padding: 15px 30px;
+                border-radius: 5px;
+                color: white;
+                opacity: 0;
+                transition: opacity 0.3s ease-in-out;
+                z-index: 1000;
+            }
+            
+            .message.success {
+                background-color: #4CAF50;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            }
+            
+            .message.error {
+                background-color: #f44336;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            }
+            
+            /* Style responsywne */
+            @media (max-width: 600px) {
+                body {
+                    padding: 10px;
+                }
+                .container {
+                    padding: 0;
+                }
+                .section {
+                    padding: 15px;
+                    margin-bottom: 15px;
+                }
+                .console {
+                    height: 150px;
+                }
+            }
+        </style>
 
-.progress {
-            width: 100%;
-            background-color: #1a1a1a;
-            border: 1px solid #3d3d3d;
-            border-radius: 4px;
-            padding: 3px;
-            margin-top: 15px;
-        }
-
-        .progress-bar {
-            width: 0%;
-            height: 20px;
-            background-color: #4CAF50;
-            border-radius: 2px;
-            transition: width 0.3s ease-in-out;
-            text-align: center;
-            color: white;
-            line-height: 20px;
-        }
-
-        .message {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 15px 30px;
-            border-radius: 5px;
-            color: white;
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out;
-            z-index: 1000;
-        }
-
-        .message.success {
-            background-color: #4CAF50;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-
-        .message.error {
-            background-color: #f44336;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-    </style>
-    <script>
-        function confirmReset() {
-            return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień.');
-        }
-
-<script>
-        function rebootDevice() {
-            if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {
-                fetch('/reboot', {method: 'POST'}).then(() => {
-                    showMessage('Urządzenie zostanie zrestartowane...', 'success');
-                    setTimeout(() => { window.location.reload(); }, 3000);
+        <!-- Skrypty JavaScript -->
+        <script>
+            // Funkcje pomocnicze
+            function confirmReset() {
+                return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień!');
+            }
+            
+            // Funkcja wyświetlająca komunikaty
+            function showMessage(text, type) {
+                // Usuń istniejące komunikaty
+                var oldMessages = document.querySelectorAll('.message');
+                oldMessages.forEach(function(msg) {
+                    msg.remove();
                 });
-            }
-        }
-
-        function factoryReset() {
-            if(confirmReset()) {
-                fetch('/factory-reset', {method: 'POST'}).then(() => {
-                    showMessage('Przywracanie ustawień fabrycznych...', 'success');
-                    setTimeout(() => { window.location.reload(); }, 3000);
-                });
-            }
-        }
-
-        function showMessage(text, type) {
-            var oldMessages = document.querySelectorAll('.message');
-            oldMessages.forEach(function(msg) {
-                msg.remove();
-            });
-            
-            var messageBox = document.createElement('div');
-            messageBox.className = 'message ' + type;
-            messageBox.innerHTML = text;
-            document.body.appendChild(messageBox);
-            
-            setTimeout(function() {
-                messageBox.style.opacity = '1';
-            }, 10);
-            
-            setTimeout(function() {
-                messageBox.style.opacity = '0';
-                setTimeout(function() {
-                    messageBox.remove();
-                }, 300);
-            }, 3000);
-        }
-
-        var socket;
-        window.onload = function() {
-                document.querySelector('form[action="/save"]').addEventListener('submit', function(e) {
-                e.preventDefault();
                 
-                var formData = new FormData(this);
-                fetch('/save', {
-                    method: 'POST',
-                    body: formData
-                }).then(response => {
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-                }).catch(error => {
-                    showMessage('Błąd podczas zapisywania!', 'error');
+                // Stwórz i dodaj nowy komunikat
+                var messageBox = document.createElement('div');
+                messageBox.className = 'message ' + type;
+                messageBox.innerHTML = text;
+                document.body.appendChild(messageBox);
+                
+                // Animacja pokazywania
+                setTimeout(function() {
+                    messageBox.style.opacity = '1';
+                }, 10);
+                
+                // Animacja ukrywania
+                setTimeout(function() {
+                    messageBox.style.opacity = '0';
+                    setTimeout(function() {
+                        messageBox.remove();
+                    }, 300);
+                }, 3000);
+            }
+            // Funkcje zarządzania urządzeniem
+            function rebootDevice() {
+                if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {
+                    fetch('/reboot', {method: 'POST'})
+                        .then(() => {
+                            showMessage('Urządzenie zostanie zrestartowane...', 'success');
+                            setTimeout(() => { 
+                                window.location.reload(); 
+                            }, 3000);
+                        });
+                }
+            }
+            
+            function factoryReset() {
+                if(confirmReset()) {
+                    fetch('/factory-reset', {method: 'POST'})
+                        .then(() => {
+                            showMessage('Przywracanie ustawień fabrycznych...', 'success');
+                            setTimeout(() => { 
+                                window.location.reload(); 
+                            }, 3000);
+                        });
+                }
+            }
+            
+            // Inicjalizacja i obsługa WebSocket
+            var socket;
+            window.onload = function() {
+                // Obsługa formularza
+                document.querySelector('form[action="/save"]').addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    var formData = new FormData(this);
+                    fetch('/save', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                    })
+                    .catch(error => {
+                        showMessage('Błąd podczas zapisywania!', 'error');
+                    });
                 });
-            });
-
-            socket = new WebSocket('ws://' + window.location.hostname + ':81/');
-            socket.onmessage = function(event) {
+            
+                // Inicjalizacja WebSocket
+                socket = new WebSocket('ws://' + window.location.hostname + ':81/');
+                socket.onmessage = handleWebSocketMessage;
+                
+                // Dodanie obsługi błędów WebSocket
+                socket.onerror = function(error) {
+                    console.error('Błąd WebSocket:', error);
+                    showMessage('Błąd połączenia WebSocket', 'error');
+                };
+                
+                socket.onclose = function() {
+                    console.log('Połączenie WebSocket zostało zamknięte');
+                    showMessage('Połączenie zostało zamknięte', 'error');
+                };
+            };
+            
+            // Obsługa wiadomości WebSocket
+            function handleWebSocketMessage(event) {
                 var message = event.data;
                 
                 if (message.startsWith('update:')) {
-                    if (message.startsWith('update:error:')) {
-                        document.getElementById('update-progress').style.display = 'none';
-                        showMessage(message.split(':')[2], 'error');
-                        return;
-                    }
-                    
-                    var percentage = message.split(':')[1];
-                    document.getElementById('update-progress').style.display = 'block';
-                    document.getElementById('progress-bar').style.width = percentage + '%';
-                    document.getElementById('progress-bar').textContent = percentage + '%';
-                    
-                    if (percentage == '100') {
-                        document.getElementById('update-progress').style.display = 'none';
-                        showMessage('Aktualizacja zakończona pomyślnie! Trwa restart urządzenia...', 'success');
-                        setTimeout(function() {
-                            window.location.reload();
-                        }, 3000);
-                    }
+                    handleUpdateMessage(message);
                 } 
                 else if (message.startsWith('save:')) {
-                    var parts = message.split(':');
-                    var type = parts[1];
-                    var text = parts[2];
-                    showMessage(text, type);
+                    handleSaveMessage(message);
                 }
                 else {
-                    var console = document.getElementById('console');
-                    console.innerHTML += message + '<br>';
-                    console.scrollTop = console.scrollHeight;
+                    updateConsole(message);
                 }
-            };
-        };
-    </script>
-</head>
-<body>
-    <h1>HydroSense</h1>
-    
-    <div class='section'>
-        <h2>Status systemu</h2>
-        <table class='config-table'>
-            <tr>
-                <td>Status MQTT</td>
-                <td><span class='status %MQTT_STATUS_CLASS%'>%MQTT_STATUS%</span></td>
-            </tr>
-            <tr>
-                <td>Status dźwięku</td>
-                <td><span class='status %SOUND_STATUS_CLASS%'>%SOUND_STATUS%</span></td>
-            </tr>
-            <tr>
-                <td>Wersja oprogramowania</td>
-                <td>%SOFTWARE_VERSION%</td>
-            </tr>
-        </table>
-    </div>
-
-    %BUTTONS%
-    %CONFIG_FORMS%
-    %UPDATE_FORM%
-    %CONSOLE_SECTION%
-    %FOOTER%
-    
-    <script>
-    function confirmReset() {
-        return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień.');
-    }
-
-    function rebootDevice() {
-        if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {
-            fetch('/reboot', {method: 'POST'}).then(() => {
-                showMessage('Urządzenie zostanie zrestartowane...', 'success');
-                setTimeout(() => { window.location.reload(); }, 3000);
-            });
-        }
-    }
-
-    function factoryReset() {
-        if(confirmReset()) {
-            fetch('/factory-reset', {method: 'POST'}).then(() => {
-                showMessage('Przywracanie ustawień fabrycznych...', 'success');
-                setTimeout(() => { window.location.reload(); }, 3000);
-            });
-        }
-    }
-
-    // Funkcja do wyświetlania komunikatów
-    function showMessage(text, type) {
-        // Usuń poprzednie komunikaty
-        var oldMessages = document.querySelectorAll('.message');
-        oldMessages.forEach(function(msg) {
-            msg.remove();
-        });
-        
-        var messageBox = document.createElement('div');
-        messageBox.className = 'message ' + type;
-        messageBox.innerHTML = text;
-        document.body.appendChild(messageBox);
-        
-        // Animacja pojawienia się
-        setTimeout(function() {
-            messageBox.style.opacity = '1';
-        }, 10);
-        
-        // Ukryj komunikat po 3 sekundach
-        setTimeout(function() {
-            messageBox.style.opacity = '0';
-            setTimeout(function() {
-                messageBox.remove();
-            }, 300);
-        }, 3000);
-    }
-
-    var socket;
-    window.onload = function() {
-        // Obsługa formularza zapisu
-        document.querySelector('form[action="/save"]').addEventListener('submit', function(e) {
-            e.preventDefault();
+            }
             
-            var formData = new FormData(this);
-            fetch('/save', {
-                method: 'POST',
-                body: formData
-            }).then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-            }).catch(error => {
-                showMessage('Błąd podczas zapisywania!', 'error');
-            });
-        });
-
-        socket = new WebSocket('ws://' + window.location.hostname + ':81/');
-        socket.onmessage = function(event) {
-            var message = event.data;
-            
-            if (message.startsWith('update:')) {
-                // Sprawdź czy to komunikat o błędzie
+            // Obsługa wiadomości aktualizacji
+            function handleUpdateMessage(message) {
                 if (message.startsWith('update:error:')) {
                     document.getElementById('update-progress').style.display = 'none';
                     showMessage(message.split(':')[2], 'error');
                     return;
                 }
                 
-                // Normalna obsługa aktualizacji
                 var percentage = message.split(':')[1];
+                var progressBar = document.getElementById('progress-bar');
                 document.getElementById('update-progress').style.display = 'block';
-                document.getElementById('progress-bar').style.width = percentage + '%';
-                document.getElementById('progress-bar').textContent = percentage + '%';
+                progressBar.style.width = percentage + '%';
+                progressBar.textContent = percentage + '%';
                 
                 if (percentage == '100') {
                     document.getElementById('update-progress').style.display = 'none';
@@ -1579,25 +1513,53 @@ input[type="file"] {
                         window.location.reload();
                     }, 3000);
                 }
-            } 
-            else if (message.startsWith('save:')) {
-                var parts = message.split(':');
-                var type = parts[1];
-                var text = parts[2];
-                showMessage(text, type);
             }
-            else {
+            
+            // Obsługa wiadomości zapisywania
+            function handleSaveMessage(message) {
+                var parts = message.split(':');
+                showMessage(parts[2], parts[1]);
+            }
+            
+            // Aktualizacja konsoli
+            function updateConsole(message) {
                 var console = document.getElementById('console');
                 console.innerHTML += message + '<br>';
                 console.scrollTop = console.scrollHeight;
             }
-        };
-    };
-    </script>
-</body>
+        </script>
+    </head>
+    <body>
+        <h1>HydroSense</h1>
+        
+        <div class='section'>
+            <h2>Status systemu</h2>
+            <table class='config-table'>
+                <tr>
+                    <td>Status MQTT</td>
+                    <td><span class='status %MQTT_STATUS_CLASS%'>%MQTT_STATUS%</span></td>
+                </tr>
+                <tr>
+                    <td>Status dźwięku</td>
+                    <td><span class='status %SOUND_STATUS_CLASS%'>%SOUND_STATUS%</span></td>
+                </tr>
+                <tr>
+                    <td>Wersja oprogramowania</td>
+                    <td>%SOFTWARE_VERSION%</td>
+                </tr>
+            </table>
+        </div>
+    
+        <!-- Sekcje dynamiczne -->
+        %BUTTONS%
+        %CONFIG_FORMS%
+        %UPDATE_FORM%
+        %FOOTER%
+    </body>
 </html>
 )rawliteral";
 
+//
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
@@ -1636,7 +1598,6 @@ String getConfigPage() {
     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
     html.replace("%BUTTONS%", buttons);
     html.replace("%UPDATE_FORM%", FPSTR(UPDATE_FORM));
-    html.replace("%CONSOLE_SECTION%", FPSTR(CONSOLE_SECTION)); // Dodaj tę linię
     html.replace("%FOOTER%", FPSTR(PAGE_FOOTER));
     html.replace("%MESSAGE%", "");
 
