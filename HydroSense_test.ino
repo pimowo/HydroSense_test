@@ -1066,12 +1066,13 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             padding: 0 15px;
         }
 
-        .section { 
-            background-color: #2d2d2d; 
-            padding: 20px; 
-            margin-bottom: 20px; 
+        .section {
+            background-color: #2a2a2a;
+            padding: 20px;
+            margin-bottom: 20px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            width: 100%;
+            box-sizing: border-box;
         }
 
         h1 { 
@@ -1103,13 +1104,12 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 
         .config-table td {
             padding: 8px;
-            vertical-align: middle;
         }
 
         .config-table {
             width: 100%;
-            table-layout: fixed;
             border-collapse: collapse;
+            table-layout: fixed;
         }
 
         .config-table td:first-child {
@@ -1122,7 +1122,8 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 
         .config-table input[type="text"],
         .config-table input[type="password"],
-        .config-table input[type="number"] {
+        .config-table input[type="number"],
+        .config-table input[type="file"] {
             width: 100%;
             padding: 8px;
             border: 1px solid #3d3d3d;
@@ -1130,7 +1131,6 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #1a1a1a;
             color: #ffffff;
             box-sizing: border-box;
-            text-align: left;
         }
 
         input[type="text"],
@@ -1231,7 +1231,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #2196F3;
             color: white; 
         }
-        
+
         .btn-red { 
             background-color: #F44336;
             color: white; 
@@ -1282,11 +1282,6 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 
         .footer a:hover {
             background-color: #1976D2;
-        }
-
-        .section {
-            margin-bottom: 20px;
-            width: 100%;
         }
 
         @media (max-width: 600px) {
@@ -1475,63 +1470,81 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
+    // Ustawienia MQTT
+    html.replace("%MQTT_SERVER%", config.mqtt_server);
+    html.replace("%MQTT_PORT%", String(config.mqtt_port));
+    html.replace("%MQTT_USER%", config.mqtt_user);
+    html.replace("%MQTT_PASSWORD%", config.mqtt_password);
+    
     // Status systemu
     bool mqttConnected = client.connected();
     html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
     html.replace("%MQTT_STATUS_CLASS%", mqttConnected ? "success" : "error");
+    
     html.replace("%SOUND_STATUS%", config.soundEnabled ? "Włączony" : "Wyłączony");
     html.replace("%SOUND_STATUS_CLASS%", config.soundEnabled ? "success" : "error");
+    
     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
 
-    // Przyciski
+    // Sekcja przycisków
     String buttons = F("<div class='section'>"
                       "<div class='buttons-container'>"
                       "<button class='btn btn-blue' onclick='rebootDevice()'>Restart urządzenia</button>"
                       "<button class='btn btn-red' onclick='factoryReset()'>Przywróć ustawienia fabryczne</button>"
                       "</div>"
                       "</div>");
-    
-    // Formularze
+    html.replace("%BUTTONS%", buttons);
+
+    // Formularze konfiguracyjne
     String configForms = F("<form method='POST' action='/save'>");
     
     // MQTT
     configForms += F("<div class='section'>"
                      "<h2>Konfiguracja MQTT</h2>"
-                     "<table class='config-table'>");
-    configForms += "<tr><td>Serwer</td><td><input type='text' name='mqtt_server' value='" + String(config.mqtt_server) + "'></td></tr>";
-    configForms += "<tr><td>Port</td><td><input type='number' name='mqtt_port' value='" + String(config.mqtt_port) + "'></td></tr>";
-    configForms += "<tr><td>Użytkownik</td><td><input type='text' name='mqtt_user' value='" + String(config.mqtt_user) + "'></td></tr>";
-    configForms += "<tr><td>Hasło</td><td><input type='password' name='mqtt_password' value='" + String(config.mqtt_password) + "'></td></tr>";
-    configForms += F("</table></div>");
-
+                     "<table class='config-table'>"
+                     "<tr><td>Serwer</td><td><input type='text' name='mqtt_server' value='%MQTT_SERVER%'></td></tr>"
+                     "<tr><td>Port</td><td><input type='number' name='mqtt_port' value='%MQTT_PORT%'></td></tr>"
+                     "<tr><td>Użytkownik</td><td><input type='text' name='mqtt_user' value='%MQTT_USER%'></td></tr>"
+                     "<tr><td>Hasło</td><td><input type='password' name='mqtt_password' value='%MQTT_PASSWORD%'></td></tr>"
+                     "</table></div>");
+    
     // Zbiornik
+    String tankEmpty = String(config.tank_empty);
+    String tankFull = String(config.tank_full);
+    String reserveLevel = String(config.reserve_level);
+    String tankDiameter = String(config.tank_diameter);
+    
     configForms += F("<div class='section'>"
                      "<h2>Ustawienia zbiornika</h2>"
                      "<table class='config-table'>");
-    configForms += "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='" + String(config.tank_empty) + "'></td></tr>";
-    configForms += "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='" + String(config.tank_full) + "'></td></tr>";
-    configForms += "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='" + String(config.reserve_level) + "'></td></tr>";
-    configForms += "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='" + String(config.tank_diameter) + "'></td></tr>";
+    configForms += "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='" + tankEmpty + "'></td></tr>";
+    configForms += "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='" + tankFull + "'></td></tr>";
+    configForms += "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='" + reserveLevel + "'></td></tr>";
+    configForms += "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='" + tankDiameter + "'></td></tr>";
     configForms += F("</table></div>");
-
+    
     // Pompa
+    String pumpDelay = String(config.pump_delay);
+    String pumpWorkTime = String(config.pump_work_time);
+    
     configForms += F("<div class='section'>"
                      "<h2>Ustawienia pompy</h2>"
                      "<table class='config-table'>");
-    configForms += "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='" + String(config.pump_delay) + "'></td></tr>";
-    configForms += "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='" + String(config.pump_work_time) + "'></td></tr>";
+    configForms += "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='" + pumpDelay + "'></td></tr>";
+    configForms += "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='" + pumpWorkTime + "'></td></tr>";
     configForms += F("</table></div>");
-
-    // Przycisk zapisu
+    
     configForms += F("<div class='section'>"
                      "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
                      "</div></form>");
-
-    // Aktualizacja firmware
+    
+    html.replace("%CONFIG_FORMS%", configForms);
+    
+    // Formularz aktualizacji
     String updateForm = F("<div class='section'>"
                          "<h2>Aktualizacja firmware</h2>"
                          "<form method='POST' action='/update' enctype='multipart/form-data'>"
-                         "<table style='margin-bottom: 15px;'>"
+                         "<table class='config-table' style='margin-bottom: 15px;'>"
                          "<tr><td colspan='2'><input type='file' name='update' accept='.bin'></td></tr>"
                          "</table>"
                          "<input type='submit' value='Aktualizuj firmware' class='btn btn-orange'>"
@@ -1542,19 +1555,16 @@ String getConfigPage() {
                          "</div>"
                          "</div>"
                          "</div>");
-
-    // Stopka z poprawionym tekstem i linkiem
+    html.replace("%UPDATE_FORM%", updateForm);
+    
+    // Stopka
     String footer = F("<div class='footer'>"
                      "<a href='https://github.com/pimowo/HydroSense' target='_blank'>Project by PMW</a>"
                      "</div>");
-
-    // Zastąp placeholdery
-    html.replace("%BUTTONS%", buttons);
-    html.replace("%CONFIG_FORMS%", configForms);
-    html.replace("%UPDATE_FORM%", updateForm);
     html.replace("%FOOTER%", footer);
+    
     html.replace("%MESSAGE%", "");
-
+    
     return html;
 }
 
