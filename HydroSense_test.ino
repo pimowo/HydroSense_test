@@ -1317,6 +1317,66 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 // Obsługa strony www
+// String getConfigPage() {
+//     String html = FPSTR(CONFIG_PAGE);
+    
+//     // Dodaj skrypt JavaScript do obsługi komunikatu
+//     String script = F("<script>"
+//                      "window.onload = function() {"
+//                      "  const urlParams = new URLSearchParams(window.location.search);"
+//                      "  if (urlParams.has('success')) {"
+//                      "    const alertDiv = document.createElement('div');"
+//                      "    alertDiv.className = 'alert success';"
+//                      "    alertDiv.textContent = 'Konfiguracja została zapisana pomyślnie!';"
+//                      "    document.body.insertBefore(alertDiv, document.body.firstChild);"
+//                      "    window.history.replaceState({}, '', window.location.pathname);"
+//                      "  }"
+//                      "};"
+//                      "</script>");
+    
+//     // Dodaj skrypt przed zamknięciem </head>
+//     html.replace("</head>", script + "</head>");
+    
+//     // Status systemu
+//     bool mqttConnected = mqtt.isConnected();
+//     html.replace("%MQTT_STATUS%", mqttConnected ? "Połączony" : "Rozłączony");
+//     html.replace("%MQTT_STATUS_CLASS%", mqttConnected ? "success" : "error");
+    
+//     html.replace("%SOUND_STATUS%", config.soundEnabled ? "Włączony" : "Wyłączony");
+//     html.replace("%SOUND_STATUS_CLASS%", config.soundEnabled ? "success" : "error");
+    
+//     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
+
+//     // Sekcja przycisków
+//     String buttons = F("<div class='section'>"
+//                       "<button class='btn btn-blue' onclick='()'>Reboot</button>"
+//                       "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
+//                       <div class='footer' style='position: fixed; left: 0; bottom: 0; width: 100%; background-color: #333; color: #1E90FF; text-align: center; padding: 10px 0; font-family: Arial, sans-serif; font-size: 16px;'>Project by PMW</div>
+//                       </body>
+//     html.replace("%BUTTONS%", buttons);
+
+//     // Ustawienia MQTT
+//     html.replace("%MQTT_SERVER%", config.mqtt_server);
+//     html.replace("%MQTT_PORT%", String(config.mqtt_port));
+//     html.replace("%MQTT_USER%", config.mqtt_user);
+//     html.replace("%MQTT_PASSWORD%", config.mqtt_password);
+    
+//     // Ustawienia zbiornika
+//     html.replace("%TANK_FULL%", String(config.tank_full));
+//     html.replace("%TANK_EMPTY%", String(config.tank_empty));
+//     html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
+//     html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
+    
+//     // Ustawienia pompy
+//     html.replace("%PUMP_DELAY%", String(config.pump_delay));
+//     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
+    
+//     // Usuń stary placeholder dla wiadomości
+//     html.replace("%MESSAGE%", "");
+    
+//     return html;
+// }
+
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
@@ -1347,12 +1407,18 @@ String getConfigPage() {
     
     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
 
-    // Sekcja przycisków
+    // Sekcja przycisków - użyj pojedynczego F() dla całej sekcji
     String buttons = F("<div class='section'>"
-                      "<button class='btn btn-blue' onclick='()'>Reboot</button>"
+                      "<button class='btn btn-blue' onclick='reboot()'>Reboot</button>"
                       "<button class='btn btn-red' onclick='factoryReset()'>Ustawienia fabryczne</button>"
                       "</div>");
     html.replace("%BUTTONS%", buttons);
+
+    // Dodaj stopkę - bez użycia F()
+    String footer = "<div class='footer' style='position: fixed; left: 0; bottom: 0; width: 100%; "
+                  "background-color: #1E90FF; color: white; text-align: center; padding: 10px 0; "
+                  "font-family: Arial, sans-serif; font-size: 16px; margin: 0; height: 40px;'>Project by PMW</div>";
+    html.replace("</body>", footer + "</body>");
 
     // Ustawienia MQTT
     html.replace("%MQTT_SERVER%", config.mqtt_server);
