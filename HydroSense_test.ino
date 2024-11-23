@@ -17,7 +17,7 @@ ESP8266WebServer server(80);  // Tworzenie instancji serwera HTTP na porcie 80
 WebSocketsServer webSocket = WebSocketsServer(81);  // Tworzenie instancji serwera WebSockets na porcie 81
 
 // Wersja systemu
-const char* SOFTWARE_VERSION = "22.11.24";  // Definiowanie wersji oprogramowania
+const char* SOFTWARE_VERSION = "23.11.24";  // Definiowanie wersji oprogramowania
 
 // Konfiguracja pinów ESP8266
 const int PIN_ULTRASONIC_TRIG = D6;  // Pin TRIG czujnika ultradźwiękowego
@@ -1101,16 +1101,29 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             border-bottom: 1px solid #3d3d3d;
         }
 
-        input[type="text"], 
-        input[type="password"], 
-        input[type="number"] { 
+        .config-table {
             width: 100%;
-            max-width: 200px;
-            padding: 8px; 
+        }
+
+        .config-table td:first-child {
+            width: 60%; /* Pierwsza kolumna z etykietami */
+        }
+
+        .config-table td:last-child {
+            width: 40%; /* Druga kolumna z inputami */
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="number"] {
+            width: 100%; /* Zmiana z max-width na width */
+            padding: 8px;
             border: 1px solid #3d3d3d;
             border-radius: 4px;
             background-color: #1a1a1a;
             color: #ffffff;
+            box-sizing: border-box;
+            text-align: right; /* Dodane */
         }
 
         input[type="submit"] { 
@@ -1224,7 +1237,7 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             border: 1px solid #3d3d3d;
         }
 
-        .footer { 
+        .footer {
             background-color: #2d2d2d;
             padding: 20px;
             margin-top: 20px;
@@ -1242,6 +1255,8 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             border-radius: 4px;
             font-weight: normal;
             transition: background-color 0.3s;
+            width: 100%; /* Dodane */
+            box-sizing: border-box; /* Dodane */
         }
 
         .footer a:hover {
@@ -1459,15 +1474,42 @@ String getConfigPage() {
                       "</div>");
     html.replace("%BUTTONS%", buttons);
 
-    // Ustawienia zbiornika
-    html.replace("%TANK_FULL%", String(config.tank_full));
-    html.replace("%TANK_EMPTY%", String(config.tank_empty));
-    html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
-    html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
+    // Formularze konfiguracyjne
+    String configForms = F("<form method='POST' action='/save'>"
+                          // MQTT
+                          "<div class='section'>"
+                          "<h2>Konfiguracja MQTT</h2>"
+                          "<table class='config-table'>"
+                          "<tr><td>Serwer</td><td><input type='text' name='mqtt_server' value='%MQTT_SERVER%'></td></tr>"
+                          "<tr><td>Port</td><td><input type='number' name='mqtt_port' value='%MQTT_PORT%'></td></tr>"
+                          "<tr><td>Użytkownik</td><td><input type='text' name='mqtt_user' value='%MQTT_USER%'></td></tr>"
+                          "<tr><td>Hasło</td><td><input type='password' name='mqtt_password' value='%MQTT_PASSWORD%'></td></tr>"
+                          "</table>"
+                          "</div>"
+                          // Zbiornik
+                          "<div class='section'>"
+                          "<h2>Ustawienia zbiornika</h2>"
+                          "<table class='config-table'>"
+                          "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='%TANK_EMPTY%'></td></tr>"
+                          "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='%TANK_FULL%'></td></tr>"
+                          "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='%RESERVE_LEVEL%'></td></tr>"
+                          "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='%TANK_DIAMETER%'></td></tr>"
+                          "</table>"
+                          "</div>"
+                          // Pompa
+                          "<div class='section'>"
+                          "<h2>Ustawienia pompy</h2>"
+                          "<table class='config-table'>"
+                          "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='%PUMP_DELAY%'></td></tr>"
+                          "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='%PUMP_WORK_TIME%'></td></tr>"
+                          "</table>"
+                          "</div>"
+                          "<div class='section'>"
+                          "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
+                          "</div>"
+                          "</form>");
     
-    // Ustawienia pompy
-    html.replace("%PUMP_DELAY%", String(config.pump_delay));
-    html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
+    html.replace("%CONFIG_FORMS%", configForms);
     
     // Formularz aktualizacji
     String updateForm = F("<div class='section'>"
@@ -1487,6 +1529,12 @@ String getConfigPage() {
                          "</div>"
                          "</div>");
     html.replace("%UPDATE_FORM%", updateForm);
+    
+    // Stopka
+    String footer = F("<div class='footer'>"
+                     "<a href='https://github.com/pimowo' target='_blank'>Project by PMW</a>"
+                     "</div>");
+    html.replace("%FOOTER%", footer);
     
     // Usuń placeholder dla wiadomości
     html.replace("%MESSAGE%", "");
@@ -1572,30 +1620,6 @@ void handleSave() {
     server.sendHeader("Location", "/?success=true");
     server.send(303);
 }
-
-// void handleDoUpdate() {
-//     HTTPUpload& upload = server.upload();
-    
-//     if(upload.status == UPLOAD_FILE_START) {
-//         Serial.printf("Update: %s\n", upload.filename.c_str());
-//         //if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-//         if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) {  
-//             Update.printError(Serial);
-//         }
-//     } 
-//     else if(upload.status == UPLOAD_FILE_WRITE) {
-//         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-//             Update.printError(Serial);
-//         }
-//     } 
-//     else if(upload.status == UPLOAD_FILE_END) {
-//         if (Update.end(true)) {
-//             Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
-//         } else {
-//             Update.printError(Serial);
-//         }
-//     }
-// }
 
 void handleDoUpdate() {
     HTTPUpload& upload = server.upload();
