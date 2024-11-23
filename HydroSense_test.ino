@@ -46,7 +46,7 @@ const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Próba połączenia MQTT co
 //#define EEPROM_SOUND_STATE_ADDR 0    // Adres przechowywania stanu dźwięku
 
 // Definicja debugowania
-#define DEBUG 0  // 0 wyłącza debug, 1 włącza debug
+#define DEBUG 1  // 0 wyłącza debug, 1 włącza debug
 
 #if DEBUG
     #define DEBUG_PRINT(x) Serial.println(x)
@@ -1112,6 +1112,32 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
         input[type="submit"]:hover { 
             background-color: #45a049; 
         }
+
+        /* Style dla przycisku wyboru pliku */
+        input[type="file"] {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            padding: 8px;
+            border: 1px solid #3d3d3d;
+            border-radius: 4px;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        input[type="file"]::-webkit-file-upload-button {
+            background-color: #2196F3;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        input[type="file"]::-webkit-file-upload-button:hover {
+            background-color: #1976D2;
+        }
+
         .success { 
             color: #4CAF50; 
         }
@@ -1154,10 +1180,16 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             background-color: #F44336;
             color: white; 
         }
+
         .btn-orange {
-            background-color: #FF9800;
-            color: white;
+            background-color: #FF9800 !important; /* Pomarańczowy z palety Google */
+            color: white !important;
         }
+
+        .btn-orange:hover {
+            background-color: #F57C00 !important; /* Ciemniejszy odcień */
+        }
+
         .console {
             background-color: #1a1a1a;
             color: #ffffff;
@@ -1169,18 +1201,24 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
             margin-top: 10px;
             border: 1px solid #3d3d3d;
         }
-        .footer {
+
+        .footer { 
+            background-color: #2d2d2d;
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 8px;
             text-align: center;
-            padding: 20px 0;
-            color: #757575;
-            font-size: 0.9em;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
+
         .footer a {
             color: #2196F3;
             text-decoration: none;
+            font-weight: bold;
         }
+
         .footer a:hover {
-            text-decoration: underline;
+            color: #64B5F6;
         }
         @media (max-width: 600px) {
             body {
@@ -1197,6 +1235,23 @@ const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
                 height: 150px;
             }
         }
+
+        /* Dodatkowe style dla progress bara */
+        .progress {
+            background-color: #1a1a1a;
+            border-radius: 4px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            background-color: #FF9800;
+            color: white;
+            text-align: center;
+            padding: 5px;
+            transition: width 0.3s ease;
+        }
+
     </style>
     <script>
     function confirmReset() {
@@ -1388,17 +1443,12 @@ String getConfigPage() {
     String updateForm = F("<div class='section'>"
                          "<h2>Aktualizacja firmware</h2>"
                          "<form method='POST' action='/update' enctype='multipart/form-data'>"
-                         "<table>"
+                         "<table style='margin-bottom: 15px;'>"
                          "<tr>"
-                         "<td>Plik .bin:</td>"
-                         "<td><input type='file' name='update' accept='.bin'></td>"
-                         "</tr>"
-                         "<tr>"
-                         "<td colspan='2'>"
-                         "<input type='submit' value='Aktualizuj firmware' class='btn btn-orange'>"
-                         "</td>"
+                         "<td colspan='2'><input type='file' name='update' accept='.bin'></td>"
                          "</tr>"
                          "</table>"
+                         "<input type='submit' value='Aktualizuj firmware' class='btn btn-orange'>"
                          "</form>"
                          "<div id='update-progress' style='display:none'>"
                          "<div class='progress'>"
@@ -1417,57 +1467,6 @@ String getConfigPage() {
 void handleRoot() {
     String content = getConfigPage();
 
-    // // Formularz aktualizacji
-    // content += "<div class='container'>";
-    // content += "<div class='section'>";
-    // content += "<h2>Aktualizacja firmware</h2>";
-    // content += "<form id='updateForm' method='POST' action='/update' enctype='multipart/form-data' style='margin: 20px 0; display: flex; flex-direction: column; gap: 15px;'>";
-    // content += "<div>";
-    // content += "<input type='file' name='update' class='form-control'>";
-    // content += "</div>";
-    // content += "<div>";
-    // content += "<input type='submit' value='Aktualizuj' class='btn btn-orange' id='updateButton'>"; // Dodano id
-    // content += "</div>";
-    // content += "</form>";
-    // content += "<div id='progressWrapper' style='display: none; margin-top: 15px;'>";
-    // content += "<div style='margin-bottom: 5px;'><span id='progressText'>0%</span></div>";
-    // content += "<progress id='progressBar' value='0' max='100' style='width: 100%; height: 20px;'></progress>";
-    // content += "</div>";
-    // content += "</div>";
-    // content += "</div>";
-
-    // // Style z wymuszonymi kolorami
-    // content += "<style>";
-    // content += "#updateButton.btn-orange, .btn-orange { background-color: #F4511E !important; color: white !important; }";
-    // content += "#updateButton.btn-orange:hover, .btn-orange:hover { background-color: #E64A19 !important; }";
-    // content += ".form-control { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }";
-    // content += "progress { -webkit-appearance: none; appearance: none; }";
-    // content += "progress::-webkit-progress-bar { background-color: #f0f0f0; border-radius: 4px; }";
-    // content += "progress::-webkit-progress-value { background-color: #F4511E !important; border-radius: 4px; }";
-    // content += "progress::-moz-progress-bar { background-color: #F4511E !important; border-radius: 4px; }";
-    // content += "</style>";
-
-    // // Konsola
-    // content += "<br><hr><br>";
-    // content += "<h2>Konsola</h2>";
-    // content += "<div id='console' style='height: 300px; overflow-y: scroll; background: #f0f0f0; border: 1px solid #ccc; padding: 10px;'></div>";
-    // content += "<script>";
-    // content += "var socket = new WebSocket('ws://' + window.location.hostname + ':81/');";
-    // content += "socket.onmessage = function(event) {";
-    // content += "var consoleDiv = document.getElementById('console');";
-    // content += "consoleDiv.innerHTML += event.data + '<br>';";
-    // content += "consoleDiv.scrollTop = consoleDiv.scrollHeight;";
-    // content += "};";
-    // content += "</script>";
-
-    // // Project by PMW na końcu
-    // content += "<div style='padding: 20px; margin: 20px 0; border-top: 1px solid #ccc;'>"; // Usunięto background-color, dodano górną linię
-    // content += "<a href='https://github.com/pimowo/HydroSense' target='_blank' ";
-    // content += "style='background-color: #4285f4; color: white; padding: 10px 20px; ";
-    // content += "border: none; border-radius: 4px; cursor: pointer; text-decoration: none; ";
-    // content += "font-family: Arial, sans-serif; display: block; width: 100%; ";
-    // content += "text-align: center; box-sizing: border-box; margin-top: 10px;'>Project by PMW</a></div>";
-    
     server.send(200, "text/html", content);
 }
 
