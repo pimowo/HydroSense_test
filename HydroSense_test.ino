@@ -59,13 +59,6 @@ const char PAGE_FOOTER[] PROGMEM = R"rawliteral(
 </div>
 )rawliteral";
 
-const char CONSOLE_SECTION[] PROGMEM = R"rawliteral(
-<div class="section">
-    <h2>Konsola</h2>
-    <div id="console" class="console"></div>
-</div>
-)rawliteral";
-
 // Definicja debugowania
 #define DEBUG 1  // 0 wyłącza debug, 1 włącza debug
 
@@ -299,10 +292,10 @@ bool loadConfig() {
     if (calculatedChecksum == tempConfig.checksum) {
         // Jeśli suma kontrolna się zgadza, skopiuj dane do głównej struktury config
         memcpy(&config, &tempConfig, sizeof(Config));
-        webSerial.println("Konfiguracja wczytana pomyślnie");
+        DEBUG_PRINT("Konfiguracja wczytana pomyślnie");
         return true;
     } else {
-        webSerial.println("Błąd sumy kontrolnej - ładowanie ustawień domyślnych");
+        DEBUG_PRINT("Błąd sumy kontrolnej - ładowanie ustawień domyślnych");
         setDefaultConfig();
         return false;
     }
@@ -326,9 +319,9 @@ void saveConfig() {
     EEPROM.end();
     
     if (success) {
-        webSerial.println("Konfiguracja zapisana pomyślnie");
+        DEBUG_PRINT("Konfiguracja zapisana pomyślnie");
     } else {
-        webSerial.println("Błąd zapisu konfiguracji!");
+        DEBUG_PRINT("Błąd zapisu konfiguracji!");
     }
 }
 
@@ -465,7 +458,7 @@ void updatePump() {
         sensorPump.setValue("OFF");
         status.pumpSafetyLock = true;
         switchPumpAlarm.setState(true);
-        Serial.println("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
+        DEBUG_PRINT("ALARM: Pompa pracowała za długo - aktywowano blokadę bezpieczeństwa!");
         return;
     }
     
@@ -1694,9 +1687,9 @@ String getConfigPage() {
     
     // Sprawdź, czy wszystkie znaczniki zostały zastąpione
     if (html.indexOf('%') != -1) {
-        Serial.println("Uwaga: Niektóre znaczniki nie zostały zastąpione!");
+        DEBUG_PRINT("Uwaga: Niektóre znaczniki nie zostały zastąpione!");
         int pos = html.indexOf('%');
-        Serial.println(html.substring(pos - 20, pos + 20));
+        DEBUG_PRINT(html.substring(pos - 20, pos + 20));
     }
     
     return html;
@@ -1785,6 +1778,10 @@ void handleSave() {
     server.send(204); // Nie przekierowuj strony
 }
 
+void sendSerialMessage(String message) {
+    Serial.println(message);
+}
+
 void handleDoUpdate() {
     HTTPUpload& upload = server.upload();
     
@@ -1863,32 +1860,15 @@ void setupWebServer() {
     server.begin();
 }
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-    switch(type) {
-        case WStype_DISCONNECTED:
-            Serial.printf("[%u] Rozłączono!\n", num);
-            break;
-        case WStype_CONNECTED:
-            {
-                IPAddress ip = webSocket.remoteIP(num);
-                Serial.printf("[%u] Połączono z %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
-            }
-            break;
-        case WStype_TEXT:
-            // Tutaj możesz dodać obsługę komend przychodzących z przeglądarki
-            break;
-    }
-}
-
 // --- SETUP ---
 void setup() {
     ESP.wdtEnable(WATCHDOG_TIMEOUT);  // Aktywacja watchdoga
     Serial.begin(115200);  // Inicjalizacja portu szeregowego
-    webSerial.println("\nHydroSense start...");  // Komunikat startowy
+    DEBUG_PRINT("\nHydroSense start...");  // Komunikat startowy
     
     // Wczytaj konfigurację na początku
     if (!loadConfig()) {
-        webSerial.println("Błąd wczytywania konfiguracji - używam ustawień domyślnych");
+        DEBUG_PRINT("Błąd wczytywania konfiguracji - używam ustawień domyślnych");
         setDefaultConfig();
         saveConfig();  // Zapisz domyślną konfigurację do EEPROM
     }
@@ -1896,8 +1876,6 @@ void setup() {
     setupPin();  // Ustawienia GPIO
     setupWiFi();  // Nawiązanie połączenia WiFi
     setupWebServer();  // Serwer www
-    webSocket.onEvent(webSocketEvent);
-    webSocket.begin();
 
     // Próba połączenia MQTT
     DEBUG_PRINT("Rozpoczynam połączenie MQTT...");
