@@ -1906,7 +1906,9 @@ void handleSave() {
     // Sprawdź poprawność wartości
     if (!validateConfigValues()) {
         errorMessage = "Nieprawidłowe wartości! Sprawdź wprowadzone dane.";
-        goto handleError;
+        String message = "save:error:" + errorMessage;
+        webSocket.broadcastTXT(message);
+        return;
     }
 
     // Zapisz zatwierdzone dane logowania WWW
@@ -1950,7 +1952,8 @@ void handleSave() {
 
 //handleError:
     config = oldConfig; // Przywróć poprzednie wartości
-    webSocket.broadcastTXT("save:error:" + errorMessage);
+    String message = "save:error:" + errorMessage;
+    webSocket.broadcastTXT(message);
     server.send(204);
 }
 
