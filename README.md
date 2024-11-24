@@ -103,5 +103,67 @@ Ten projekt jest udostępniany na licencji MIT.
 pimowo
 pimowo@gmail.com
 
-**Uwaga**: Ten projekt jest w trakcie rozwoju. Niektóre funkcje mogą ulec zmianie.
+**Uwaga**
+
+ * HydroSense - Mój system monitorowania poziomu wody
+ * Wersja: Wieczna Beta 2.0 (tak, wiem, ciągle Beta...)
+ * Autor: Ja, czyli PMW (Programista Mocno Wannabe) aka @pimowo
+ * Data rozpoczęcia: Gdy Arduino było jeszcze cool...
+ * Ostatnia modyfikacja: 2024-11-24 00:21:21 UTC (tak, nie śpię o tej porze)
+ * 
+ * SZCZERE WYZNANIE AMATORA:
+ * 
+ * Drogi Śmiałku, który odważyłeś się zajrzeć w mój kod!
+ * 
+ * Jestem programistą-amatorem, niedzielnym hobbystą i wiecznym eksperymentatorem.
+ * Bez pomocy AI nawet nie wiedziałbym, gdzie w Arduino jest przycisk 'start'.
+ * Ale hej! Z pomocą GitHub Copilota, Stack Overflow i niezliczonych tutoriali,
+ * stworzyłem system do monitorowania i kontroli poziomu wody z integracją MQTT.
+ * (Tak, sam jestem w szoku, że to działa!)
+ * 
+ * MOJE ZASADY JAKO AMATORA:
+ * - Używasz na własną odpowiedzialność (ja nawet swojego kodu nie rozumiem)
+ * - Jak Ci zaleje dom, nie pisz - będę guglowal jak osuszyć własną piwnicę
+ * - Wsparcie? Jasne! Razem będziemy szukać na Stack Overflow
+ * - Gwarancja? Gwarantuję jedynie, że kod napisał człowiek... chyba
+ * 
+ * AKTUALNY STAN MOJEGO DZIEŁA:
+ * - Działa... ku mojemu wielkiemu zdziwieniu
+ * - Nie działa... zgodnie z oczekiwaniami
+ * - Błędy nazywam "niezamierzonymi funkcjami edukacyjnymi"
+ * - Pracuję nad tym w każdą wolną niedzielę (i czasem w środy, jak żona pozwoli)
+ * 
+ * CZEGO POTRZEBUJESZ:
+ * - Odwagi (dużo odwagi)
+ * - Poczucia humoru (przyda się, serio)
+ * - Zapasu ręczników (mówię z doświadczenia)
+ * - Numeru do hydraulika (polecam mojego - już się przyzwyczaił)
+ * - Cierpliwości do amatora (głównie do mnie)
+ * 
+ * Z CZYM TO WSPÓŁPRACUJE:
+ * - Z Home Assistant (jak AI podpowie jak połączyć)
+ * - Z MQTT (bo brzmi profesjonalnie)
+ * - Ze mną (po trzeciej kawie i wizycie na 10 stronach dokumentacji)
+ * 
+ * SZCZERZE MÓWIĄC:
+ * Jeśli szukasz czegoś pewnego i stabilnego - kup gotowy system.
+ * Jeśli jednak, tak jak ja, lubisz uczyć się na błędach - witaj w moim świecie!
+ * 
+ * PS: Nadal nie wierzę, że czasem to wszystko działa.
+ * Może to zasługa AI, może przypadek, a może jednak się uczę?
+ * 
+ * PPS: Kod powstał przy wsparciu:
+ * - Niezliczonych kubków kawy
+ * - Stack Overflow (mój drugi dom)
+ * - GitHub Copilot (mój prywatny nauczyciel)
+ * - Społeczności Arduino (dzięki za cierpliwość!)
+ * - Dr. Google i Prof. YouTube
+ * 
+ * PPPS: Właśnie czytasz mój kod - witaj w rodzinie!
+ * Razem będziemy się uczyć... głównie na moich błędach.
+ * 
+ * Z pozdrowieniami od wiecznego amatora,
+ * Wasz @pimowo
+ * 
+ * PPPPS: Tak, nadal się uczę jak kończyć komentarze...
 ```
