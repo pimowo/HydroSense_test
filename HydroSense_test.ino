@@ -1161,7 +1161,7 @@ void setupWebServer() {
         handleRoot();
     });
     
-    // Endpoint zapisu z autentykacją
+    // Endpoint zapisu konfiguracji z autentykacją
     server.on("/save", HTTP_POST, []() {
         if (!server.authenticate(config.webUser, config.webPassword)) {
             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
@@ -1177,7 +1177,7 @@ void setupWebServer() {
         handleEvents();
     });
     
-    // Endpoint aktualizacji z autentykacją
+    // Endpoint aktualizacji firmware z autentykacją
     server.on("/update", HTTP_POST, []() {
         if (!server.authenticate(config.webUser, config.webPassword)) {
             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
@@ -1201,13 +1201,13 @@ void setupWebServer() {
         handleChangePassword();
     });
     
-    // Endpoint restartu z autentykacją
+    // Endpoint restartu z autentykacją i opóźnieniem
     server.on("/reboot", HTTP_POST, []() {
         if (!server.authenticate(config.webUser, config.webPassword)) {
             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
         }
-        server.send(200, "application/json", "{\"message\":\"Restarting...\"}");
-        delay(1000);
+        server.send(200, "application/json", "{\"message\":\"Restarting...\",\"success\":true}");
+        delay(1000);  // Daj czas na wysłanie odpowiedzi
         ESP.restart();
     });
     
@@ -1216,11 +1216,12 @@ void setupWebServer() {
         if (!server.authenticate(config.webUser, config.webPassword)) {
             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
         }
-        server.send(200, "application/json", "{\"message\":\"Resetting to factory defaults...\"}");
+        server.send(200, "application/json", "{\"message\":\"Resetting to factory defaults...\",\"success\":true}");
+        delay(200);  // Daj czas na wysłanie odpowiedzi
         factoryReset();
     });
     
-    // Obsługa błędu 404 z autentykacją
+    // Obsługa błędu 404
     server.onNotFound([]() {
         if (!server.authenticate(config.webUser, config.webPassword)) {
             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
@@ -1232,6 +1233,11 @@ void setupWebServer() {
 }
 
 void handleEvents() {
+    // Sprawdź stan połączenia klienta
+    if (!server.client().connected()) {
+        return;
+    }
+  
     String data = "data: {";
     // Status urządzenia
     data += "\"waterLevel\":" + String(status.waterLevelBeforePump, 1) + ",";
@@ -2132,143 +2138,6 @@ void handleRoot() {
 }
 
 //
-// void handleSave() {
-//     // Sprawdzenie metody HTTP
-//     if (server.method() != HTTP_POST) {
-//         server.send(405, "text/plain", "Method Not Allowed");
-//         return;
-//     }
-
-//     // Sprawdzenie autoryzacji
-//     if (!server.authenticate(config.webUser, config.webPassword)) {
-//         return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-//     }
-
-//     // Kopia bezpieczeństwa konfiguracji
-//     Config oldConfig = config;
-//     bool needMqttReconnect = false;
-//     bool needRestart = false;
-//     String errorMessage;
-
-//     // Walidacja danych logowania WWW
-//     String newWebUser = server.arg("webUser");
-//     String newWebPassword = server.arg("webPassword");
-//     String newWebPasswordConfirm = server.arg("webPasswordConfirm");
-
-//     // Sprawdzenie nazwy użytkownika
-//     if (newWebUser.length() > 0) {
-//         if (newWebUser.length() >= sizeof(config.webUser)) {
-//             config = oldConfig;
-//             errorMessage = "Nazwa użytkownika jest za długa";
-//             webSocket.broadcastTXT("save:error:" + errorMessage);
-//             server.send(204);
-//             return;
-//         }
-//         needRestart = true;
-//     }
-
-//     // Sprawdzenie haseł
-//     if (newWebPassword.length() > 0 || newWebPasswordConfirm.length() > 0) {
-//         if (newWebPassword.length() == 0 || newWebPasswordConfirm.length() == 0) {
-//             config = oldConfig;
-//             errorMessage = "Oba pola hasła muszą być wypełnione";
-//             webSocket.broadcastTXT("save:error:" + errorMessage);
-//             server.send(204);
-//             return;
-//         }
-//         if (newWebPassword != newWebPasswordConfirm) {
-//             config = oldConfig;
-//             errorMessage = "Podane hasła nie są identyczne";
-//             webSocket.broadcastTXT("save:error:" + errorMessage);
-//             server.send(204);
-//             return;
-//         }
-//         if (newWebPassword.length() >= sizeof(config.webPassword)) {
-//             config = oldConfig;
-//             errorMessage = "Hasło jest za długie";
-//             webSocket.broadcastTXT("save:error:" + errorMessage);
-//             server.send(204);
-//             return;
-//         }
-//         needRestart = true;
-//     }
-
-//     // Zapisz poprzednie wartości MQTT do porównania
-//     String oldServer = config.mqtt_server;
-//     int oldPort = config.mqtt_port;
-//     String oldUser = config.mqtt_user;
-//     String oldPassword = config.mqtt_password;
-
-//     // Aktualizacja konfiguracji MQTT
-//     strlcpy(config.mqtt_server, server.arg("mqtt_server").c_str(), sizeof(config.mqtt_server));
-//     config.mqtt_port = server.arg("mqtt_port").toInt();
-//     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
-//     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
-    
-//     // Aktualizacja konfiguracji zbiornika
-//     config.tank_full = server.arg("tank_full").toInt();
-//     config.tank_empty = server.arg("tank_empty").toInt();
-//     config.reserve_level = server.arg("reserve_level").toInt();
-//     config.tank_diameter = server.arg("tank_diameter").toInt();
-
-//     // Aktualizacja konfiguracji pompy
-//     config.pump_delay = server.arg("pump_delay").toInt();
-//     config.pump_work_time = server.arg("pump_work_time").toInt();
-
-//     // Walidacja wszystkich wartości
-//     if (!validateConfigValues()) {
-//         config = oldConfig;
-//         errorMessage = "Nieprawidłowe wartości! Sprawdź wprowadzone dane.";
-//         webSocket.broadcastTXT("save:error:" + errorMessage);
-//         server.send(204);
-//         return;
-//     }
-
-//     // Zapisz zatwierdzone dane logowania WWW
-//     if (newWebUser.length() > 0) {
-//         strlcpy(config.webUser, newWebUser.c_str(), sizeof(config.webUser));
-//     }
-//     if (newWebPassword.length() > 0) {
-//         strlcpy(config.webPassword, newWebPassword.c_str(), sizeof(config.webPassword));
-//     }
-
-//     // Sprawdź czy dane MQTT się zmieniły
-//     if (oldServer != config.mqtt_server ||
-//         oldPort != config.mqtt_port ||
-//         oldUser != config.mqtt_user ||
-//         oldPassword != config.mqtt_password) {
-//         needMqttReconnect = true;
-//     }
-
-//     // Zapisz konfigurację
-//     if (!saveConfig()) {
-//         config = oldConfig;
-//         errorMessage = "Błąd zapisu konfiguracji!";
-//         webSocket.broadcastTXT("save:error:" + errorMessage);
-//         server.send(204);
-//         return;
-//     }
-
-//     // Obsługa MQTT jeśli potrzebna
-//     if (needMqttReconnect) {
-//         if (mqtt.isConnected()) {
-//             mqtt.disconnect();
-//         }
-//         connectMQTT();
-//     }
-
-//     // Obsługa restartu jeśli potrzebny
-//     if (needRestart) {
-//         webSocket.broadcastTXT("save:success:Zapisano ustawienia! Urządzenie zostanie zrestartowane...");
-//         server.send(204);
-//         delay(1000);
-//         ESP.restart();
-//     } else {
-//         webSocket.broadcastTXT("save:success:Zapisano ustawienia!");
-//         server.send(204);
-//     }
-// }
-
 void handleSave() {
     // Sprawdzenie metody HTTP
     if (server.method() != HTTP_POST) {
@@ -2599,7 +2468,6 @@ void loop() {
     handleButton();  // Obsługa naciśnięcia przycisku
     checkAlarmConditions();  // Sprawdzenie warunków alarmowych
     server.handleClient();  // Obsługa serwera WWW
-    //webSocket.loop();
 
     // POMIARY I AKTUALIZACJE
     if (currentMillis - timers.lastMeasurement >= MEASUREMENT_INTERVAL) {
