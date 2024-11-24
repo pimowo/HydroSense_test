@@ -1928,7 +1928,8 @@ void handleChangePassword() {
     String newPassword = server.arg("new");
     String confirmPassword = server.arg("confirm");
 
-    if (currentPassword != config.webControlPassword) {
+    // Zmiana z webControlPassword na webPassword
+    if (currentPassword != config.webPassword) {
         server.send(401, "text/plain", "Nieprawidłowe obecne hasło");
         return;
     }
@@ -1943,7 +1944,8 @@ void handleChangePassword() {
         return;
     }
 
-    config.webControlPassword = newPassword;
+    // Zmiana z webControlPassword na webPassword
+    strlcpy(config.webPassword, newPassword.c_str(), sizeof(config.webPassword));
     
     if (!saveConfig()) {
         server.send(500, "text/plain", "Błąd zapisu konfiguracji");
@@ -2081,7 +2083,6 @@ void loop() {
             DEBUG_PRINT(F("MQTT połączono ponownie!"));  // Wydrukuj komunikat debugowania
         }
     }
-} 
-
+}
 //----------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------
