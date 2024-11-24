@@ -27,23 +27,23 @@ const int BUZZER_PIN = D2;           // Pin buzzera do alarmów dźwiękowych
 const int PRZYCISK_PIN = D3;         // Pin przycisku do kasowania alarmów
 
 // Parametry czasowe (wszystkie wartości w milisekundach)
-const unsigned long ULTRASONIC_TIMEOUT = 50;  // Timeout pomiaru czujnika ultradźwiękowego
-const unsigned long MEASUREMENT_INTERVAL = 60000;  // Interwał między pomiarami
-const unsigned long WATCHDOG_TIMEOUT = 8000;  // Timeout dla watchdoga
-const unsigned long LONG_PRESS_TIME = 1000;  // Czas długiego naciśnięcia przycisku
-const unsigned long MQTT_LOOP_INTERVAL = 100;  // Obsługa MQTT co 100ms
-const unsigned long OTA_CHECK_INTERVAL = 1000;  // Sprawdzanie OTA co 1s
-const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Próba połączenia MQTT co 10s
-const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dni
+const unsigned long ULTRASONIC_TIMEOUT = 50;                          // Timeout pomiaru czujnika ultradźwiękowego
+const unsigned long MEASUREMENT_INTERVAL = 60000;                     // Interwał między pomiarami
+const unsigned long WATCHDOG_TIMEOUT = 8000;                          // Timeout dla watchdoga
+const unsigned long LONG_PRESS_TIME = 1000;                           // Czas długiego naciśnięcia przycisku
+const unsigned long MQTT_LOOP_INTERVAL = 100;                         // Obsługa MQTT co 100ms
+const unsigned long OTA_CHECK_INTERVAL = 1000;                        // Sprawdzanie OTA co 1s
+const unsigned long MQTT_RETRY_INTERVAL = 10000;                      // Próba połączenia MQTT co 10s
+const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000;  // ~49.7 dni
 
 // Parametry czujnika
 // Wszystkie odległości w milimetrach od czujnika do powierzchni wody
 // Mniejsza odległość = wyższy poziom wody
-const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
-const int SENSOR_MIN_RANGE = 20;   // Minimalny zakres czujnika (mm)
-const int SENSOR_MAX_RANGE = 1020; // Maksymalny zakres czujnika (mm)
-const float EMA_ALPHA = 0.2f;  // Współczynnik wygładzania dla średniej wykładniczej (0-1)
-const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
+const int HYSTERESIS = 10;          // Histereza przy zmianach poziomu (mm)
+const int SENSOR_MIN_RANGE = 20;    // Minimalny zakres czujnika (mm)
+const int SENSOR_MAX_RANGE = 1020;  // Maksymalny zakres czujnika (mm)
+const float EMA_ALPHA = 0.2f;       // Współczynnik wygładzania dla średniej wykładniczej (0-1)
+const int SENSOR_AVG_SAMPLES = 3;   // Liczba próbek do uśrednienia pomiaru
 
 // Definicja debugowania
 #define DEBUG 1  // 0 wyłącza debug, 1 włącza debug
@@ -92,35 +92,35 @@ struct Config {
 
 // Status urządzenia
 struct Status {
-    bool soundEnabled;  // Flaga wskazująca, czy dźwięk jest włączony
-    bool waterAlarmActive;  // Flaga wskazująca, czy alarm wodny jest aktywny
-    bool waterReserveActive;  // Flaga wskazująca, czy rezerwa wody jest aktywna
-    bool isPumpActive;  // Flaga wskazująca, czy pompa jest aktywna
-    bool isPumpDelayActive;  // Flaga wskazująca, czy opóźnienie pompy jest aktywne
-    bool pumpSafetyLock;  // Flaga wskazująca, czy blokada bezpieczeństwa pompy jest aktywna
-    bool isServiceMode;  // Flaga wskazująca, czy tryb serwisowy jest włączony
-    float waterLevelBeforePump;  // Poziom wody przed uruchomieniem pompy
-    unsigned long pumpStartTime;  // Znacznik czasu uruchomienia pompy
-    unsigned long pumpDelayStartTime;  // Znacznik czasu rozpoczęcia opóźnienia pompy
-    unsigned long lastSoundAlert;  // Znacznik czasu ostatniego alertu dźwiękowego
+    bool soundEnabled;                        // Flaga wskazująca, czy dźwięk jest włączony
+    bool waterAlarmActive;                    // Flaga wskazująca, czy alarm wodny jest aktywny
+    bool waterReserveActive;                  // Flaga wskazująca, czy rezerwa wody jest aktywna
+    bool isPumpActive;                        // Flaga wskazująca, czy pompa jest aktywna
+    bool isPumpDelayActive;                   // Flaga wskazująca, czy opóźnienie pompy jest aktywne
+    bool pumpSafetyLock;                      // Flaga wskazująca, czy blokada bezpieczeństwa pompy jest aktywna
+    bool isServiceMode;                       // Flaga wskazująca, czy tryb serwisowy jest włączony
+    float waterLevelBeforePump;               // Poziom wody przed uruchomieniem pompy
+    unsigned long pumpStartTime;              // Znacznik czasu uruchomienia pompy
+    unsigned long pumpDelayStartTime;         // Znacznik czasu rozpoczęcia opóźnienia pompy
+    unsigned long lastSoundAlert;             // Znacznik czasu ostatniego alertu dźwiękowego
     unsigned long lastSuccessfulMeasurement;  // Znacznik czasu ostatniego udanego pomiaru
 };
 
 // Stan przycisku
 struct ButtonState {
-    bool lastState;  // Poprzedni stan przycisku
+    bool lastState;                   // Poprzedni stan przycisku
     bool isInitialized = false; 
     bool isLongPressHandled = false;  // Flaga obsłużonego długiego naciśnięcia
-    unsigned long pressedTime = 0;  // Czas wciśnięcia przycisku
-    unsigned long releasedTime = 0;  // Czas puszczenia przycisku
+    unsigned long pressedTime = 0;    // Czas wciśnięcia przycisku
+    unsigned long releasedTime = 0;   // Czas puszczenia przycisku
 };
 
 // Timery systemowe
 struct Timers {
-    unsigned long lastMQTTRetry;  // Znacznik czasu ostatniej próby połączenia MQTT
+    unsigned long lastMQTTRetry;    // Znacznik czasu ostatniej próby połączenia MQTT
     unsigned long lastMeasurement;  // Znacznik czasu ostatniego pomiaru
-    unsigned long lastOTACheck;  // Znacznik czasu ostatniego sprawdzenia OTA (Over-The-Air)
-    unsigned long lastMQTTLoop;  // Znacznik czasu ostatniego cyklu pętli MQTT
+    unsigned long lastOTACheck;     // Znacznik czasu ostatniego sprawdzenia OTA (Over-The-Air)
+    unsigned long lastMQTTLoop;     // Znacznik czasu ostatniego cyklu pętli MQTT
     
     // Konstruktor inicjalizujący wszystkie znaczniki czasowe na 0
     Timers() : lastMQTTRetry(0), lastMeasurement(0), lastOTACheck(0), lastMQTTLoop(0) {}
@@ -138,26 +138,26 @@ HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
 // Sensory Home Assistant
 
 //     Sensory pomiarowe
-HASensor sensorDistance("water_level");  // Odległość od lustra wody (w mm)
-HASensor sensorLevel("water_level_percent");  // Poziom wody w zbiorniku (w procentach)
-HASensor sensorVolume("water_volume");  // Objętość wody (w litrach)
+HASensor sensorDistance("water_level");         // Odległość od lustra wody (w mm)
+HASensor sensorLevel("water_level_percent");    // Poziom wody w zbiorniku (w procentach)
+HASensor sensorVolume("water_volume");          // Objętość wody (w litrach)
 HASensor sensorPumpWorkTime("pump_work_time");  // Czas pracy pompy
 //     Sensory statusu
-HASensor sensorPump("pump");  // Praca pompy (ON/OFF)
+HASensor sensorPump("pump");    // Praca pompy (ON/OFF)
 HASensor sensorWater("water");  // Czujnik poziomu w akwarium (ON=niski/OFF=ok)
 //     Sensory alarmowe
-HASensor sensorAlarm("water_alarm");  // Brak wody w zbiorniku dolewki
+HASensor sensorAlarm("water_alarm");      // Brak wody w zbiorniku dolewki
 HASensor sensorReserve("water_reserve");  // Rezerwa w zbiorniku dolewki
 //     Przełączniki
 HASwitch switchPumpAlarm("pump_alarm");  // Resetowania blokady pompy
 HASwitch switchService("service_mode");  // Tryb serwisowy
-HASwitch switchSound("sound_switch");  // Dźwięki systemu
+HASwitch switchSound("sound_switch");    // Dźwięki systemu
 
 // Zmienne stanu
 Config config;
 Status status;
-ButtonState buttonState;  // Instancja struktury ButtonState
-static Timers timers;  // Instancja struktury Timers
+ButtonState buttonState;         // Instancja struktury ButtonState
+static Timers timers;            // Instancja struktury Timers
 float lastFilteredDistance = 0;  // Dla filtra EMA (Exponential Moving Average)
 float lastReportedDistance = 0;
 float currentDistance = 0;
@@ -709,18 +709,18 @@ void setDefaultConfig() {
     strlcpy(config.webPassword, "hydrosense", sizeof(config.webPassword));
     
     // Konfiguracja zbiornika
-    config.tank_full = 50;  // czujnik od powierzchni przy pełnym zbiorniku
-    config.tank_empty = 1050;  // czujnik od dna przy pustym zbiorniku
+    config.tank_full = 50;       // czujnik od powierzchni przy pełnym zbiorniku
+    config.tank_empty = 1050;    // czujnik od dna przy pustym zbiorniku
     config.reserve_level = 550;  // czujnik od poziomu rezerwy
     config.tank_diameter = 100;  // średnica zbiornika
     
     // Konfiguracja pompy
-    config.pump_delay = 5;  // opóźnienie przed startem pompy
+    config.pump_delay = 5;       // opóźnienie przed startem pompy
     config.pump_work_time = 30;  // Maksymalny czas ciągłej pracy pompy
     
     // Finalizacja
     config.checksum = calculateChecksum(config);  // Obliczenie sumy kontrolnej
-    saveConfig();  // Zapis do EEPROM
+    saveConfig();                                 // Zapis do EEPROM
     
     DEBUG_PRINT(F("Utworzono domyślną konfigurację"));
 }
@@ -792,16 +792,16 @@ char calculateChecksum(const Config& cfg) {
 // Resetowanie do ustawień fabrycznych
 void factoryReset() {    
     WiFi.disconnect(true);  // Rozłącz WiFi; true = kasuj zapisane ustawienia
-    WiFi.mode(WIFI_OFF);  // Wyłącz moduł WiFi  
+    WiFi.mode(WIFI_OFF);    // Wyłącz moduł WiFi  
    
     delay(100);
         
-    WiFiManager wm;  // Utwórz instancję WiFiManager do zarządzania konfiguracją WiFi
+    WiFiManager wm;      // Utwórz instancję WiFiManager do zarządzania konfiguracją WiFi
     wm.resetSettings();  // Usuń zapisane ustawienia WiFiManager
-    ESP.eraseConfig();  // Wyczyść konfigurację ESP zapisaną w pamięci flash
+    ESP.eraseConfig();   // Wyczyść konfigurację ESP zapisaną w pamięci flash
     
     setDefaultConfig();  // Załaduj domyślną konfigurację
-    saveConfig();  // Zapisz domyślną konfigurację
+    saveConfig();        // Zapisz domyślną konfigurację
     
     delay(100);
    
@@ -838,16 +838,16 @@ void handleMillisOverflow() {
 
 // Konfiguracja kierunków pinów i stanów początkowych
 void setupPin() {
-    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);  // Wyjście - trigger czujnika ultradźwiękowego
-    pinMode(PIN_ULTRASONIC_ECHO, INPUT);  // Wejście - echo czujnika ultradźwiękowego
+    pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);    // Wyjście - trigger czujnika ultradźwiękowego
+    pinMode(PIN_ULTRASONIC_ECHO, INPUT);     // Wejście - echo czujnika ultradźwiękowego
     digitalWrite(PIN_ULTRASONIC_TRIG, LOW);  // Upewnij się że TRIG jest LOW na starcie
     
     pinMode(PIN_WATER_LEVEL, INPUT_PULLUP);  // Wejście z podciąganiem - czujnik poziomu
-    pinMode(PRZYCISK_PIN, INPUT_PULLUP);  // Wejście z podciąganiem - przycisk
-    pinMode(BUZZER_PIN, OUTPUT);  // Wyjście - buzzer
-    digitalWrite(BUZZER_PIN, LOW);  // Wyłączenie buzzera
-    pinMode(POMPA_PIN, OUTPUT);  // Wyjście - pompa
-    digitalWrite(POMPA_PIN, LOW);  // Wyłączenie pompy
+    pinMode(PRZYCISK_PIN, INPUT_PULLUP);     // Wejście z podciąganiem - przycisk
+    pinMode(BUZZER_PIN, OUTPUT);             // Wyjście - buzzer
+    digitalWrite(BUZZER_PIN, LOW);           // Wyłączenie buzzera
+    pinMode(POMPA_PIN, OUTPUT);              // Wyjście - pompa
+    digitalWrite(POMPA_PIN, LOW);            // Wyłączenie pompy
 }
 
 // Konfiguracja i zarządzanie połączeniem WiFi
