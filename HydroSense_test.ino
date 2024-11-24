@@ -754,7 +754,7 @@ bool loadConfig() {
 }
 
 // Zapis do EEPROM
-void saveConfig() {
+bool saveConfig() {
     EEPROM.begin(sizeof(Config) + 1);  // +1 dla sumy kontrolnej
     
     config.checksum = calculateChecksum(config);  // Oblicz sumę kontrolną przed zapisem
@@ -1722,48 +1722,62 @@ void handleRoot() {
 
 //
 void handleSave() {
+    // Sprawdzenie metody HTTP
     if (server.method() != HTTP_POST) {
         server.send(405, "text/plain", "Method Not Allowed");
         return;
     }
 
+    // Sprawdzenie autoryzacji
     if (!server.authenticate(config.webUser, config.webPassword)) {
         return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
     }
 
-    // Zapisz poprzednie wartości na wypadek błędów
+    // Kopia bezpieczeństwa konfiguracji
     Config oldConfig = config;
     bool needMqttReconnect = false;
     bool needRestart = false;
     String errorMessage;
 
-    // Sprawdź dane logowania WWW
+    // Walidacja danych logowania WWW
     String newWebUser = server.arg("webUser");
     String newWebPassword = server.arg("webPassword");
     String newWebPasswordConfirm = server.arg("webPasswordConfirm");
 
-    // Walidacja danych logowania WWW
+    // Sprawdzenie nazwy użytkownika
     if (newWebUser.length() > 0) {
         if (newWebUser.length() >= sizeof(config.webUser)) {
+            config = oldConfig;
             errorMessage = "Nazwa użytkownika jest za długa";
-            goto handleError;
+            webSocket.broadcastTXT("save:error:" + errorMessage);
+            server.send(204);
+            return;
         }
         needRestart = true;
     }
 
-    // Sprawdź czy hasło ma być zmienione
+    // Sprawdzenie haseł
     if (newWebPassword.length() > 0 || newWebPasswordConfirm.length() > 0) {
         if (newWebPassword.length() == 0 || newWebPasswordConfirm.length() == 0) {
+            config = oldConfig;
             errorMessage = "Oba pola hasła muszą być wypełnione";
-            goto handleError;
+            webSocket.broadcastTXT("save:error:" + errorMessage);
+            server.send(204);
+            return;
         }
         if (newWebPassword != newWebPasswordConfirm) {
+            config = oldConfig;
             errorMessage = "Podane hasła nie są identyczne";
-            goto handleError;
+            webSocket.broadcastTXT("save:error:" + errorMessage);
+            server.send(204);
+            return;
         }
         if (newWebPassword.length() >= sizeof(config.webPassword)) {
+            config = oldConfig;
             errorMessage = "Hasło jest za długie";
-            goto handleError;
+            webSocket.broadcastTXT("save:error:" + errorMessage);
+            server.send(204);
+            return;
         }
         needRestart = true;
     }
@@ -1774,27 +1788,28 @@ void handleSave() {
     String oldUser = config.mqtt_user;
     String oldPassword = config.mqtt_password;
 
-    // Zapisz ustawienia MQTT
+    // Aktualizacja konfiguracji MQTT
     strlcpy(config.mqtt_server, server.arg("mqtt_server").c_str(), sizeof(config.mqtt_server));
     config.mqtt_port = server.arg("mqtt_port").toInt();
     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
     
-    // Zapisz ustawienia zbiornika
+    // Aktualizacja konfiguracji zbiornika
     config.tank_full = server.arg("tank_full").toInt();
     config.tank_empty = server.arg("tank_empty").toInt();
     config.reserve_level = server.arg("reserve_level").toInt();
     config.tank_diameter = server.arg("tank_diameter").toInt();
 
-    // Zapisz ustawienia pompy
+    // Aktualizacja konfiguracji pompy
     config.pump_delay = server.arg("pump_delay").toInt();
     config.pump_work_time = server.arg("pump_work_time").toInt();
 
-    // Sprawdź poprawność wartości
+    // Walidacja wszystkich wartości
     if (!validateConfigValues()) {
+        config = oldConfig;
         errorMessage = "Nieprawidłowe wartości! Sprawdź wprowadzone dane.";
-        String message = "save:error:" + errorMessage;
-        webSocket.broadcastTXT(message);
+        webSocket.broadcastTXT("save:error:" + errorMessage);
+        server.send(204);
         return;
     }
 
@@ -1814,10 +1829,16 @@ void handleSave() {
         needMqttReconnect = true;
     }
 
-    // Zapisz konfigurację do EEPROM
-    saveConfig();
+    // Zapisz konfigurację
+    if (!saveConfig()) {
+        config = oldConfig;
+        errorMessage = "Błąd zapisu konfiguracji!";
+        webSocket.broadcastTXT("save:error:" + errorMessage);
+        server.send(204);
+        return;
+    }
 
-    // Jeśli dane MQTT się zmieniły, zrestartuj połączenie
+    // Obsługa MQTT jeśli potrzebna
     if (needMqttReconnect) {
         if (mqtt.isConnected()) {
             mqtt.disconnect();
@@ -1825,7 +1846,7 @@ void handleSave() {
         connectMQTT();
     }
 
-    // Jeśli zmieniono dane logowania, wyślij informację o restarcie
+    // Obsługa restartu jeśli potrzebny
     if (needRestart) {
         webSocket.broadcastTXT("save:success:Zapisano ustawienia! Urządzenie zostanie zrestartowane...");
         server.send(204);
@@ -1835,13 +1856,6 @@ void handleSave() {
         webSocket.broadcastTXT("save:success:Zapisano ustawienia!");
         server.send(204);
     }
-    return;
-
-//handleError:
-    config = oldConfig; // Przywróć poprzednie wartości
-    String message = "save:error:" + errorMessage;
-    webSocket.broadcastTXT(message);
-    server.send(204);
 }
 
 //
@@ -1905,40 +1919,40 @@ void handleUpdateResult() {
 
 //
 void handleChangePassword() {
-    if (!server.authenticate(config.webUser, config.webPassword)) {
-        return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-    }
-
-    if (server.method() != HTTP_POST) {
-        server.send(405, "text/plain", "Method Not Allowed");
+    if (!server.hasArg("current") || !server.hasArg("new") || !server.hasArg("confirm")) {
+        server.send(400, "text/plain", "Brak wymaganych parametrów");
         return;
     }
 
-    String newPassword = server.arg("newPassword");
-    
-    // Walidacja hasła
-    if (newPassword.length() == 0) {
-        server.send(400, "text/plain", "Hasło nie może być puste");
-        return;
-    }
-    
-    if (newPassword.length() >= sizeof(config.webPassword)) {
-        server.send(400, "text/plain", "Hasło jest za długie");
+    String currentPassword = server.arg("current");
+    String newPassword = server.arg("new");
+    String confirmPassword = server.arg("confirm");
+
+    if (currentPassword != config.webControlPassword) {
+        server.send(401, "text/plain", "Nieprawidłowe obecne hasło");
         return;
     }
 
-    // Zapisz nowe hasło
-    strlcpy(config.webPassword, newPassword.c_str(), sizeof(config.webPassword));
+    if (newPassword != confirmPassword) {
+        server.send(400, "text/plain", "Nowe hasła nie są zgodne");
+        return;
+    }
+
+    if (newPassword.length() < 8) {
+        server.send(400, "text/plain", "Hasło musi mieć co najmniej 8 znaków");
+        return;
+    }
+
+    config.webControlPassword = newPassword;
     
-    // Zapisz konfigurację
-    if (saveConfig()) {
-        server.send(200, "text/plain", "Hasło zostało zmienione");
-        // Opóźniony restart
-        delay(500);
-        ESP.restart();
-    } else {
+    if (!saveConfig()) {
         server.send(500, "text/plain", "Błąd zapisu konfiguracji");
+        return;
     }
+
+    server.send(200, "text/plain", "Hasło zostało zmienione");
+    delay(500);
+    ESP.restart();
 }
 
 // Sprawdź sensowność wartości
