@@ -151,7 +151,7 @@ const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dn
 
 // Stałe konfiguracyjne
 
-// 
+// Konfiguracja systemu przechowywana w EEPROM
 struct Config {
     // Wersja konfiguracji - używana do kontroli kompatybilności przy aktualizacjach
     uint8_t version;  
