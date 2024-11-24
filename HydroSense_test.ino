@@ -264,19 +264,21 @@ static Timers timers;  // Instancja struktury Timers
 
 // Funkcja do resetowania do ustawień fabrycznych
 void factoryReset() {    
-    WiFi.disconnect(true);  // true = kasuj zapisane ustawienia
-    WiFi.mode(WIFI_OFF);   
+    WiFi.disconnect(true);  // Rozłącz WiFi; true = kasuj zapisane ustawienia
+    WiFi.mode(WIFI_OFF);  // Wyłącz moduł WiFi  
+   
     delay(100);
+        
+    WiFiManager wm;  // Utwórz instancję WiFiManager do zarządzania konfiguracją WiFi
+    wm.resetSettings();  // Usuń zapisane ustawienia WiFiManager
+    ESP.eraseConfig();  // Wyczyść konfigurację ESP zapisaną w pamięci flash
     
-    WiFiManager wm;
-    wm.resetSettings();
-    ESP.eraseConfig();
-    
-    setDefaultConfig();
-    saveConfig();
+    setDefaultConfig();  // Załaduj domyślną konfigurację
+    saveConfig();  // Zapisz domyślną konfigurację
     
     delay(100);
-    ESP.reset();
+   
+    ESP.reset();  // Zresetuj urządzenie ESP
 }
 
 // Funkcja do restartu ESP
@@ -309,13 +311,12 @@ void handleMillisOverflow() {
 
 // --- EEPROM
 
-// Ustawienia domyślne
-// Ustawia domyślną konfigurację urządzenia
+// Ustawienia domyślne urządzenia
 // Wywoływana przy pierwszym uruchomieniu lub po resecie do ustawień fabrycznych
 void setDefaultConfig() {
     // Podstawowa konfiguracja
-    config.version = CONFIG_VERSION;        // Ustawienie wersji konfiguracji
-    config.soundEnabled = true;             // Włączenie powiadomień dźwiękowych
+    config.version = CONFIG_VERSION;  // Ustawienie wersji konfiguracji
+    config.soundEnabled = true;  // Włączenie powiadomień dźwiękowych
     
     // MQTT
     strlcpy(config.mqtt_server, "", sizeof(config.mqtt_server));
@@ -348,8 +349,7 @@ void setDefaultConfig() {
 bool loadConfig() {
     EEPROM.begin(sizeof(Config) + 1);  // +1 dla sumy kontrolnej
     
-    // Tymczasowa struktura do wczytania danych
-    Config tempConfig;
+    Config tempConfig;  // Tymczasowa struktura do wczytania danych
     
     // Wczytaj dane z EEPROM do tymczasowej struktury
     uint8_t *p = (uint8_t*)&tempConfig;
@@ -377,8 +377,7 @@ bool loadConfig() {
 void saveConfig() {
     EEPROM.begin(sizeof(Config) + 1);  // +1 dla sumy kontrolnej
     
-    // Oblicz sumę kontrolną przed zapisem
-    config.checksum = calculateChecksum(config);
+    config.checksum = calculateChecksum(config);  // Oblicz sumę kontrolną przed zapisem
     
     // Zapisz strukturę do EEPROM
     uint8_t *p = (uint8_t*)&config;
@@ -509,7 +508,7 @@ void updatePump() {
     bool waterPresent = (digitalRead(PIN_WATER_LEVEL) == LOW);
     sensorWater.setValue(waterPresent ? "ON" : "OFF");
     
-    // --- ZABEZPIECZENIE 1: Tryb serwisowy ---
+    // Tryb serwisowy
     if (status.isServiceMode) {
         if (status.isPumpActive) {
             digitalWrite(POMPA_PIN, LOW);
@@ -521,7 +520,7 @@ void updatePump() {
         return;
     }
 
-    // --- ZABEZPIECZENIE 2: Maksymalny czas pracy ---
+    //  Maksymalny czas pracy
     if (status.isPumpActive && (millis() - status.pumpStartTime > config.pump_work_time * 1000)) {
         digitalWrite(POMPA_PIN, LOW);
         status.isPumpActive = false;
@@ -534,7 +533,7 @@ void updatePump() {
         return;
     }
     
-    // --- ZABEZPIECZENIE 3: Blokady bezpieczeństwa ---
+    //  Blokady bezpieczeństwa
     if (status.pumpSafetyLock || status.waterAlarmActive) {
         if (status.isPumpActive) {
             digitalWrite(POMPA_PIN, LOW);
@@ -560,7 +559,7 @@ void updatePump() {
         return;
     }
 
-    // --- ZABEZPIECZENIE 4: Ochrona przed przepełnieniem ---
+    // Ochrona przed przepełnieniem
     if (!waterPresent && status.isPumpActive) {
         digitalWrite(POMPA_PIN, LOW);
         status.isPumpActive = false;
@@ -571,7 +570,7 @@ void updatePump() {
         return;
     }
     
-    // --- LOGIKA WŁĄCZANIA POMPY ---
+    //  Logika włączenia pompy
     if (waterPresent && !status.isPumpActive && !status.isPumpDelayActive) {
         status.isPumpDelayActive = true;
         status.pumpDelayStartTime = millis();
@@ -609,22 +608,22 @@ void onPumpAlarmCommand(bool state, HASwitch* sender) {
 // --- Deklaracje funkcji związanych z siecią
 
 // Funkcja do kasowania ustawień WiFiManager
-void resetWiFiSettings() {
-    DEBUG_PRINT(F("Rozpoczynam kasowanie ustawień WiFi..."));
+// void resetWiFiSettings() {
+//     DEBUG_PRINT(F("Rozpoczynam kasowanie ustawień WiFi..."));
     
-    // Najpierw rozłącz WiFi i wyczyść wszystkie zapisane ustawienia
-    WiFi.disconnect(false, true);  // false = nie wyłączaj WiFi, true = kasuj zapisane ustawienia
+//     // Najpierw rozłącz WiFi i wyczyść wszystkie zapisane ustawienia
+//     WiFi.disconnect(false, true);  // false = nie wyłączaj WiFi, true = kasuj zapisane ustawienia
     
-    // Upewnij się, że WiFi jest w trybie stacji
-    WiFi.mode(WIFI_STA);
+//     // Upewnij się, że WiFi jest w trybie stacji
+//     WiFi.mode(WIFI_STA);
     
-    // Reset przez WiFiManager
-    WiFiManager wm;
-    wm.resetSettings();
+//     // Reset przez WiFiManager
+//     WiFiManager wm;
+//     wm.resetSettings();
     
-    DEBUG_PRINT(F("Ustawienia WiFi zostały skasowane"));
-    delay(100);
-}
+//     DEBUG_PRINT(F("Ustawienia WiFi zostały skasowane"));
+//     delay(100);
+// }
 
 // Konfiguracja i zarządzanie połączeniem WiFi
 void setupWiFi() {
@@ -634,9 +633,6 @@ void setupWiFi() {
         DEBUG_PRINT("Tryb punktu dostępowego");
         DEBUG_PRINT("SSID: HydroSense");
         DEBUG_PRINT("IP: 192.168.4.1");
-        // if (status.soundEnabled) {
-        //     tone(BUZZER_PIN, 1000, 1000); // Sygnał dźwiękowy informujący o trybie AP
-        // }
     });
     
     wifiManager.setConfigPortalTimeout(180); // 3 minuty na konfigurację
@@ -648,9 +644,7 @@ void setupWiFi() {
     }
     
     DEBUG_PRINT("Połączono z WiFi!");
-    
-    // Pokaż uzyskane IP
-    DEBUG_PRINT("IP: ");
+    DEBUG_PRINT("IP: ");  // Pokaż uzyskane IP
     DEBUG_PRINT(WiFi.localIP().toString().c_str());
 }
 
@@ -725,8 +719,8 @@ void setupHA() {
     switchService.setName("Serwis");
     switchService.setIcon("mdi:account-wrench-outline");
     switchService.onCommand(onServiceSwitchCommand);
-    status.isServiceMode = false;                  // Domyślnie wyłączony
-    switchService.setState(false, true);           // Wymuszenie aktualizacji przy starcie
+    status.isServiceMode = false;  // Domyślnie wyłączony
+    switchService.setState(false, true);  // Wymuszenie aktualizacji przy starcie
     
     // Przełącznik dźwięku
     switchSound.setName("Dźwięk");
@@ -777,13 +771,13 @@ void firstUpdateHA() {
     // Wymuś stan OFF na początku
     sensorAlarm.setValue("OFF");
     sensorReserve.setValue("OFF");
-    switchSound.setState(false);  // Dodane - wymuś stan początkowy
+    switchSound.setState(false);
     mqtt.loop();
     
     // Ustawienie końcowych stanów i wysyłka do HA
     sensorAlarm.setValue(status.waterAlarmActive ? "ON" : "OFF");
     sensorReserve.setValue(status.waterReserveActive ? "ON" : "OFF");
-    switchSound.setState(status.soundEnabled);  // Dodane - ustaw aktualny stan dźwięku
+    switchSound.setState(status.soundEnabled);
     mqtt.loop();
 
     sensorPumpWorkTime.setValue("0");
@@ -2159,4 +2153,327 @@ void loop() {
             DEBUG_PRINT(F("MQTT połączono ponownie!"));  // Wydrukuj komunikat debugowania
         }
     }
+} 
+
+//----------------------------------------------------------------------------------------------------------------------------
+poskładane/poprawione:
+/*
+ * HydroSense - System monitorowania i automatycznej dolewki wody w akwarium
+ * Autor: PMW
+ * Wersja: 23.11.24
+ */
+
+// ---------------------- BIBLIOTEKI ----------------------
+#include <Arduino.h>
+#include <ArduinoHA.h>
+#include <ArduinoOTA.h>
+#include <ESP8266WiFi.h>
+#include <EEPROM.h>
+#include <WiFiManager.h>
+#include <ESP8266WebServer.h>
+#include <WebSocketsServer.h>
+#include <ESP8266HTTPUpdateServer.h>
+
+// ---------------------- DEFINICJE STAŁYCH ----------------------
+// Wersja programu
+const char* SOFTWARE_VERSION = "23.11.24";
+
+// Piny
+const int PIN_ULTRASONIC_TRIG = D6;
+const int PIN_ULTRASONIC_ECHO = D7;
+const int PIN_WATER_LEVEL = D5;
+const int POMPA_PIN = D1;
+const int BUZZER_PIN = D2;
+const int PRZYCISK_PIN = D3;
+
+// Parametry czasowe
+const unsigned long ULTRASONIC_TIMEOUT = 50;
+const unsigned long MEASUREMENT_INTERVAL = 60000;
+const unsigned long WATCHDOG_TIMEOUT = 8000;
+const unsigned long LONG_PRESS_TIME = 1000;
+const unsigned long MQTT_LOOP_INTERVAL = 100;
+const unsigned long OTA_CHECK_INTERVAL = 1000;
+const unsigned long MQTT_RETRY_INTERVAL = 10000;
+const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000;
+
+// Parametry czujnika
+const int HYSTERESIS = 10;
+const int SENSOR_MIN_RANGE = 20;
+const int SENSOR_MAX_RANGE = 1020;
+const float EMA_ALPHA = 0.2f;
+const int SENSOR_AVG_SAMPLES = 3;
+
+// Debug
+#define DEBUG 1
+#if DEBUG
+    #define DEBUG_PRINT(x) Serial.println(x)
+    #define DEBUG_PRINTF(format, ...) Serial.printf(format, __VA_ARGS__)
+#else
+    #define DEBUG_PRINT(x)
+    #define DEBUG_PRINTF(format, ...)
+#endif
+
+// ---------------------- STRUKTURY DANYCH ----------------------
+struct Config {
+    // Definicja struktury konfiguracji
+};
+
+struct Status {
+    // Status urządzenia
+};
+
+struct ButtonState {
+    // Stan przycisku
+};
+
+struct Timers {
+    // Timery systemowe
+};
+
+// ---------------------- ZMIENNE GLOBALNE ----------------------
+// Instancje obiektów
+ESP8266WebServer server(80);
+WebSocketsServer webSocket = WebSocketsServer(81);
+WiFiClient client;
+HADevice device("HydroSense");
+HAMqtt mqtt(client, device);
+
+// Sensory Home Assistant
+HASensor sensorDistance("water_level");
+HASensor sensorLevel("water_level_percent");
+HASensor sensorVolume("water_volume");
+HASensor sensorPumpWorkTime("pump_work_time");
+HASensor sensorPump("pump");
+HASensor sensorWater("water");
+HASensor sensorAlarm("water_alarm");
+HASensor sensorReserve("water_reserve");
+HASwitch switchPumpAlarm("pump_alarm");
+HASwitch switchService("service_mode");
+HASwitch switchSound("sound_switch");
+
+// Zmienne stanu
+Config config;
+Status status;
+ButtonState buttonState;
+Timers timers;
+float lastFilteredDistance = 0;
+float lastReportedDistance = 0;
+float currentDistance = 0;
+float volume = 0;
+unsigned long lastMeasurement = 0;
+unsigned long pumpStartTime = 0;
+float waterLevelBeforePump = 0;
+
+// ---------------------- STAŁE STRINGI I SZABLONY HTML ----------------------
+const char UPDATE_FORM[] PROGMEM = R"rawliteral(...)rawliteral";
+const char PAGE_FOOTER[] PROGMEM = R"rawliteral(...)rawliteral";
+const char CONFIG_PAGE[] PROGMEM = R"rawliteral(...)rawliteral";
+
+// ---------------------- FUNKCJE KONFIGURACYJNE ----------------------
+void setDefaultConfig() {}
+bool loadConfig() {}
+void saveConfig() {}
+char calculateChecksum(const Config& cfg) {}
+
+// ---------------------- FUNKCJE ZARZĄDZANIA URZĄDZENIEM ----------------------
+void factoryReset() {}
+void rebootDevice() {}
+void handleMillisOverflow() {}
+void setupPin() {}
+void setupWiFi() {}
+void setupHA() {}
+void setupWebServer() {}
+
+// ---------------------- FUNKCJE POMIAROWE ----------------------
+int measureDistance() {}
+int calculateWaterLevel(int distance) {}
+float getCurrentWaterLevel() {}
+void updateWaterLevel() {}
+
+// ---------------------- FUNKCJE STEROWANIA ----------------------
+void updatePump() {}
+void handleButton() {}
+void checkAlarmConditions() {}
+void updateAlarmStates(float currentDistance) {}
+
+// ---------------------- FUNKCJE DŹWIĘKOWE ----------------------
+void playShortWarningSound() {}
+void playConfirmationSound() {}
+void welcomeMelody() {}
+
+// ---------------------- OBSŁUGA HOME ASSISTANT ----------------------
+bool connectMQTT() {}
+void firstUpdateHA() {}
+void onPumpAlarmCommand(bool state, HASwitch* sender) {}
+void onServiceSwitchCommand(bool state, HASwitch* sender) {}
+void onSoundSwitchCommand(bool state, HASwitch* sender) {}
+
+// ---------------------- OBSŁUGA SERWERA WWW ----------------------
+String getConfigPage() {}
+void handleRoot() {}
+void handleSave() {}
+void handleDoUpdate() {}
+void handleUpdateResult() {}
+void handleChangePassword() {}
+bool validateConfigValues() {}
+void sendSerialMessage(String message) {}
+
+// ---------------------- GŁÓWNE FUNKCJE PROGRAMU ----------------------
+void setup() {
+    // Inicjalizacja sprzętu i usług
 }
+
+void loop() {
+    // Główna pętla programu
+}
+//----------------------------------------------------------------------------------------------------------------------------
+
+#include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
+#include <ArduinoHA.h>  // Biblioteka do integracji z Home Assistant przez protokół MQTT
+#include <ArduinoOTA.h>  // Biblioteka do aktualizacji oprogramowania przez sieć WiFi
+#include <ESP8266WiFi.h>  // Biblioteka WiFi dedykowana dla układu ESP8266
+#include <EEPROM.h>  // Biblioteka do dostępu do pamięci nieulotnej EEPROM
+#include <WiFiManager.h>  // Biblioteka do zarządzania połączeniami WiFi
+#include <ESP8266WebServer.h>  // Biblioteka do obsługi serwera HTTP na ESP8266
+#include <WebSocketsServer.h>  // Biblioteka do obsługi serwera WebSockets na ESP8266
+#include <ESP8266HTTPUpdateServer.h>
+
+ESP8266WebServer server(80);  // Tworzenie instancji serwera HTTP na porcie 80
+WebSocketsServer webSocket = WebSocketsServer(81);  // Tworzenie instancji serwera WebSockets na porcie 81
+
+const char* SOFTWARE_VERSION = "23.11.24";  // Definiowanie wersji oprogramowania
+const int PIN_ULTRASONIC_TRIG = D6;  // Pin TRIG czujnika ultradźwiękowego
+const int PIN_ULTRASONIC_ECHO = D7;  // Pin ECHO czujnika ultradźwiękowego
+const int PIN_WATER_LEVEL = D5;  // Pin czujnika poziomu wody w akwarium
+const int POMPA_PIN = D1;  // Pin sterowania pompą
+const int BUZZER_PIN = D2;  // Pin buzzera do alarmów dźwiękowych
+const int PRZYCISK_PIN = D3;  // Pin przycisku do kasowania alarmów
+
+const unsigned long ULTRASONIC_TIMEOUT = 50;  // Timeout pomiaru czujnika ultradźwiękowego
+const unsigned long MEASUREMENT_INTERVAL = 60000;  // Interwał między pomiarami
+const unsigned long WATCHDOG_TIMEOUT = 8000;  // Timeout dla watchdoga
+const unsigned long LONG_PRESS_TIME = 1000;  // Czas długiego naciśnięcia przycisku
+const unsigned long MQTT_LOOP_INTERVAL = 100;  // Obsługa MQTT co 100ms
+const unsigned long OTA_CHECK_INTERVAL = 1000;  // Sprawdzanie OTA co 1s
+const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Próba połączenia MQTT co 10s
+
+const char UPDATE_FORM[] PROGMEM = R"rawliteral(
+<div class='section'>
+    <h2>Aktualizacja firmware</h2>
+    <form method='POST' action='/update' enctype='multipart/form-data'>
+        <table class='config-table' style='margin-bottom: 15px;'>
+            <tr><td colspan='2'><input type='file' name='update' accept='.bin'></td></tr>
+        </table>
+        <input type='submit' value='Aktualizuj firmware' class='btn btn-orange'>
+    </form>
+    <div id='update-progress' style='display:none'>
+        <div class='progress'>
+            <div id='progress-bar' class='progress-bar' role='progressbar' style='width: 0%'>0%</div>
+        </div>
+    </div>
+</div>
+)rawliteral";
+
+const char PAGE_FOOTER[] PROGMEM = R"rawliteral(
+<div class='footer'>
+    <a href='https://github.com/pimowo/HydroSense' target='_blank'>Project by PMW</a>
+</div>
+)rawliteral";
+
+#define DEBUG 1  // 0 wyłącza debug, 1 włącza debug
+
+#if DEBUG
+    #define DEBUG_PRINT(x) Serial.println(x)
+    #define DEBUG_PRINTF(format, ...) Serial.printf(format, __VA_ARGS__)
+#else
+    #define DEBUG_PRINT(x)
+    #define DEBUG_PRINTF(format, ...)
+#endif
+
+const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
+const int SENSOR_MIN_RANGE = 20;   // Minimalny zakres czujnika (mm)
+const int SENSOR_MAX_RANGE = 1020; // Maksymalny zakres czujnika (mm)
+const float EMA_ALPHA = 0.2f;  // Współczynnik wygładzania dla średniej wykładniczej (0-1)
+const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
+
+float lastFilteredDistance = 0;  // Dla filtra EMA (Exponential Moving Average)
+float lastReportedDistance = 0;
+unsigned long lastMeasurement = 0;
+const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dni
+
+struct Config {
+}; Config config;  // Globalna instancja struktury konfiguracyjnej
+
+const uint8_t CONFIG_VERSION = 2;  // Wersja konfiguracji
+const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
+
+float currentDistance = 0;
+float volume = 0;
+unsigned long pumpStartTime = 0;
+float waterLevelBeforePump = 0;
+
+WiFiClient client;  // Klient połączenia WiFi
+HADevice device("HydroSense");  // Definicja urządzenia dla Home Assistant
+HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
+HASensor sensorDistance("water_level");  // Odległość od lustra wody (w mm)
+HASensor sensorLevel("water_level_percent");  // Poziom wody w zbiorniku (w procentach)
+HASensor sensorVolume("water_volume");  // Objętość wody (w litrach)
+HASensor sensorPumpWorkTime("pump_work_time");  // Czas pracy pompy
+HASensor sensorPump("pump");  // Praca pompy (ON/OFF)
+HASensor sensorWater("water");  // Czujnik poziomu w akwarium (ON=niski/OFF=ok)
+HASensor sensorAlarm("water_alarm");  // Brak wody w zbiorniku dolewki
+HASensor sensorReserve("water_reserve");  // Rezerwa w zbiorniku dolewki
+HASwitch switchPumpAlarm("pump_alarm");  // Resetowania blokady pompy
+HASwitch switchService("service_mode");  // Tryb serwisowy
+HASwitch switchSound("sound_switch");  // Dźwięki systemu
+
+struct Status {
+}; Status status;
+
+struct ButtonState {
+}; ButtonState buttonState;  // Instancja struktury ButtonState
+
+struct Timers {};
+
+static Timers timers;
+
+void factoryReset() {}
+void rebootDevice() {}
+void handleMillisOverflow() {}
+void setDefaultConfig() {}
+bool loadConfig() {}
+void saveConfig() {}
+char calculateChecksum(const Config& cfg) {}
+void playShortWarningSound() {}
+void playConfirmationSound() {}
+void checkAlarmConditions() {}
+void updateAlarmStates(float currentDistance) {}
+void updatePump() {}
+void onPumpAlarmCommand(bool state, HASwitch* sender) {}
+void setupWiFi() {}
+bool connectMQTT() {}
+void setupHA() {}
+void setupPin() {}
+void welcomeMelody() {}
+void firstUpdateHA() {}
+void onServiceSwitchCommand(bool state, HASwitch* sender) {}
+float getCurrentWaterLevel() {}
+int measureDistance() {}
+int calculateWaterLevel(int distance) {}
+void updateWaterLevel() {}
+void handleButton() {}
+void onSoundSwitchCommand(bool state, HASwitch* sender) {}
+
+const char CONFIG_PAGE[] PROGMEM = R"rawliteral()rawliteral";
+
+String getConfigPage() {}
+void handleRoot() {}
+bool validateConfigValues() {}
+void handleSave() {}
+void sendSerialMessage(String message) {}
+void handleDoUpdate() {}
+void handleUpdateResult() {}
+void handleChangePassword() {}
+void setupWebServer() {}
+void setup() {}
+void loop() {}
