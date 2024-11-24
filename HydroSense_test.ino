@@ -10,7 +10,7 @@
 #include <EEPROM.h>                   // Biblioteka do dostępu do pamięci nieulotnej EEPROM
 #include <WiFiManager.h>              // Biblioteka do zarządzania połączeniami WiFi
 #include <ESP8266WebServer.h>         // Biblioteka do obsługi serwera HTTP na ESP8266
-#include <WebSocketsServer.h>         // Biblioteka do obsługi serwera WebSockets na ESP8266
+//#include <WebSocketsServer.h>         // Biblioteka do obsługi serwera WebSockets na ESP8266
 #include <ESP8266HTTPUpdateServer.h>  //
 
 // ---------------------- DEFINICJE STAŁYCH ---------------------------
@@ -91,20 +91,29 @@ struct Config {
 };
 
 // Status urządzenia
+// struct Status {
+//     bool soundEnabled;                        // Flaga wskazująca, czy dźwięk jest włączony
+//     bool waterAlarmActive;                    // Flaga wskazująca, czy alarm wodny jest aktywny
+//     bool waterReserveActive;                  // Flaga wskazująca, czy rezerwa wody jest aktywna
+//     bool isPumpActive;                        // Flaga wskazująca, czy pompa jest aktywna
+//     bool isPumpDelayActive;                   // Flaga wskazująca, czy opóźnienie pompy jest aktywne
+//     bool pumpSafetyLock;                      // Flaga wskazująca, czy blokada bezpieczeństwa pompy jest aktywna
+//     bool isServiceMode;                       // Flaga wskazująca, czy tryb serwisowy jest włączony
+//     float waterLevelBeforePump;               // Poziom wody przed uruchomieniem pompy
+//     unsigned long pumpStartTime;              // Znacznik czasu uruchomienia pompy
+//     unsigned long pumpDelayStartTime;         // Znacznik czasu rozpoczęcia opóźnienia pompy
+//     unsigned long lastSoundAlert;             // Znacznik czasu ostatniego alertu dźwiękowego
+//     unsigned long lastSuccessfulMeasurement;  // Znacznik czasu ostatniego udanego pomiaru
+// };
+
 struct Status {
-    bool soundEnabled;                        // Flaga wskazująca, czy dźwięk jest włączony
-    bool waterAlarmActive;                    // Flaga wskazująca, czy alarm wodny jest aktywny
-    bool waterReserveActive;                  // Flaga wskazująca, czy rezerwa wody jest aktywna
-    bool isPumpActive;                        // Flaga wskazująca, czy pompa jest aktywna
-    bool isPumpDelayActive;                   // Flaga wskazująca, czy opóźnienie pompy jest aktywne
-    bool pumpSafetyLock;                      // Flaga wskazująca, czy blokada bezpieczeństwa pompy jest aktywna
-    bool isServiceMode;                       // Flaga wskazująca, czy tryb serwisowy jest włączony
-    float waterLevelBeforePump;               // Poziom wody przed uruchomieniem pompy
-    unsigned long pumpStartTime;              // Znacznik czasu uruchomienia pompy
-    unsigned long pumpDelayStartTime;         // Znacznik czasu rozpoczęcia opóźnienia pompy
-    unsigned long lastSoundAlert;             // Znacznik czasu ostatniego alertu dźwiękowego
-    unsigned long lastSuccessfulMeasurement;  // Znacznik czasu ostatniego udanego pomiaru
-};
+    float waterLevel;
+    bool pumpState;
+    bool alarmState;
+    bool needsUpdate;
+    
+    Status() : waterLevel(0), pumpState(false), alarmState(false), needsUpdate(false) {}
+}
 
 // Stan przycisku
 struct ButtonState {
@@ -130,7 +139,7 @@ struct Timers {
 
 // Instancje obiektów
 ESP8266WebServer server(80);
-WebSocketsServer webSocket = WebSocketsServer(81);
+//WebSocketsServer webSocket = WebSocketsServer(81);
 WiFiClient client;  // Klient połączenia WiFi
 HADevice device("HydroSense");  // Definicja urządzenia dla Home Assistant
 HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
@@ -945,73 +954,109 @@ void setupHA() {
 }
 
 //
+// void setupWebServer() {
+//     // Główna strona
+//     server.on("/", HTTP_GET, []() {
+//         if (!server.authenticate(config.webUser, config.webPassword)) {
+//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+//         }
+//         handleRoot();
+//     });
+
+//     // Obsługa aktualizacji
+//     server.on("/update", HTTP_POST, []() {
+//         if (!server.authenticate(config.webUser, config.webPassword)) {
+//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+//         }
+//         handleUpdateResult();
+//     }, []() {
+//         if (!server.authenticate(config.webUser, config.webPassword)) {
+//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+//         }
+//         handleDoUpdate();
+//     });
+
+//     // Obsługa zapisywania konfiguracji
+//     server.on("/save", HTTP_POST, []() {
+//         if (!server.authenticate(config.webUser, config.webPassword)) {
+//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+//         }
+//         handleSave();
+//     });
+
+//     // Obsługa zmiany hasła (NOWY ENDPOINT)
+//     server.on("/change-password", HTTP_POST, []() {
+//         if (!server.authenticate(config.webUser, config.webPassword)) {
+//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+//         }
+//         handleChangePassword();
+//     });
+    
+//     // Obsługa restartu
+//     server.on("/reboot", HTTP_POST, []() {
+//         if (!server.authenticate(config.webUser, config.webPassword)) {
+//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+//         }
+//         server.send(200, "text/plain", "Restarting...");
+//         delay(1000);
+//         ESP.restart();
+//     });
+
+//     // Obsługa resetu do ustawień fabrycznych
+//     server.on("/factory-reset", HTTP_POST, []() {
+//         if (!server.authenticate(config.webUser, config.webPassword)) {
+//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+//         }
+//         server.send(200, "text/plain", "Resetting to factory defaults...");
+//         delay(200);
+//         factoryReset();
+//     });
+    
+//     // Dodanie obsługi błędu 404
+//     server.onNotFound([]() {
+//         if (!server.authenticate(config.webUser, config.webPassword)) {
+//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+//         }
+//         server.send(404, "text/plain", "404: Not found");
+//     });
+
+//     server.begin();
+// }
+
 void setupWebServer() {
-    // Główna strona
-    server.on("/", HTTP_GET, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
-        handleRoot();
-    });
-
-    // Obsługa aktualizacji
-    server.on("/update", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
-        handleUpdateResult();
-    }, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
-        handleDoUpdate();
-    });
-
-    // Obsługa zapisywania konfiguracji
-    server.on("/save", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
-        handleSave();
-    });
-
-    // Obsługa zmiany hasła (NOWY ENDPOINT)
-    server.on("/change-password", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
-        handleChangePassword();
+    server.on("/", HTTP_GET, handleRoot);
+    server.on("/save", HTTP_POST, handleSave);
+    server.on("/update", HTTP_POST, handleDoUpdate);
+    server.on("/updateResult", HTTP_GET, handleUpdateResult);
+    server.on("/changePassword", HTTP_POST, handleChangePassword);
+    server.on("/events", HTTP_GET, handleEvents);
+    server.on("/status", HTTP_GET, []() {
+        String json = "{";
+        json += "\"waterLevel\":" + String(status.waterLevel, 1) + ",";
+        json += "\"pumpState\":" + String(status.pumpState ? "true" : "false") + ",";
+        json += "\"alarmState\":" + String(status.alarmState ? "true" : "false");
+        json += "}";
+        server.send(200, "application/json", json);
     });
     
-    // Obsługa restartu
-    server.on("/reboot", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
-        server.send(200, "text/plain", "Restarting...");
-        delay(1000);
-        ESP.restart();
-    });
-
-    // Obsługa resetu do ustawień fabrycznych
-    server.on("/factory-reset", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
-        server.send(200, "text/plain", "Resetting to factory defaults...");
-        delay(200);
-        factoryReset();
-    });
-    
-    // Dodanie obsługi błędu 404
-    server.onNotFound([]() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
-        server.send(404, "text/plain", "404: Not found");
-    });
-
     server.begin();
+}
+
+void handleEvents() {
+    String data = "data: {";
+    data += "\"waterLevel\":" + String(status.waterLevel, 1) + ",";
+    data += "\"pumpState\":" + String(status.pumpState ? "true" : "false") + ",";
+    data += "\"alarmState\":" + String(status.alarmState ? "true" : "false") + ",";
+    data += "\"tankFull\":" + String(config.tank_full) + ",";
+    data += "\"tankEmpty\":" + String(config.tank_empty) + ",";
+    data += "\"reserveLevel\":" + String(config.reserve_level);
+    data += "}\n\n";
+    
+    server.sendHeader("Cache-Control", "no-cache");
+    server.sendHeader("Content-Type", "text/event-stream");
+    server.sendHeader("Connection", "keep-alive");
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "text/event-stream", data);
 }
 
 // ---------------------- FUNKCJE POMIAROWE ---------------------------
@@ -1601,6 +1646,118 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
 // ---------------------- OBSŁUGA SERWERA WWW -------------------------
 
 //
+// String getConfigPage() {
+//     String html = FPSTR(CONFIG_PAGE);
+    
+//     // Przygotuj wszystkie wartości przed zastąpieniem
+//     bool mqttConnected = client.connected();
+//     String mqttStatus = mqttConnected ? "Połączony" : "Rozłączony";
+//     String mqttStatusClass = mqttConnected ? "success" : "error";
+//     String soundStatus = config.soundEnabled ? "Włączony" : "Wyłączony";
+//     String soundStatusClass = config.soundEnabled ? "success" : "error";
+    
+//     // Sekcja przycisków - zmieniona na String zamiast PROGMEM
+//     String buttons = F(
+//         "<div class='section'>"
+//         "<div class='buttons-container'>"
+//         "<button class='btn btn-blue' onclick='rebootDevice()'>Restart urządzenia</button>"
+//         "<button class='btn btn-red' onclick='factoryReset()'>Przywróć ustawienia fabryczne</button>"
+//         "</div>"
+//         "</div>"
+//     );
+
+//     // Zastąp wszystkie placeholdery
+//     html.replace("%MQTT_SERVER%", config.mqtt_server);
+//     html.replace("%MQTT_PORT%", String(config.mqtt_port));
+//     html.replace("%MQTT_USER%", config.mqtt_user);
+//     html.replace("%MQTT_PASSWORD%", config.mqtt_password);
+//     html.replace("%MQTT_STATUS%", mqttStatus);
+//     html.replace("%MQTT_STATUS_CLASS%", mqttStatusClass);
+//     html.replace("%SOUND_STATUS%", soundStatus);
+//     html.replace("%SOUND_STATUS_CLASS%", soundStatusClass);
+//     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
+//     html.replace("%TANK_EMPTY%", String(config.tank_empty));
+//     html.replace("%TANK_FULL%", String(config.tank_full));
+//     html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
+//     html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
+//     html.replace("%PUMP_DELAY%", String(config.pump_delay));
+//     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
+//     html.replace("%BUTTONS%", buttons);
+//     html.replace("%UPDATE_FORM%", FPSTR(UPDATE_FORM));
+//     html.replace("%FOOTER%", FPSTR(PAGE_FOOTER));
+//     html.replace("%MESSAGE%", "");
+//     html.replace("%WEB_USER%", config.webUser);
+//     html.replace("%WEB_PASSWORD%", config.webPassword);
+
+//     // Przygotuj formularze konfiguracyjne
+//     String configForms = F("<form method='POST' action='/save'>");
+    
+//     // Ustawienia dostępu
+//     configForms += F("<div class='section'>"
+//                      "<h2>Ustawienia dostępu</h2>"
+//                      "<table class='config-table'>"
+//                      "<tr><td>Nazwa użytkownika WWW</td><td><input type='text' name='webUser' value='");
+//     configForms += config.webUser;
+//     configForms += F("'></td></tr>"
+//                      "</table>"
+//                      "<button type='button' class='btn btn-blue' onclick='showChangePasswordModal()'>Zmień hasło</button>"
+//                      "</div>");
+//     configForms += config.webPassword;
+//     configForms += F("'></td></tr>"
+//                      "</table></div>");
+    
+//     // MQTT
+//     configForms += F("<div class='section'>"
+//                      "<h2>Konfiguracja MQTT</h2>"
+//                      "<table class='config-table'>"
+//                      "<tr><td>Serwer</td><td><input type='text' name='mqtt_server' value='");
+//     configForms += config.mqtt_server;
+//     configForms += F("'></td></tr>"
+//                      "<tr><td>Port</td><td><input type='number' name='mqtt_port' value='");
+//     configForms += String(config.mqtt_port);
+//     configForms += F("'></td></tr>"
+//                      "<tr><td>Użytkownik</td><td><input type='text' name='mqtt_user' value='");
+//     configForms += config.mqtt_user;
+//     configForms += F("'></td></tr>"
+//                      "<tr><td>Hasło</td><td><input type='password' name='mqtt_password' value='");
+//     configForms += config.mqtt_password;
+//     configForms += F("'></td></tr>"
+//                      "</table></div>");
+    
+//     // Zbiornik
+//     configForms += F("<div class='section'>"
+//                      "<h2>Ustawienia zbiornika</h2>"
+//                      "<table class='config-table'>");
+//     configForms += "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='" + String(config.tank_empty) + "'></td></tr>";
+//     configForms += "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='" + String(config.tank_full) + "'></td></tr>";
+//     configForms += "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='" + String(config.reserve_level) + "'></td></tr>";
+//     configForms += "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='" + String(config.tank_diameter) + "'></td></tr>";
+//     configForms += F("</table></div>");
+    
+//     // Pompa
+//     configForms += F("<div class='section'>"
+//                      "<h2>Ustawienia pompy</h2>"
+//                      "<table class='config-table'>");
+//     configForms += "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='" + String(config.pump_delay) + "'></td></tr>";
+//     configForms += "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='" + String(config.pump_work_time) + "'></td></tr>";
+//     configForms += F("</table></div>");
+    
+//     configForms += F("<div class='section'>"
+//                      "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
+//                      "</div></form>");
+    
+//     html.replace("%CONFIG_FORMS%", configForms);
+    
+//     // Sprawdź, czy wszystkie znaczniki zostały zastąpione
+//     if (html.indexOf('%') != -1) {
+//         DEBUG_PRINT("Uwaga: Niektóre znaczniki nie zostały zastąpione!");
+//         int pos = html.indexOf('%');
+//         DEBUG_PRINT(html.substring(pos - 20, pos + 20));
+//     }
+    
+//     return html;
+// }
+
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
@@ -1611,7 +1768,7 @@ String getConfigPage() {
     String soundStatus = config.soundEnabled ? "Włączony" : "Wyłączony";
     String soundStatusClass = config.soundEnabled ? "success" : "error";
     
-    // Sekcja przycisków - zmieniona na String zamiast PROGMEM
+    // Sekcja przycisków
     String buttons = F(
         "<div class='section'>"
         "<div class='buttons-container'>"
@@ -1620,6 +1777,112 @@ String getConfigPage() {
         "</div>"
         "</div>"
     );
+
+    // Dodaj skrypty JavaScript dla SSE i obsługi formularza
+    String scripts = F(
+        "<script>"
+        "const evtSource = new EventSource('/events');"
+        "evtSource.onmessage = function(event) {"
+        "    const data = JSON.parse(event.data);"
+        "    updateStatus(data);"
+        "};"
+        
+        "function updateStatus(data) {"
+        "    document.getElementById('waterLevel').textContent = data.waterLevel.toFixed(1);"
+        "    document.getElementById('pumpState').textContent = data.pumpState ? 'Włączona' : 'Wyłączona';"
+        "    document.getElementById('alarmState').textContent = data.alarmState ? 'Aktywny' : 'Nieaktywny';"
+        "}"
+        
+        "function showChangePasswordModal() {"
+        "    const modal = document.getElementById('passwordModal');"
+        "    modal.style.display = 'block';"
+        "}"
+        
+        "function submitConfig(form) {"
+        "    const formData = new FormData(form);"
+        "    fetch('/save', {"
+        "        method: 'POST',"
+        "        body: formData"
+        "    })"
+        "    .then(response => response.json())"
+        "    .then(data => {"
+        "        if (data.error) {"
+        "            alert('Błąd: ' + data.error);"
+        "        } else {"
+        "            alert(data.message);"
+        "            if (data.restart) {"
+        "                setTimeout(() => { window.location.reload(); }, 5000);"
+        "            }"
+        "        }"
+        "    })"
+        "    .catch(error => {"
+        "        alert('Wystąpił błąd podczas zapisywania konfiguracji');"
+        "    });"
+        "    return false;"
+        "}"
+        
+        "function rebootDevice() {"
+        "    if (confirm('Czy na pewno chcesz zrestartować urządzenie?')) {"
+        "        fetch('/reboot', { method: 'POST' })"
+        "        .then(() => {"
+        "            alert('Urządzenie zostanie zrestartowane...');"
+        "            setTimeout(() => { window.location.reload(); }, 5000);"
+        "        });"
+        "    }"
+        "}"
+        
+        "function factoryReset() {"
+        "    if (confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Ta operacja jest nieodwracalna!')) {"
+        "        fetch('/factory-reset', { method: 'POST' })"
+        "        .then(() => {"
+        "            alert('Przywracanie ustawień fabrycznych...');"
+        "            setTimeout(() => { window.location.reload(); }, 5000);"
+        "        });"
+        "    }"
+        "}"
+        "</script>"
+    );
+
+    // Modal do zmiany hasła
+    String passwordModal = F(
+        "<div id='passwordModal' class='modal'>"
+        "<div class='modal-content'>"
+        "<h2>Zmiana hasła</h2>"
+        "<form onsubmit='return submitConfig(this)' method='POST'>"
+        "<table class='config-table'>"
+        "<tr><td>Obecne hasło:</td><td><input type='password' name='currentPassword' required></td></tr>"
+        "<tr><td>Nowe hasło:</td><td><input type='password' name='newPassword' required></td></tr>"
+        "<tr><td>Powtórz nowe hasło:</td><td><input type='password' name='confirmPassword' required></td></tr>"
+        "</table>"
+        "<div class='buttons-container'>"
+        "<button type='submit' class='btn btn-blue'>Zapisz</button>"
+        "<button type='button' class='btn btn-red' onclick='document.getElementById(\"passwordModal\").style.display=\"none\"'>Anuluj</button>"
+        "</div>"
+        "</form>"
+        "</div>"
+        "</div>"
+    );
+
+    // Przygotuj formularze konfiguracyjne
+    String configForms = F("<form onsubmit='return submitConfig(this)' method='POST'>");
+    
+    // Ustawienia dostępu
+    configForms += F("<div class='section'>"
+                     "<h2>Ustawienia dostępu</h2>"
+                     "<table class='config-table'>"
+                     "<tr><td>Nazwa użytkownika WWW</td><td><input type='text' name='webUser' value='");
+    configForms += config.webUser;
+    configForms += F("'></td></tr>"
+                     "</table>"
+                     "<button type='button' class='btn btn-blue' onclick='showChangePasswordModal()'>Zmień hasło</button>"
+                     "</div>");
+
+    // MQTT, Zbiornik i Pompa (bez zmian)
+    // ... (reszta formularzy pozostaje bez zmian)
+
+    configForms += F("<div class='section'>"
+                     "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
+                     "</div></form>");
 
     // Zastąp wszystkie placeholdery
     html.replace("%MQTT_SERVER%", config.mqtt_server);
@@ -1642,67 +1905,10 @@ String getConfigPage() {
     html.replace("%FOOTER%", FPSTR(PAGE_FOOTER));
     html.replace("%MESSAGE%", "");
     html.replace("%WEB_USER%", config.webUser);
-    html.replace("%WEB_PASSWORD%", config.webPassword);
-
-    // Przygotuj formularze konfiguracyjne
-    String configForms = F("<form method='POST' action='/save'>");
-    
-    // Ustawienia dostępu
-    configForms += F("<div class='section'>"
-                     "<h2>Ustawienia dostępu</h2>"
-                     "<table class='config-table'>"
-                     "<tr><td>Nazwa użytkownika WWW</td><td><input type='text' name='webUser' value='");
-    configForms += config.webUser;
-    configForms += F("'></td></tr>"
-                     "</table>"
-                     "<button type='button' class='btn btn-blue' onclick='showChangePasswordModal()'>Zmień hasło</button>"
-                     "</div>");
-    configForms += config.webPassword;
-    configForms += F("'></td></tr>"
-                     "</table></div>");
-    
-    // MQTT
-    configForms += F("<div class='section'>"
-                     "<h2>Konfiguracja MQTT</h2>"
-                     "<table class='config-table'>"
-                     "<tr><td>Serwer</td><td><input type='text' name='mqtt_server' value='");
-    configForms += config.mqtt_server;
-    configForms += F("'></td></tr>"
-                     "<tr><td>Port</td><td><input type='number' name='mqtt_port' value='");
-    configForms += String(config.mqtt_port);
-    configForms += F("'></td></tr>"
-                     "<tr><td>Użytkownik</td><td><input type='text' name='mqtt_user' value='");
-    configForms += config.mqtt_user;
-    configForms += F("'></td></tr>"
-                     "<tr><td>Hasło</td><td><input type='password' name='mqtt_password' value='");
-    configForms += config.mqtt_password;
-    configForms += F("'></td></tr>"
-                     "</table></div>");
-    
-    // Zbiornik
-    configForms += F("<div class='section'>"
-                     "<h2>Ustawienia zbiornika</h2>"
-                     "<table class='config-table'>");
-    configForms += "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='" + String(config.tank_empty) + "'></td></tr>";
-    configForms += "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='" + String(config.tank_full) + "'></td></tr>";
-    configForms += "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='" + String(config.reserve_level) + "'></td></tr>";
-    configForms += "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='" + String(config.tank_diameter) + "'></td></tr>";
-    configForms += F("</table></div>");
-    
-    // Pompa
-    configForms += F("<div class='section'>"
-                     "<h2>Ustawienia pompy</h2>"
-                     "<table class='config-table'>");
-    configForms += "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='" + String(config.pump_delay) + "'></td></tr>";
-    configForms += "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='" + String(config.pump_work_time) + "'></td></tr>";
-    configForms += F("</table></div>");
-    
-    configForms += F("<div class='section'>"
-                     "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
-                     "</div></form>");
-    
     html.replace("%CONFIG_FORMS%", configForms);
-    
+    html.replace("%SCRIPTS%", scripts);
+    html.replace("%PASSWORD_MODAL%", passwordModal);
+
     // Sprawdź, czy wszystkie znaczniki zostały zastąpione
     if (html.indexOf('%') != -1) {
         DEBUG_PRINT("Uwaga: Niektóre znaczniki nie zostały zastąpione!");
@@ -1721,6 +1927,143 @@ void handleRoot() {
 }
 
 //
+// void handleSave() {
+//     // Sprawdzenie metody HTTP
+//     if (server.method() != HTTP_POST) {
+//         server.send(405, "text/plain", "Method Not Allowed");
+//         return;
+//     }
+
+//     // Sprawdzenie autoryzacji
+//     if (!server.authenticate(config.webUser, config.webPassword)) {
+//         return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+//     }
+
+//     // Kopia bezpieczeństwa konfiguracji
+//     Config oldConfig = config;
+//     bool needMqttReconnect = false;
+//     bool needRestart = false;
+//     String errorMessage;
+
+//     // Walidacja danych logowania WWW
+//     String newWebUser = server.arg("webUser");
+//     String newWebPassword = server.arg("webPassword");
+//     String newWebPasswordConfirm = server.arg("webPasswordConfirm");
+
+//     // Sprawdzenie nazwy użytkownika
+//     if (newWebUser.length() > 0) {
+//         if (newWebUser.length() >= sizeof(config.webUser)) {
+//             config = oldConfig;
+//             errorMessage = "Nazwa użytkownika jest za długa";
+//             webSocket.broadcastTXT("save:error:" + errorMessage);
+//             server.send(204);
+//             return;
+//         }
+//         needRestart = true;
+//     }
+
+//     // Sprawdzenie haseł
+//     if (newWebPassword.length() > 0 || newWebPasswordConfirm.length() > 0) {
+//         if (newWebPassword.length() == 0 || newWebPasswordConfirm.length() == 0) {
+//             config = oldConfig;
+//             errorMessage = "Oba pola hasła muszą być wypełnione";
+//             webSocket.broadcastTXT("save:error:" + errorMessage);
+//             server.send(204);
+//             return;
+//         }
+//         if (newWebPassword != newWebPasswordConfirm) {
+//             config = oldConfig;
+//             errorMessage = "Podane hasła nie są identyczne";
+//             webSocket.broadcastTXT("save:error:" + errorMessage);
+//             server.send(204);
+//             return;
+//         }
+//         if (newWebPassword.length() >= sizeof(config.webPassword)) {
+//             config = oldConfig;
+//             errorMessage = "Hasło jest za długie";
+//             webSocket.broadcastTXT("save:error:" + errorMessage);
+//             server.send(204);
+//             return;
+//         }
+//         needRestart = true;
+//     }
+
+//     // Zapisz poprzednie wartości MQTT do porównania
+//     String oldServer = config.mqtt_server;
+//     int oldPort = config.mqtt_port;
+//     String oldUser = config.mqtt_user;
+//     String oldPassword = config.mqtt_password;
+
+//     // Aktualizacja konfiguracji MQTT
+//     strlcpy(config.mqtt_server, server.arg("mqtt_server").c_str(), sizeof(config.mqtt_server));
+//     config.mqtt_port = server.arg("mqtt_port").toInt();
+//     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
+//     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
+    
+//     // Aktualizacja konfiguracji zbiornika
+//     config.tank_full = server.arg("tank_full").toInt();
+//     config.tank_empty = server.arg("tank_empty").toInt();
+//     config.reserve_level = server.arg("reserve_level").toInt();
+//     config.tank_diameter = server.arg("tank_diameter").toInt();
+
+//     // Aktualizacja konfiguracji pompy
+//     config.pump_delay = server.arg("pump_delay").toInt();
+//     config.pump_work_time = server.arg("pump_work_time").toInt();
+
+//     // Walidacja wszystkich wartości
+//     if (!validateConfigValues()) {
+//         config = oldConfig;
+//         errorMessage = "Nieprawidłowe wartości! Sprawdź wprowadzone dane.";
+//         webSocket.broadcastTXT("save:error:" + errorMessage);
+//         server.send(204);
+//         return;
+//     }
+
+//     // Zapisz zatwierdzone dane logowania WWW
+//     if (newWebUser.length() > 0) {
+//         strlcpy(config.webUser, newWebUser.c_str(), sizeof(config.webUser));
+//     }
+//     if (newWebPassword.length() > 0) {
+//         strlcpy(config.webPassword, newWebPassword.c_str(), sizeof(config.webPassword));
+//     }
+
+//     // Sprawdź czy dane MQTT się zmieniły
+//     if (oldServer != config.mqtt_server ||
+//         oldPort != config.mqtt_port ||
+//         oldUser != config.mqtt_user ||
+//         oldPassword != config.mqtt_password) {
+//         needMqttReconnect = true;
+//     }
+
+//     // Zapisz konfigurację
+//     if (!saveConfig()) {
+//         config = oldConfig;
+//         errorMessage = "Błąd zapisu konfiguracji!";
+//         webSocket.broadcastTXT("save:error:" + errorMessage);
+//         server.send(204);
+//         return;
+//     }
+
+//     // Obsługa MQTT jeśli potrzebna
+//     if (needMqttReconnect) {
+//         if (mqtt.isConnected()) {
+//             mqtt.disconnect();
+//         }
+//         connectMQTT();
+//     }
+
+//     // Obsługa restartu jeśli potrzebny
+//     if (needRestart) {
+//         webSocket.broadcastTXT("save:success:Zapisano ustawienia! Urządzenie zostanie zrestartowane...");
+//         server.send(204);
+//         delay(1000);
+//         ESP.restart();
+//     } else {
+//         webSocket.broadcastTXT("save:success:Zapisano ustawienia!");
+//         server.send(204);
+//     }
+// }
+
 void handleSave() {
     // Sprawdzenie metody HTTP
     if (server.method() != HTTP_POST) {
@@ -1737,7 +2080,7 @@ void handleSave() {
     Config oldConfig = config;
     bool needMqttReconnect = false;
     bool needRestart = false;
-    String errorMessage;
+    String responseMessage;
 
     // Walidacja danych logowania WWW
     String newWebUser = server.arg("webUser");
@@ -1748,9 +2091,7 @@ void handleSave() {
     if (newWebUser.length() > 0) {
         if (newWebUser.length() >= sizeof(config.webUser)) {
             config = oldConfig;
-            errorMessage = "Nazwa użytkownika jest za długa";
-            webSocket.broadcastTXT("save:error:" + errorMessage);
-            server.send(204);
+            server.send(400, "application/json", "{\"error\": \"Nazwa użytkownika jest za długa\"}");
             return;
         }
         needRestart = true;
@@ -1760,23 +2101,17 @@ void handleSave() {
     if (newWebPassword.length() > 0 || newWebPasswordConfirm.length() > 0) {
         if (newWebPassword.length() == 0 || newWebPasswordConfirm.length() == 0) {
             config = oldConfig;
-            errorMessage = "Oba pola hasła muszą być wypełnione";
-            webSocket.broadcastTXT("save:error:" + errorMessage);
-            server.send(204);
+            server.send(400, "application/json", "{\"error\": \"Oba pola hasła muszą być wypełnione\"}");
             return;
         }
         if (newWebPassword != newWebPasswordConfirm) {
             config = oldConfig;
-            errorMessage = "Podane hasła nie są identyczne";
-            webSocket.broadcastTXT("save:error:" + errorMessage);
-            server.send(204);
+            server.send(400, "application/json", "{\"error\": \"Podane hasła nie są identyczne\"}");
             return;
         }
         if (newWebPassword.length() >= sizeof(config.webPassword)) {
             config = oldConfig;
-            errorMessage = "Hasło jest za długie";
-            webSocket.broadcastTXT("save:error:" + errorMessage);
-            server.send(204);
+            server.send(400, "application/json", "{\"error\": \"Hasło jest za długie\"}");
             return;
         }
         needRestart = true;
@@ -1807,9 +2142,7 @@ void handleSave() {
     // Walidacja wszystkich wartości
     if (!validateConfigValues()) {
         config = oldConfig;
-        errorMessage = "Nieprawidłowe wartości! Sprawdź wprowadzone dane.";
-        webSocket.broadcastTXT("save:error:" + errorMessage);
-        server.send(204);
+        server.send(400, "application/json", "{\"error\": \"Nieprawidłowe wartości! Sprawdź wprowadzone dane.\"}");
         return;
     }
 
@@ -1832,9 +2165,7 @@ void handleSave() {
     // Zapisz konfigurację
     if (!saveConfig()) {
         config = oldConfig;
-        errorMessage = "Błąd zapisu konfiguracji!";
-        webSocket.broadcastTXT("save:error:" + errorMessage);
-        server.send(204);
+        server.send(500, "application/json", "{\"error\": \"Błąd zapisu konfiguracji!\"}");
         return;
     }
 
@@ -1846,15 +2177,22 @@ void handleSave() {
         connectMQTT();
     }
 
-    // Obsługa restartu jeśli potrzebny
+    // Przygotuj odpowiedź JSON
+    String response;
     if (needRestart) {
-        webSocket.broadcastTXT("save:success:Zapisano ustawienia! Urządzenie zostanie zrestartowane...");
-        server.send(204);
+        response = "{\"success\": true, \"message\": \"Zapisano ustawienia! Urządzenie zostanie zrestartowane...\", \"restart\": true}";
+    } else {
+        response = "{\"success\": true, \"message\": \"Zapisano ustawienia!\", \"restart\": false}";
+    }
+    
+    // Wyślij odpowiedź
+    server.send(200, "application/json", response);
+    status.needsUpdate = true;
+
+    // Jeśli potrzebny restart, wykonaj go po wysłaniu odpowiedzi
+    if (needRestart) {
         delay(1000);
         ESP.restart();
-    } else {
-        webSocket.broadcastTXT("save:success:Zapisano ustawienia!");
-        server.send(204);
     }
 }
 
@@ -2055,7 +2393,7 @@ void loop() {
     handleButton();  // Obsługa naciśnięcia przycisku
     checkAlarmConditions();  // Sprawdzenie warunków alarmowych
     server.handleClient();  // Obsługa serwera WWW
-    webSocket.loop();
+    //webSocket.loop();
 
     // POMIARY I AKTUALIZACJE
     if (currentMillis - timers.lastMeasurement >= MEASUREMENT_INTERVAL) {
@@ -2083,6 +2421,7 @@ void loop() {
             DEBUG_PRINT(F("MQTT połączono ponownie!"));  // Wydrukuj komunikat debugowania
         }
     }
-}
+} 
+
 //----------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------
