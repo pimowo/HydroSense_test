@@ -1237,36 +1237,38 @@ void handleEvents() {
     if (!server.client().connected()) {
         return;
     }
-  
+    
     String data = "data: {";
-    // Status urządzenia
+    // Status urządzenia - główne parametry
     data += "\"waterLevel\":" + String(status.waterLevelBeforePump, 1) + ",";
     data += "\"isPumpActive\":" + String(status.isPumpActive ? "true" : "false") + ",";
     data += "\"waterAlarmActive\":" + String(status.waterAlarmActive ? "true" : "false") + ",";
     data += "\"waterReserveActive\":" + String(status.waterReserveActive ? "true" : "false") + ",";
+    
+    // Status pompy i zabezpieczeń
     data += "\"isPumpDelayActive\":" + String(status.isPumpDelayActive ? "true" : "false") + ",";
     data += "\"pumpSafetyLock\":" + String(status.pumpSafetyLock ? "true" : "false") + ",";
     data += "\"isServiceMode\":" + String(status.isServiceMode ? "true" : "false") + ",";
     data += "\"soundEnabled\":" + String(status.soundEnabled ? "true" : "false") + ",";
     
-    // Konfiguracja
+    // Parametry konfiguracyjne
     data += "\"tankFull\":" + String(config.tank_full) + ",";
     data += "\"tankEmpty\":" + String(config.tank_empty) + ",";
     data += "\"reserveLevel\":" + String(config.reserve_level) + ",";
     
-    // Czasy
-    data += "\"pumpStartTime\":" + String(status.pumpStartTime) + ",";
-    data += "\"pumpDelayStartTime\":" + String(status.pumpDelayStartTime) + ",";
-    data += "\"lastSuccessfulMeasurement\":" + String(status.lastSuccessfulMeasurement);
+    // Status połączeń
+    data += "\"mqttConnected\":" + String(mqtt.connected() ? "true" : "false") + ",";
+    data += "\"wifiStrength\":" + String(WiFi.RSSI()) + ",";
+    data += "\"uptime\":" + String(millis() / 1000);
     data += "}\n\n";
     
-    // Ustawienie nagłówków
+    // Ustaw nagłówki odpowiedzi
     server.sendHeader("Cache-Control", "no-cache");
     server.sendHeader("Content-Type", "text/event-stream");
     server.sendHeader("Connection", "keep-alive");
     server.sendHeader("Access-Control-Allow-Origin", "*");
     
-    // Wysłanie odpowiedzi
+    // Wyślij dane
     server.send(200, "text/event-stream", data);
 }
 
@@ -2088,8 +2090,66 @@ String getConfigPage() {
                      "<button type='button' class='btn btn-blue' onclick='showChangePasswordModal()'>Zmień hasło</button>"
                      "</div>");
 
-    // MQTT, Zbiornik i Pompa (bez zmian)
-    // ... (reszta formularzy pozostaje bez zmian)
+    // Ustawienia MQTT
+    configForms += F("<div class='section'>"
+                     "<h2>Ustawienia MQTT</h2>"
+                     "<table class='config-table'>"
+                     "<tr><td>Serwer MQTT</td><td><input type='text' name='mqtt_server' value='");
+    configForms += config.mqtt_server;
+    configForms += F("'></td></tr>"
+                     "<tr><td>Port MQTT</td><td><input type='number' name='mqtt_port' value='");
+    configForms += String(config.mqtt_port);
+    configForms += F("'></td></tr>"
+                     "<tr><td>Użytkownik MQTT</td><td><input type='text' name='mqtt_user' value='");
+    configForms += config.mqtt_user;
+    configForms += F("'></td></tr>"
+                     "<tr><td>Hasło MQTT</td><td><input type='password' name='mqtt_password' value='");
+    configForms += config.mqtt_password;
+    configForms += F("'></td></tr>"
+                     "</table>"
+                     "</div>");
+    
+    // Ustawienia zbiornika
+    configForms += F("<div class='section'>"
+                     "<h2>Ustawienia zbiornika</h2>"
+                     "<table class='config-table'>"
+                     "<tr><td>Poziom pusty [cm]</td><td><input type='number' name='tank_empty' value='");
+    configForms += String(config.tank_empty);
+    configForms += F("' min='0' max='500'></td></tr>"
+                     "<tr><td>Poziom pełny [cm]</td><td><input type='number' name='tank_full' value='");
+    configForms += String(config.tank_full);
+    configForms += F("' min='0' max='500'></td></tr>"
+                     "<tr><td>Poziom rezerwy [cm]</td><td><input type='number' name='reserve_level' value='");
+    configForms += String(config.reserve_level);
+    configForms += F("' min='0' max='500'></td></tr>"
+                     "<tr><td>Średnica zbiornika [cm]</td><td><input type='number' name='tank_diameter' value='");
+    configForms += String(config.tank_diameter);
+    configForms += F("' min='0' max='1000'></td></tr>"
+                     "</table>"
+                     "</div>");
+    
+    // Ustawienia pompy
+    configForms += F("<div class='section'>"
+                     "<h2>Ustawienia pompy</h2>"
+                     "<table class='config-table'>"
+                     "<tr><td>Opóźnienie pompy [s]</td><td><input type='number' name='pump_delay' value='");
+    configForms += String(config.pump_delay);
+    configForms += F("' min='0' max='3600'></td></tr>"
+                     "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='");
+    configForms += String(config.pump_work_time);
+    configForms += F("' min='0' max='3600'></td></tr>"
+                     "</table>"
+                     "</div>");
+    
+    // Ustawienia dźwięku
+    configForms += F("<div class='section'>"
+                     "<h2>Ustawienia dźwięku</h2>"
+                     "<table class='config-table'>"
+                     "<tr><td>Dźwięk włączony</td><td><input type='checkbox' name='soundEnabled' ");
+    configForms += config.soundEnabled ? "checked" : "";
+    configForms += F("></td></tr>"
+                     "</table>"
+                     "</div>");
 
     configForms += F("<div class='section'>"
                      "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
@@ -2397,6 +2457,69 @@ void sendSerialMessage(String message) {
     Serial.println(message);
 }
 
+function updateStatus(data) {
+    // Aktualizacja poziomu wody i statusu pompy
+    if (data.waterLevel !== undefined) {
+        document.getElementById('waterLevel').textContent = data.waterLevel.toFixed(1);
+    }
+    if (data.isPumpActive !== undefined) {
+        document.getElementById('pumpState').textContent = data.isPumpActive ? 'Włączona' : 'Wyłączona';
+        document.getElementById('pumpState').className = data.isPumpActive ? 'status success' : 'status normal';
+    }
+    
+    // Aktualizacja stanów alarmowych
+    if (data.waterAlarmActive !== undefined) {
+        document.getElementById('alarmState').textContent = data.waterAlarmActive ? 'Aktywny' : 'Nieaktywny';
+        document.getElementById('alarmState').className = data.waterAlarmActive ? 'status error' : 'status success';
+    }
+    if (data.waterReserveActive !== undefined) {
+        document.getElementById('reserveState').textContent = data.waterReserveActive ? 'Aktywna' : 'Nieaktywna';
+        document.getElementById('reserveState').className = data.waterReserveActive ? 'status warning' : 'status normal';
+    }
+    
+    // Aktualizacja stanu zabezpieczeń
+    if (data.pumpSafetyLock !== undefined) {
+        document.getElementById('safetyState').textContent = data.pumpSafetyLock ? 'Zablokowana' : 'Odblokowana';
+        document.getElementById('safetyState').className = data.pumpSafetyLock ? 'status error' : 'status success';
+    }
+    
+    // Aktualizacja statusu dźwięku
+    if (data.soundEnabled !== undefined) {
+        document.getElementById('soundStatus').textContent = data.soundEnabled ? 'Włączony' : 'Wyłączony';
+        document.getElementById('soundStatus').className = data.soundEnabled ? 'status success' : 'status normal';
+    }
+    
+    // Aktualizacja statusu połączeń
+    if (data.mqttConnected !== undefined) {
+        document.getElementById('mqttStatus').textContent = data.mqttConnected ? 'Połączony' : 'Rozłączony';
+        document.getElementById('mqttStatus').className = data.mqttConnected ? 'status success' : 'status error';
+    }
+    if (data.wifiStrength !== undefined) {
+        const rssi = parseInt(data.wifiStrength);
+        let signalQuality = 'Słaby';
+        let statusClass = 'status error';
+        
+        if (rssi > -60) {
+            signalQuality = 'Dobry';
+            statusClass = 'status success';
+        } else if (rssi > -70) {
+            signalQuality = 'Średni';
+            statusClass = 'status warning';
+        }
+        
+        document.getElementById('wifiStatus').textContent = signalQuality + ' (' + rssi + ' dBm)';
+        document.getElementById('wifiStatus').className = statusClass;
+    }
+    
+    // Aktualizacja czasu pracy
+    if (data.uptime !== undefined) {
+        const hours = Math.floor(data.uptime / 3600);
+        const minutes = Math.floor((data.uptime % 3600) / 60);
+        document.getElementById('uptime').textContent = 
+            hours + 'h ' + minutes + 'm';
+    }
+}
+
 // ---------------------- GŁÓWNE FUNKCJE PROGRAMU ---------------------
 
 // Inicjalizacja sprzętu i usług
@@ -2503,5 +2626,6 @@ void loop() {
         }
     }
 } 
+
 //----------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------
