@@ -1,118 +1,3 @@
-/*
- * HydroSense - Mój system monitorowania poziomu wody
- * Wersja: Wieczna Beta 2.0 (tak, wiem, ciągle Beta...)
- * Autor: Ja, czyli PMW (Programista Mocno Wannabe) aka @pimowo
- * Data rozpoczęcia: Gdy Arduino było jeszcze cool...
- * Ostatnia modyfikacja: 2024-11-24 00:21:21 UTC (tak, nie śpię o tej porze)
- * 
- * SZCZERE WYZNANIE AMATORA:
- * 
- * Drogi Śmiałku, który odważyłeś się zajrzeć w mój kod!
- * 
- * Jestem programistą-amatorem, niedzielnym hobbystą i wiecznym eksperymentatorem.
- * Bez pomocy AI nawet nie wiedziałbym, gdzie w Arduino jest przycisk 'start'.
- * Ale hej! Z pomocą GitHub Copilota, Stack Overflow i niezliczonych tutoriali,
- * stworzyłem system do monitorowania i kontroli poziomu wody z integracją MQTT.
- * (Tak, sam jestem w szoku, że to działa!)
- * 
- * MOJE ZASADY JAKO AMATORA:
- * - Używasz na własną odpowiedzialność (ja nawet swojego kodu nie rozumiem)
- * - Jak Ci zaleje dom, nie pisz - będę guglowal jak osuszyć własną piwnicę
- * - Wsparcie? Jasne! Razem będziemy szukać na Stack Overflow
- * - Gwarancja? Gwarantuję jedynie, że kod napisał człowiek... chyba
- * 
- * AKTUALNY STAN MOJEGO DZIEŁA:
- * - Działa... ku mojemu wielkiemu zdziwieniu
- * - Nie działa... zgodnie z oczekiwaniami
- * - Błędy nazywam "niezamierzonymi funkcjami edukacyjnymi"
- * - Pracuję nad tym w każdą wolną niedzielę (i czasem w środy, jak żona pozwoli)
- * 
- * CZEGO POTRZEBUJESZ:
- * - Odwagi (dużo odwagi)
- * - Poczucia humoru (przyda się, serio)
- * - Zapasu ręczników (mówię z doświadczenia)
- * - Numeru do hydraulika (polecam mojego - już się przyzwyczaił)
- * - Cierpliwości do amatora (głównie do mnie)
- * 
- * Z CZYM TO WSPÓŁPRACUJE:
- * - Z Home Assistant (jak AI podpowie jak połączyć)
- * - Z MQTT (bo brzmi profesjonalnie)
- * - Ze mną (po trzeciej kawie i wizycie na 10 stronach dokumentacji)
- * 
- * SZCZERZE MÓWIĄC:
- * Jeśli szukasz czegoś pewnego i stabilnego - kup gotowy system.
- * Jeśli jednak, tak jak ja, lubisz uczyć się na błędach - witaj w moim świecie!
- * 
- * PS: Nadal nie wierzę, że czasem to wszystko działa.
- * Może to zasługa AI, może przypadek, a może jednak się uczę?
- * 
- * PPS: Kod powstał przy wsparciu:
- * - Niezliczonych kubków kawy
- * - Stack Overflow (mój drugi dom)
- * - GitHub Copilot (mój prywatny nauczyciel)
- * - Społeczności Arduino (dzięki za cierpliwość!)
- * - Dr. Google i Prof. YouTube
- * 
- * PPPS: Właśnie czytasz mój kod - witaj w rodzinie!
- * Razem będziemy się uczyć... głównie na moich błędach.
- * 
- * Z pozdrowieniami od wiecznego amatora,
- * Wasz @pimowo
- * 
- * PPPPS: Tak, nadal się uczę jak kończyć komentarze...
- */
-
-// ESP8266WebServer server(80);  // Tworzenie instancji serwera HTTP na porcie 80
-// WebSocketsServer webSocket = WebSocketsServer(81);  // Tworzenie instancji serwera WebSockets na porcie 81
-
-// // Wersja systemu
-// const char* SOFTWARE_VERSION = "23.11.24";  // Definiowanie wersji oprogramowania
-
-// // Stałe czasowe (wszystkie wartości w milisekundach)
-// const unsigned long ULTRASONIC_TIMEOUT = 50;  // Timeout pomiaru czujnika ultradźwiękowego
-// const unsigned long MEASUREMENT_INTERVAL = 60000;  // Interwał między pomiarami
-// const unsigned long WATCHDOG_TIMEOUT = 8000;  // Timeout dla watchdoga
-// const unsigned long LONG_PRESS_TIME = 1000;  // Czas długiego naciśnięcia przycisku
-// const unsigned long MQTT_LOOP_INTERVAL = 100;  // Obsługa MQTT co 100ms
-// const unsigned long OTA_CHECK_INTERVAL = 1000;  // Sprawdzanie OTA co 1s
-// const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Próba połączenia MQTT co 10s
-
-// // Stałe konfiguracyjne zbiornika
-// // Wszystkie odległości w milimetrach od czujnika do powierzchni wody
-// // Mniejsza odległość = wyższy poziom wody
-// const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
-// const int SENSOR_MIN_RANGE = 20;   // Minimalny zakres czujnika (mm)
-// const int SENSOR_MAX_RANGE = 1020; // Maksymalny zakres czujnika (mm)
-// const float EMA_ALPHA = 0.2f;  // Współczynnik wygładzania dla średniej wykładniczej (0-1)
-// const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
-
-// // Zmienne globalne
-// float lastFilteredDistance = 0;  // Dla filtra EMA (Exponential Moving Average)
-// float lastReportedDistance = 0;
-// unsigned long lastMeasurement = 0;
-// const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dni
-
-// Config config;  // Globalna instancja struktury konfiguracyjnej
-
-// const uint8_t CONFIG_VERSION = 2;  // Wersja konfiguracji
-// const int EEPROM_SIZE = sizeof(Config);  // Rozmiar używanej pamięci EEPROM   
-
-// float currentDistance = 0;
-// float volume = 0;
-// unsigned long pumpStartTime = 0;
-// float waterLevelBeforePump = 0;
-
-// // Obiekty do komunikacji
-// WiFiClient client;  // Klient połączenia WiFi
-// HADevice device("HydroSense");  // Definicja urządzenia dla Home Assistant
-// HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
-
-// // Instancja struktury Status
-// Status status;
-// ButtonState buttonState;  // Instancja struktury ButtonState
-// static Timers timers;  // Instancja struktury Timers
-
-//----------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------
 
@@ -141,22 +26,24 @@ const int POMPA_PIN = D1;            // Pin sterowania pompą
 const int BUZZER_PIN = D2;           // Pin buzzera do alarmów dźwiękowych
 const int PRZYCISK_PIN = D3;         // Pin przycisku do kasowania alarmów
 
-// Parametry czasowe
-const unsigned long ULTRASONIC_TIMEOUT = 50;
-const unsigned long MEASUREMENT_INTERVAL = 60000;
-const unsigned long WATCHDOG_TIMEOUT = 8000;
-const unsigned long LONG_PRESS_TIME = 1000;
-const unsigned long MQTT_LOOP_INTERVAL = 100;
-const unsigned long OTA_CHECK_INTERVAL = 1000;
-const unsigned long MQTT_RETRY_INTERVAL = 10000;
-const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000;
+// Parametry czasowe (wszystkie wartości w milisekundach)
+const unsigned long ULTRASONIC_TIMEOUT = 50;  // Timeout pomiaru czujnika ultradźwiękowego
+const unsigned long MEASUREMENT_INTERVAL = 60000;  // Interwał między pomiarami
+const unsigned long WATCHDOG_TIMEOUT = 8000;  // Timeout dla watchdoga
+const unsigned long LONG_PRESS_TIME = 1000;  // Czas długiego naciśnięcia przycisku
+const unsigned long MQTT_LOOP_INTERVAL = 100;  // Obsługa MQTT co 100ms
+const unsigned long OTA_CHECK_INTERVAL = 1000;  // Sprawdzanie OTA co 1s
+const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Próba połączenia MQTT co 10s
+const unsigned long MILLIS_OVERFLOW_THRESHOLD = 4294967295U - 60000; // ~49.7 dni
 
 // Parametry czujnika
-const int HYSTERESIS = 10;
-const int SENSOR_MIN_RANGE = 20;
-const int SENSOR_MAX_RANGE = 1020;
-const float EMA_ALPHA = 0.2f;
-const int SENSOR_AVG_SAMPLES = 3;
+// Wszystkie odległości w milimetrach od czujnika do powierzchni wody
+// Mniejsza odległość = wyższy poziom wody
+const int HYSTERESIS = 10;  // Histereza przy zmianach poziomu (mm)
+const int SENSOR_MIN_RANGE = 20;   // Minimalny zakres czujnika (mm)
+const int SENSOR_MAX_RANGE = 1020; // Maksymalny zakres czujnika (mm)
+const float EMA_ALPHA = 0.2f;  // Współczynnik wygładzania dla średniej wykładniczej (0-1)
+const int SENSOR_AVG_SAMPLES = 3;  // Liczba próbek do uśrednienia pomiaru
 
 // Definicja debugowania
 #define DEBUG 1  // 0 wyłącza debug, 1 włącza debug
@@ -244,9 +131,9 @@ struct Timers {
 // Instancje obiektów
 ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
-WiFiClient client;
-HADevice device("HydroSense");
-HAMqtt mqtt(client, device);
+WiFiClient client;  // Klient połączenia WiFi
+HADevice device("HydroSense");  // Definicja urządzenia dla Home Assistant
+HAMqtt mqtt(client, device);  // Klient MQTT dla Home Assistant
 
 // Sensory Home Assistant
 
@@ -269,9 +156,9 @@ HASwitch switchSound("sound_switch");  // Dźwięki systemu
 // Zmienne stanu
 Config config;
 Status status;
-ButtonState buttonState;
-Timers timers;
-float lastFilteredDistance = 0;
+ButtonState buttonState;  // Instancja struktury ButtonState
+static Timers timers;  // Instancja struktury Timers
+float lastFilteredDistance = 0;  // Dla filtra EMA (Exponential Moving Average)
 float lastReportedDistance = 0;
 float currentDistance = 0;
 float volume = 0;
@@ -2181,4 +2068,6 @@ void loop() {
         }
     }
 } 
-//---------------------------------------------------------------------
+
+//----------------------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------------------
