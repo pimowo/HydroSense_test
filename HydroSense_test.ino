@@ -1233,42 +1233,52 @@ void setupWebServer() {
 }
 
 void handleEvents() {
-    // Sprawdź stan połączenia klienta
-    if (!server.client().connected()) {
-        return;
-    }
-    
     String data = "data: {";
-    // Status urządzenia - główne parametry
+    
+    // Status MQTT
+    data += "\"mqttConnected\":" + String(mqtt.isConnected() ? "true" : "false") + ",";
+    
+    // Status systemu
+    data += "\"soundEnabled\":" + String(config.soundEnabled ? "true" : "false") + ",";
+    
+    // Dane zbiornika
     data += "\"waterLevel\":" + String(status.waterLevelBeforePump, 1) + ",";
+    data += "\"waterVolume\":" + String(status.waterVolume, 1) + ",";
+    data += "\"waterPercentage\":" + String(status.waterPercentage, 1) + ",";
+    
+    // Status pompy
     data += "\"isPumpActive\":" + String(status.isPumpActive ? "true" : "false") + ",";
+    data += "\"pumpStartTime\":" + String(status.pumpStartTime) + ",";
+    data += "\"pumpWorkTime\":" + String(status.pumpWorkTime) + ",";
+    
+    // Status alarmów
     data += "\"waterAlarmActive\":" + String(status.waterAlarmActive ? "true" : "false") + ",";
-    data += "\"waterReserveActive\":" + String(status.waterReserveActive ? "true" : "false") + ",";
+    data += "\"pumpAlarmActive\":" + String(status.pumpAlarmActive ? "true" : "false") + ",";
     
-    // Status pompy i zabezpieczeń
-    data += "\"isPumpDelayActive\":" + String(status.isPumpDelayActive ? "true" : "false") + ",";
-    data += "\"pumpSafetyLock\":" + String(status.pumpSafetyLock ? "true" : "false") + ",";
-    data += "\"isServiceMode\":" + String(status.isServiceMode ? "true" : "false") + ",";
-    data += "\"soundEnabled\":" + String(status.soundEnabled ? "true" : "false") + ",";
-    
-    // Parametry konfiguracyjne
-    data += "\"tankFull\":" + String(config.tank_full) + ",";
+    // Konfiguracja zbiornika
     data += "\"tankEmpty\":" + String(config.tank_empty) + ",";
+    data += "\"tankFull\":" + String(config.tank_full) + ",";
     data += "\"reserveLevel\":" + String(config.reserve_level) + ",";
+    data += "\"tankDiameter\":" + String(config.tank_diameter) + ",";
     
-    // Status połączeń
-    data += "\"mqttConnected\":" + String(mqtt.connected() ? "true" : "false") + ",";
-    data += "\"wifiStrength\":" + String(WiFi.RSSI()) + ",";
-    data += "\"uptime\":" + String(millis() / 1000);
+    // Konfiguracja pompy
+    data += "\"pumpDelay\":" + String(config.pump_delay) + ",";
+    data += "\"pumpWorkTimeConfig\":" + String(config.pump_work_time) + ",";
+    
+    // Informacje systemowe
+    data += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
+    data += "\"uptime\":" + String(millis() / 1000) + ",";
+    data += "\"version\":\"" + String(SOFTWARE_VERSION) + "\"";
+    
     data += "}\n\n";
-    
-    // Ustaw nagłówki odpowiedzi
+
+    // Ustawienie nagłówków SSE
     server.sendHeader("Cache-Control", "no-cache");
     server.sendHeader("Content-Type", "text/event-stream");
     server.sendHeader("Connection", "keep-alive");
     server.sendHeader("Access-Control-Allow-Origin", "*");
     
-    // Wyślij dane
+    // Wysłanie danych
     server.send(200, "text/event-stream", data);
 }
 
