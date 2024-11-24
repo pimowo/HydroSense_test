@@ -1,3 +1,13 @@
+/*
+ * HydroSense - System monitorowania poziomu wody
+ * Wersja: pierwsza ;)
+ * Autor: PMW
+ * Data: 
+ * 
+ * Opis: System do monitorowania i kontroli poziomu wody
+ * z integracją z Home Assistant poprzez MQTT
+ */
+
 // --- Biblioteki
 
 #include <Arduino.h>  // Podstawowa biblioteka Arduino zawierająca funkcje rdzenia
@@ -100,6 +110,10 @@ struct Config {
     uint16_t mqtt_port;      // Port serwera MQTT (domyślnie 1883)
     char mqtt_user[32];      // Nazwa użytkownika do autoryzacji MQTT
     char mqtt_password[32];  // Hasło do autoryzacji MQTT
+
+    // Ustawienia
+    char webUser[32];  // nazwa użytkownika
+    char webPassword[32];  // hasło
     
     // Ustawienia zbiornika
     int tank_full;      // Poziom w cm gdy zbiornik jest pełny (odległość od czujnika)
@@ -254,6 +268,10 @@ void setDefaultConfig() {
     config.mqtt_port = 1883;
     strlcpy(config.mqtt_user, "", sizeof(config.mqtt_user));
     strlcpy(config.mqtt_password, "", sizeof(config.mqtt_password));
+
+    // WWW
+    strlcpy(config.webUser, "admin", sizeof(config.webUser));
+    strlcpy(config.webPassword, "hydrosense", sizeof(config.webPassword));
     
     // Konfiguracja zbiornika
     config.tank_full = 50;  // czujnik od powierzchni przy pełnym zbiorniku
@@ -930,7 +948,7 @@ int calculateWaterLevel(int distance) {
     return (int)percentage;  // Zwrot wartości całkowitej
 }
 
-//
+// Aktualizacja poziomu wody i powiązanych czujników
 void updateWaterLevel() {
     // Zapisz poprzednią objętość
     float previousVolume = volume;
@@ -1600,9 +1618,25 @@ String getConfigPage() {
     html.replace("%UPDATE_FORM%", FPSTR(UPDATE_FORM));
     html.replace("%FOOTER%", FPSTR(PAGE_FOOTER));
     html.replace("%MESSAGE%", "");
+    html.replace("%WEB_USER%", config.webUser);
+    html.replace("%WEB_PASSWORD%", config.webPassword);
 
     // Przygotuj formularze konfiguracyjne
     String configForms = F("<form method='POST' action='/save'>");
+    
+    // Ustawienia dostępu
+    configForms += F("<div class='section'>"
+                     "<h2>Ustawienia dostępu</h2>"
+                     "<table class='config-table'>"
+                     "<tr><td>Nazwa użytkownika WWW</td><td><input type='text' name='webUser' value='");
+    configForms += config.webUser;
+    configForms += F("'></td></tr>"
+                     "</table>"
+                     "<button type='button' class='btn btn-blue' onclick='showChangePasswordModal()'>Zmień hasło</button>"
+                     "</div>");
+    configForms += config.webPassword;
+    configForms += F("'></td></tr>"
+                     "</table></div>");
     
     // MQTT
     configForms += F("<div class='section'>"
@@ -1664,6 +1698,17 @@ void handleRoot() {
 
 // Sprawdź sensowność wartości
 bool validateConfigValues() {
+    // Sprawdzenie czy dane logowania nie są puste
+    if (strlen(config.webUser) == 0 || strlen(config.webPassword) == 0) {
+        return false;
+    }
+
+    // Sprawdzenie długości danych logowania
+    if (strlen(config.webUser) >= 32 || strlen(config.webPassword) >= 32) {
+        return false;
+    }
+
+    // Wlidacje
     if (server.arg("tank_full").toInt() >= server.arg("tank_empty").toInt() ||  // Sprawdź, czy poziom pełnego zbiornika jest większy lub równy poziomowi pustego zbiornika
         server.arg("reserve_level").toInt() >= server.arg("tank_empty").toInt() ||  // Sprawdź, czy poziom rezerwy jest większy lub równy poziomowi pustego zbiornika
         server.arg("tank_diameter").toInt() <= 0 ||  // Sprawdź, czy średnica zbiornika jest większa od 0
@@ -1681,9 +1726,46 @@ void handleSave() {
         return;
     }
 
+    if (!server.authenticate(config.webUser, config.webPassword)) {
+        return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+    }
+
     // Zapisz poprzednie wartości na wypadek błędów
     Config oldConfig = config;
     bool needMqttReconnect = false;
+    bool needRestart = false;
+    String errorMessage;
+
+    // Sprawdź dane logowania WWW
+    String newWebUser = server.arg("webUser");
+    String newWebPassword = server.arg("webPassword");
+    String newWebPasswordConfirm = server.arg("webPasswordConfirm");
+
+    // Walidacja danych logowania WWW
+    if (newWebUser.length() > 0) {
+        if (newWebUser.length() >= sizeof(config.webUser)) {
+            errorMessage = "Nazwa użytkownika jest za długa";
+            goto handleError;
+        }
+        needRestart = true;
+    }
+
+    // Sprawdź czy hasło ma być zmienione
+    if (newWebPassword.length() > 0 || newWebPasswordConfirm.length() > 0) {
+        if (newWebPassword.length() == 0 || newWebPasswordConfirm.length() == 0) {
+            errorMessage = "Oba pola hasła muszą być wypełnione";
+            goto handleError;
+        }
+        if (newWebPassword != newWebPasswordConfirm) {
+            errorMessage = "Podane hasła nie są identyczne";
+            goto handleError;
+        }
+        if (newWebPassword.length() >= sizeof(config.webPassword)) {
+            errorMessage = "Hasło jest za długie";
+            goto handleError;
+        }
+        needRestart = true;
+    }
 
     // Zapisz poprzednie wartości MQTT do porównania
     String oldServer = config.mqtt_server;
@@ -1696,7 +1778,7 @@ void handleSave() {
     config.mqtt_port = server.arg("mqtt_port").toInt();
     strlcpy(config.mqtt_user, server.arg("mqtt_user").c_str(), sizeof(config.mqtt_user));
     strlcpy(config.mqtt_password, server.arg("mqtt_password").c_str(), sizeof(config.mqtt_password));
-
+    
     // Zapisz ustawienia zbiornika
     config.tank_full = server.arg("tank_full").toInt();
     config.tank_empty = server.arg("tank_empty").toInt();
@@ -1709,10 +1791,16 @@ void handleSave() {
 
     // Sprawdź poprawność wartości
     if (!validateConfigValues()) {
-        config = oldConfig; // Przywróć poprzednie wartości
-        webSocket.broadcastTXT("save:error:Nieprawidłowe wartości! Sprawdź wprowadzone dane.");
-        server.send(204); // Nie przekierowuj strony
-        return;
+        errorMessage = "Nieprawidłowe wartości! Sprawdź wprowadzone dane.";
+        goto handleError;
+    }
+
+    // Zapisz zatwierdzone dane logowania WWW
+    if (newWebUser.length() > 0) {
+        strlcpy(config.webUser, newWebUser.c_str(), sizeof(config.webUser));
+    }
+    if (newWebPassword.length() > 0) {
+        strlcpy(config.webPassword, newWebPassword.c_str(), sizeof(config.webPassword));
     }
 
     // Sprawdź czy dane MQTT się zmieniły
@@ -1734,15 +1822,30 @@ void handleSave() {
         connectMQTT();
     }
 
-    // Wyślij informację o sukcesie przez WebSocket
-    webSocket.broadcastTXT("save:success:Zapisano ustawienia!");
-    server.send(204); // Nie przekierowuj strony
+    // Jeśli zmieniono dane logowania, wyślij informację o restarcie
+    if (needRestart) {
+        webSocket.broadcastTXT("save:success:Zapisano ustawienia! Urządzenie zostanie zrestartowane...");
+        server.send(204);
+        delay(1000);
+        ESP.restart();
+    } else {
+        webSocket.broadcastTXT("save:success:Zapisano ustawienia!");
+        server.send(204);
+    }
+    return;
+
+handleError:
+    config = oldConfig; // Przywróć poprzednie wartości
+    webSocket.broadcastTXT("save:error:" + errorMessage);
+    server.send(204);
 }
 
+//
 void sendSerialMessage(String message) {
     Serial.println(message);
 }
 
+//
 void handleDoUpdate() {
     HTTPUpload& upload = server.upload();
     
@@ -1800,24 +1903,109 @@ void handleUpdateResult() {
     }
 }
 
-void setupWebServer() {
-    server.on("/", handleRoot);
-    server.on("/update", HTTP_POST, handleUpdateResult, handleDoUpdate);
-    server.on("/save", handleSave);
+void handleChangePassword() {
+    if (!server.authenticate(config.webUser, config.webPassword)) {
+        return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+    }
+
+    if (server.method() != HTTP_POST) {
+        server.send(405, "text/plain", "Method Not Allowed");
+        return;
+    }
+
+    String newPassword = server.arg("newPassword");
     
+    // Walidacja hasła
+    if (newPassword.length() == 0) {
+        server.send(400, "text/plain", "Hasło nie może być puste");
+        return;
+    }
+    
+    if (newPassword.length() >= sizeof(config.webPassword)) {
+        server.send(400, "text/plain", "Hasło jest za długie");
+        return;
+    }
+
+    // Zapisz nowe hasło
+    strlcpy(config.webPassword, newPassword.c_str(), sizeof(config.webPassword));
+    
+    // Zapisz konfigurację
+    if (saveConfig()) {
+        server.send(200, "text/plain", "Hasło zostało zmienione");
+        // Opóźniony restart
+        delay(500);
+        ESP.restart();
+    } else {
+        server.send(500, "text/plain", "Błąd zapisu konfiguracji");
+    }
+}
+
+void setupWebServer() {
+    // Główna strona
+    server.on("/", HTTP_GET, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleRoot();
+    });
+
+    // Obsługa aktualizacji
+    server.on("/update", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleUpdateResult();
+    }, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleDoUpdate();
+    });
+
+    // Obsługa zapisywania konfiguracji
+    server.on("/save", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleSave();
+    });
+
+    // Obsługa zmiany hasła (NOWY ENDPOINT)
+    server.on("/change-password", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleChangePassword();
+    });
+    
+    // Obsługa restartu
     server.on("/reboot", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
         server.send(200, "text/plain", "Restarting...");
         delay(1000);
         ESP.restart();
     });
 
-    // Obsługa resetu przez WWW
+    // Obsługa resetu do ustawień fabrycznych
     server.on("/factory-reset", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
         server.send(200, "text/plain", "Resetting to factory defaults...");
-        delay(200);  // Daj czas na wysłanie odpowiedzi
-        factoryReset();  // Wywołaj tę samą funkcję co przy resecie fizycznym
+        delay(200);
+        factoryReset();
     });
     
+    // Dodanie obsługi błędu 404
+    server.onNotFound([]() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        server.send(404, "text/plain", "404: Not found");
+    });
+
     server.begin();
 }
 
