@@ -1152,90 +1152,80 @@ void setupHA() {
 }
 
 //
-// void setupWebServer() {
-//     // Główna strona
-//     server.on("/", HTTP_GET, []() {
-//         if (!server.authenticate(config.webUser, config.webPassword)) {
-//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-//         }
-//         handleRoot();
-//     });
-
-//     // Obsługa aktualizacji
-//     server.on("/update", HTTP_POST, []() {
-//         if (!server.authenticate(config.webUser, config.webPassword)) {
-//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-//         }
-//         handleUpdateResult();
-//     }, []() {
-//         if (!server.authenticate(config.webUser, config.webPassword)) {
-//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-//         }
-//         handleDoUpdate();
-//     });
-
-//     // Obsługa zapisywania konfiguracji
-//     server.on("/save", HTTP_POST, []() {
-//         if (!server.authenticate(config.webUser, config.webPassword)) {
-//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-//         }
-//         handleSave();
-//     });
-
-//     // Obsługa zmiany hasła (NOWY ENDPOINT)
-//     server.on("/change-password", HTTP_POST, []() {
-//         if (!server.authenticate(config.webUser, config.webPassword)) {
-//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-//         }
-//         handleChangePassword();
-//     });
-    
-//     // Obsługa restartu
-//     server.on("/reboot", HTTP_POST, []() {
-//         if (!server.authenticate(config.webUser, config.webPassword)) {
-//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-//         }
-//         server.send(200, "text/plain", "Restarting...");
-//         delay(1000);
-//         ESP.restart();
-//     });
-
-//     // Obsługa resetu do ustawień fabrycznych
-//     server.on("/factory-reset", HTTP_POST, []() {
-//         if (!server.authenticate(config.webUser, config.webPassword)) {
-//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-//         }
-//         server.send(200, "text/plain", "Resetting to factory defaults...");
-//         delay(200);
-//         factoryReset();
-//     });
-    
-//     // Dodanie obsługi błędu 404
-//     server.onNotFound([]() {
-//         if (!server.authenticate(config.webUser, config.webPassword)) {
-//             return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-//         }
-//         server.send(404, "text/plain", "404: Not found");
-//     });
-
-//     server.begin();
-// }
-
 void setupWebServer() {
-    server.on("/", HTTP_GET, handleRoot);
-    server.on("/save", HTTP_POST, handleSave);
-    server.on("/events", HTTP_GET, handleEvents);  // Dodaj obsługę SSE
-    server.on("/update", HTTP_POST, handleDoUpdate);
-    server.on("/updateResult", HTTP_GET, handleUpdateResult);
-    server.on("/changePassword", HTTP_POST, handleChangePassword);
+    // Endpoint główny z autentykacją
+    server.on("/", HTTP_GET, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleRoot();
+    });
+    
+    // Endpoint zapisu z autentykacją
+    server.on("/save", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleSave();
+    });
+    
+    // Endpoint SSE z autentykacją
+    server.on("/events", HTTP_GET, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleEvents();
+    });
+    
+    // Endpoint aktualizacji z autentykacją
+    server.on("/update", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleDoUpdate();
+    });
+    
+    // Endpoint statusu aktualizacji z autentykacją
+    server.on("/updateResult", HTTP_GET, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleUpdateResult();
+    });
+    
+    // Endpoint zmiany hasła z autentykacją
+    server.on("/changePassword", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        handleChangePassword();
+    });
+    
+    // Endpoint restartu z autentykacją
     server.on("/reboot", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
         server.send(200, "application/json", "{\"message\":\"Restarting...\"}");
         delay(1000);
         ESP.restart();
     });
+    
+    // Endpoint resetu fabrycznego z autentykacją
     server.on("/factory-reset", HTTP_POST, []() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
         server.send(200, "application/json", "{\"message\":\"Resetting to factory defaults...\"}");
         factoryReset();
+    });
+    
+    // Obsługa błędu 404 z autentykacją
+    server.onNotFound([]() {
+        if (!server.authenticate(config.webUser, config.webPassword)) {
+            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        }
+        server.send(404, "text/plain", "404: Not found");
     });
     
     server.begin();
@@ -1243,18 +1233,34 @@ void setupWebServer() {
 
 void handleEvents() {
     String data = "data: {";
-    data += "\"waterLevel\":" + String(status.waterLevel, 1) + ",";
-    data += "\"pumpState\":" + String(status.pumpState ? "true" : "false") + ",";
-    data += "\"alarmState\":" + String(status.alarmState ? "true" : "false") + ",";
+    // Status urządzenia
+    data += "\"waterLevel\":" + String(status.waterLevelBeforePump, 1) + ",";
+    data += "\"isPumpActive\":" + String(status.isPumpActive ? "true" : "false") + ",";
+    data += "\"waterAlarmActive\":" + String(status.waterAlarmActive ? "true" : "false") + ",";
+    data += "\"waterReserveActive\":" + String(status.waterReserveActive ? "true" : "false") + ",";
+    data += "\"isPumpDelayActive\":" + String(status.isPumpDelayActive ? "true" : "false") + ",";
+    data += "\"pumpSafetyLock\":" + String(status.pumpSafetyLock ? "true" : "false") + ",";
+    data += "\"isServiceMode\":" + String(status.isServiceMode ? "true" : "false") + ",";
+    data += "\"soundEnabled\":" + String(status.soundEnabled ? "true" : "false") + ",";
+    
+    // Konfiguracja
     data += "\"tankFull\":" + String(config.tank_full) + ",";
     data += "\"tankEmpty\":" + String(config.tank_empty) + ",";
-    data += "\"reserveLevel\":" + String(config.reserve_level);
+    data += "\"reserveLevel\":" + String(config.reserve_level) + ",";
+    
+    // Czasy
+    data += "\"pumpStartTime\":" + String(status.pumpStartTime) + ",";
+    data += "\"pumpDelayStartTime\":" + String(status.pumpDelayStartTime) + ",";
+    data += "\"lastSuccessfulMeasurement\":" + String(status.lastSuccessfulMeasurement);
     data += "}\n\n";
     
+    // Ustawienie nagłówków
     server.sendHeader("Cache-Control", "no-cache");
     server.sendHeader("Content-Type", "text/event-stream");
     server.sendHeader("Connection", "keep-alive");
     server.sendHeader("Access-Control-Allow-Origin", "*");
+    
+    // Wysłanie odpowiedzi
     server.send(200, "text/event-stream", data);
 }
 
@@ -2586,6 +2592,7 @@ void loop() {
     handleMillisOverflow();  // Obsługa przepełnienia millis()
     updatePump();  // Aktualizacja stanu pompy
     ESP.wdtFeed();  // Reset watchdog timer ESP
+    handleMillisOverflow();
     yield();  // Umożliwienie przetwarzania innych zadań
 
     // BEZPOŚREDNIA INTERAKCJA
@@ -2601,6 +2608,12 @@ void loop() {
         status.needsUpdate = true;
     }
 
+    // Jeśli status wymaga aktualizacji, wyślij nowe dane przez SSE
+    if (status.needsUpdate) {
+        handleEvents();
+        status.needsUpdate = false;
+    }
+  
     // KOMUNIKACJA
     if (currentMillis - timers.lastMQTTLoop >= MQTT_LOOP_INTERVAL) {
         mqtt.loop();  // Obsługa pętli MQTT
@@ -2622,6 +2635,5 @@ void loop() {
         }
     }
 } 
-
 //----------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------
