@@ -2343,7 +2343,8 @@ void handleDoUpdate() {
             return;
         }
         
-        if(!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+        uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+        if(!Update.begin(maxSketchSpace)) {  // Zamiast UPDATE_SIZE_UNKNOWN używamy rzeczywistego rozmiaru
             server.send(500, "text/plain", "Błąd inicjalizacji aktualizacji!");
             return;
         }
