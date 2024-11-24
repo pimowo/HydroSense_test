@@ -1243,17 +1243,13 @@ void handleEvents() {
     
     // Dane zbiornika
     data += "\"waterLevel\":" + String(status.waterLevelBeforePump, 1) + ",";
-    data += "\"waterVolume\":" + String(status.waterVolume, 1) + ",";
-    data += "\"waterPercentage\":" + String(status.waterPercentage, 1) + ",";
     
     // Status pompy
     data += "\"isPumpActive\":" + String(status.isPumpActive ? "true" : "false") + ",";
     data += "\"pumpStartTime\":" + String(status.pumpStartTime) + ",";
-    data += "\"pumpWorkTime\":" + String(status.pumpWorkTime) + ",";
     
     // Status alarmów
     data += "\"waterAlarmActive\":" + String(status.waterAlarmActive ? "true" : "false") + ",";
-    data += "\"pumpAlarmActive\":" + String(status.pumpAlarmActive ? "true" : "false") + ",";
     
     // Konfiguracja zbiornika
     data += "\"tankEmpty\":" + String(config.tank_empty) + ",";
@@ -1272,13 +1268,10 @@ void handleEvents() {
     
     data += "}\n\n";
 
-    // Ustawienie nagłówków SSE
     server.sendHeader("Cache-Control", "no-cache");
     server.sendHeader("Content-Type", "text/event-stream");
     server.sendHeader("Connection", "keep-alive");
     server.sendHeader("Access-Control-Allow-Origin", "*");
-    
-    // Wysłanie danych
     server.send(200, "text/event-stream", data);
 }
 
@@ -2344,42 +2337,35 @@ void handleSave() {
 void handleDoUpdate() {
     HTTPUpload& upload = server.upload();
     
-    if (upload.status == UPLOAD_FILE_START) {
-        // Sprawdź czy plik został wybrany
-        if (upload.filename == "") {
-            webSocket.broadcastTXT("update:error:Nie wybrano pliku!");
-            server.send(204); // Bez przekierowania
+    if(upload.status == UPLOAD_FILE_START) {
+        if(!upload.filename.length()) {
+            server.send(400, "text/plain", "Nie wybrano pliku!");
             return;
         }
         
-        if (!Update.begin(upload.contentLength)) {
-            Update.printError(Serial);
-            webSocket.broadcastTXT("update:error:Błąd inicjalizacji aktualizacji!");
-            server.send(204);
+        if(!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+            server.send(500, "text/plain", "Błąd inicjalizacji aktualizacji!");
             return;
         }
-        webSocket.broadcastTXT("update:0");
-    } 
-    else if (upload.status == UPLOAD_FILE_WRITE) {
-        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-            Update.printError(Serial);
-            webSocket.broadcastTXT("update:error:Błąd zapisu pliku!");
+        
+    } else if(upload.status == UPLOAD_FILE_WRITE) {
+        if(Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            server.send(500, "text/plain", "Błąd zapisu pliku!");
             return;
         }
-        int progress = (upload.totalSize * 100) / upload.contentLength;
-        String progressMsg = "update:" + String(progress);
-        webSocket.broadcastTXT(progressMsg);
-    } 
-    else if (upload.status == UPLOAD_FILE_END) {
-        if (Update.end(true)) {
-            webSocket.broadcastTXT("update:100");
-            server.send(204);
+        
+        // Oblicz i wyślij postęp
+        int progress = (upload.totalSize > 0) ? (upload.currentSize * 100) / upload.totalSize : 0;
+        String eventData = "data: {\"type\":\"update\",\"progress\":" + String(progress) + "}\n\n";
+        server.sendContent(eventData);
+        
+    } else if(upload.status == UPLOAD_FILE_END) {
+        if(Update.end(true)) {
+            server.send(200, "text/plain", "Aktualizacja zakończona pomyślnie!");
             delay(1000);
             ESP.restart();
         } else {
-            Update.printError(Serial);
-            webSocket.broadcastTXT("update:error:Błąd zakończenia aktualizacji!");
-            server.send(204);
+            server.send(500, "text/plain", "Błąd zakończenia aktualizacji!");
         }
     }
 }
@@ -2467,68 +2453,68 @@ void sendSerialMessage(String message) {
     Serial.println(message);
 }
 
-function updateStatus(data) {
-    // Aktualizacja poziomu wody i statusu pompy
-    if (data.waterLevel !== undefined) {
-        document.getElementById('waterLevel').textContent = data.waterLevel.toFixed(1);
-    }
-    if (data.isPumpActive !== undefined) {
-        document.getElementById('pumpState').textContent = data.isPumpActive ? 'Włączona' : 'Wyłączona';
-        document.getElementById('pumpState').className = data.isPumpActive ? 'status success' : 'status normal';
-    }
+// function updateStatus(data) {
+//     // Aktualizacja poziomu wody i statusu pompy
+//     if (data.waterLevel !== undefined) {
+//         document.getElementById('waterLevel').textContent = data.waterLevel.toFixed(1);
+//     }
+//     if (data.isPumpActive !== undefined) {
+//         document.getElementById('pumpState').textContent = data.isPumpActive ? 'Włączona' : 'Wyłączona';
+//         document.getElementById('pumpState').className = data.isPumpActive ? 'status success' : 'status normal';
+//     }
     
-    // Aktualizacja stanów alarmowych
-    if (data.waterAlarmActive !== undefined) {
-        document.getElementById('alarmState').textContent = data.waterAlarmActive ? 'Aktywny' : 'Nieaktywny';
-        document.getElementById('alarmState').className = data.waterAlarmActive ? 'status error' : 'status success';
-    }
-    if (data.waterReserveActive !== undefined) {
-        document.getElementById('reserveState').textContent = data.waterReserveActive ? 'Aktywna' : 'Nieaktywna';
-        document.getElementById('reserveState').className = data.waterReserveActive ? 'status warning' : 'status normal';
-    }
+//     // Aktualizacja stanów alarmowych
+//     if (data.waterAlarmActive !== undefined) {
+//         document.getElementById('alarmState').textContent = data.waterAlarmActive ? 'Aktywny' : 'Nieaktywny';
+//         document.getElementById('alarmState').className = data.waterAlarmActive ? 'status error' : 'status success';
+//     }
+//     if (data.waterReserveActive !== undefined) {
+//         document.getElementById('reserveState').textContent = data.waterReserveActive ? 'Aktywna' : 'Nieaktywna';
+//         document.getElementById('reserveState').className = data.waterReserveActive ? 'status warning' : 'status normal';
+//     }
     
-    // Aktualizacja stanu zabezpieczeń
-    if (data.pumpSafetyLock !== undefined) {
-        document.getElementById('safetyState').textContent = data.pumpSafetyLock ? 'Zablokowana' : 'Odblokowana';
-        document.getElementById('safetyState').className = data.pumpSafetyLock ? 'status error' : 'status success';
-    }
+//     // Aktualizacja stanu zabezpieczeń
+//     if (data.pumpSafetyLock !== undefined) {
+//         document.getElementById('safetyState').textContent = data.pumpSafetyLock ? 'Zablokowana' : 'Odblokowana';
+//         document.getElementById('safetyState').className = data.pumpSafetyLock ? 'status error' : 'status success';
+//     }
     
-    // Aktualizacja statusu dźwięku
-    if (data.soundEnabled !== undefined) {
-        document.getElementById('soundStatus').textContent = data.soundEnabled ? 'Włączony' : 'Wyłączony';
-        document.getElementById('soundStatus').className = data.soundEnabled ? 'status success' : 'status normal';
-    }
+//     // Aktualizacja statusu dźwięku
+//     if (data.soundEnabled !== undefined) {
+//         document.getElementById('soundStatus').textContent = data.soundEnabled ? 'Włączony' : 'Wyłączony';
+//         document.getElementById('soundStatus').className = data.soundEnabled ? 'status success' : 'status normal';
+//     }
     
-    // Aktualizacja statusu połączeń
-    if (data.mqttConnected !== undefined) {
-        document.getElementById('mqttStatus').textContent = data.mqttConnected ? 'Połączony' : 'Rozłączony';
-        document.getElementById('mqttStatus').className = data.mqttConnected ? 'status success' : 'status error';
-    }
-    if (data.wifiStrength !== undefined) {
-        const rssi = parseInt(data.wifiStrength);
-        let signalQuality = 'Słaby';
-        let statusClass = 'status error';
+//     // Aktualizacja statusu połączeń
+//     if (data.mqttConnected !== undefined) {
+//         document.getElementById('mqttStatus').textContent = data.mqttConnected ? 'Połączony' : 'Rozłączony';
+//         document.getElementById('mqttStatus').className = data.mqttConnected ? 'status success' : 'status error';
+//     }
+//     if (data.wifiStrength !== undefined) {
+//         const rssi = parseInt(data.wifiStrength);
+//         let signalQuality = 'Słaby';
+//         let statusClass = 'status error';
         
-        if (rssi > -60) {
-            signalQuality = 'Dobry';
-            statusClass = 'status success';
-        } else if (rssi > -70) {
-            signalQuality = 'Średni';
-            statusClass = 'status warning';
-        }
+//         if (rssi > -60) {
+//             signalQuality = 'Dobry';
+//             statusClass = 'status success';
+//         } else if (rssi > -70) {
+//             signalQuality = 'Średni';
+//             statusClass = 'status warning';
+//         }
         
-        document.getElementById('wifiStatus').textContent = signalQuality + ' (' + rssi + ' dBm)';
-        document.getElementById('wifiStatus').className = statusClass;
-    }
+//         document.getElementById('wifiStatus').textContent = signalQuality + ' (' + rssi + ' dBm)';
+//         document.getElementById('wifiStatus').className = statusClass;
+//     }
     
-    // Aktualizacja czasu pracy
-    if (data.uptime !== undefined) {
-        const hours = Math.floor(data.uptime / 3600);
-        const minutes = Math.floor((data.uptime % 3600) / 60);
-        document.getElementById('uptime').textContent = 
-            hours + 'h ' + minutes + 'm';
-    }
-}
+//     // Aktualizacja czasu pracy
+//     if (data.uptime !== undefined) {
+//         const hours = Math.floor(data.uptime / 3600);
+//         const minutes = Math.floor((data.uptime % 3600) / 60);
+//         document.getElementById('uptime').textContent = 
+//             hours + 'h ' + minutes + 'm';
+//     }
+// }
 
 // ---------------------- GŁÓWNE FUNKCJE PROGRAMU ---------------------
 
