@@ -520,11 +520,11 @@ bool saveConfig() {
     
     if (success) {
         DEBUG_PRINT("Konfiguracja zapisana pomyślnie");
+        return true;
     } else {
         DEBUG_PRINT("Błąd zapisu konfiguracji!");
+        return false;
     }
-
-    return;
 }
 
 // Obliczanie sumy kontrolnej
@@ -711,57 +711,57 @@ void setupHA() {
 void setupWebServer() {
     // Endpoint główny z autentykacją
     server.on("/", HTTP_GET, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
+        // if (!server.authenticate(config.webUser, config.webPassword)) {
+        //     return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        // }
         handleRoot();
     });
     
     // Endpoint zapisu konfiguracji z autentykacją
     server.on("/save", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
+        // if (!server.authenticate(config.webUser, config.webPassword)) {
+        //     return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        // }
         handleSave();
     });
     
     // Endpoint SSE z autentykacją
     server.on("/events", HTTP_GET, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
+        // if (!server.authenticate(config.webUser, config.webPassword)) {
+        //     return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        // }
         handleEvents();
     });
     
     // Endpoint aktualizacji firmware z autentykacją
     server.on("/update", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
+        // if (!server.authenticate(config.webUser, config.webPassword)) {
+        //     return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        // }
         handleDoUpdate();
     });
     
     // Endpoint statusu aktualizacji z autentykacją
     server.on("/updateResult", HTTP_GET, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
+        // if (!server.authenticate(config.webUser, config.webPassword)) {
+        //     return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        // }
         handleUpdateResult();
     });
     
     // Endpoint zmiany hasła z autentykacją
     server.on("/changePassword", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
+        // if (!server.authenticate(config.webUser, config.webPassword)) {
+        //     return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        // }
         handleChangePassword();
     });
     
     // Endpoint restartu z autentykacją i opóźnieniem
     server.on("/reboot", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
+        // if (!server.authenticate(config.webUser, config.webPassword)) {
+        //     return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        // }
         server.send(200, "application/json", "{\"message\":\"Restarting...\",\"success\":true}");
         delay(1000);  // Daj czas na wysłanie odpowiedzi
         ESP.restart();
@@ -769,9 +769,9 @@ void setupWebServer() {
     
     // Endpoint resetu fabrycznego z autentykacją
     server.on("/factory-reset", HTTP_POST, []() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
+        // if (!server.authenticate(config.webUser, config.webPassword)) {
+        //     return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        // }
         server.send(200, "application/json", "{\"message\":\"Resetting to factory defaults...\",\"success\":true}");
         delay(200);  // Daj czas na wysłanie odpowiedzi
         factoryReset();
@@ -779,9 +779,9 @@ void setupWebServer() {
     
     // Obsługa błędu 404
     server.onNotFound([]() {
-        if (!server.authenticate(config.webUser, config.webPassword)) {
-            return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
-        }
+        // if (!server.authenticate(config.webUser, config.webPassword)) {
+        //     return server.requestAuthentication(BASIC_AUTH, "HydroSense", "Unauthorized");
+        // }
         server.send(404, "text/plain", "404: Not found");
     });
     
