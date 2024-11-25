@@ -60,34 +60,37 @@ const int SENSOR_AVG_SAMPLES = 3;   // Liczba próbek do uśrednienia pomiaru
 
 // Definicja struktury konfiguracji
 struct Config {
-    // Wersja konfiguracji - używana do kontroli kompatybilności przy aktualizacjach
-    uint8_t version;  
+    // Wersja konfiguracji i flagi systemowe
+    uint8_t version;          // Wersja konfiguracji do kontroli kompatybilności
+    bool soundEnabled;        // Globalne ustawienie dźwięku
+    bool ha_enabled;         // Czy integracja z Home Assistant jest aktywna
     
-    // Globalne ustawienie dźwięku (true = włączony, false = wyłączony)
-    bool soundEnabled;  
-
-    // Ustawienia MQTT
-    char mqtt_server[40];    // Adres brokera MQTT (IP lub nazwa domeny)
-    uint16_t mqtt_port;      // Port serwera MQTT (domyślnie 1883)
-    char mqtt_user[32];      // Nazwa użytkownika do autoryzacji MQTT
-    char mqtt_password[32];  // Hasło do autoryzacji MQTT
-
-    // Ustawienia
-    char webUser[32];  // nazwa użytkownika
-    char webPassword[32];  // hasło
+    // Ustawienia sieciowe
+    char wifi_ssid[32];     // SSID sieci WiFi (zapisywane przez WiFiManager)
+    char wifi_pass[64];     // Hasło do sieci WiFi (zapisywane przez WiFiManager)
+    
+    // Ustawienia MQTT/Home Assistant
+    char mqtt_server[40];    // Adres brokera MQTT
+    uint16_t mqtt_port;      // Port MQTT (domyślnie 1883)
+    char mqtt_user[32];      // Login MQTT
+    char mqtt_password[32];  // Hasło MQTT
+    
+    // Ustawienia dostępu do interfejsu web
+    char webUser[32];       // Login do interfejsu web
+    char webPassword[32];   // Hasło do interfejsu web
     
     // Ustawienia zbiornika
-    int tank_full;      // Poziom w cm gdy zbiornik jest pełny (odległość od czujnika)
-    int tank_empty;     // Poziom w cm gdy zbiornik jest pusty (odległość od czujnika)
-    int reserve_level;  // Poziom rezerwy w cm (ostrzeżenie o niskim poziomie)
-    int tank_diameter;  // Średnica zbiornika w cm (do obliczania objętości)
+    int tank_full;          // Poziom pełnego zbiornika [cm]
+    int tank_empty;         // Poziom pustego zbiornika [cm]
+    int reserve_level;      // Poziom rezerwy [cm]
+    int tank_diameter;      // Średnica zbiornika [cm]
     
     // Ustawienia pompy
-    int pump_delay;      // Opóźnienie przed startem pompy w sekundach
-    int pump_work_time;  // Maksymalny czas pracy pompy w sekundach
+    int pump_delay;         // Opóźnienie startu pompy [s]
+    int pump_work_time;     // Maksymalny czas pracy [s]
     
-    // Suma kontrolna - używana do weryfikacji integralności danych w EEPROM
-    char checksum;       // XOR wszystkich poprzednich pól
+    // Suma kontrolna
+    char checksum;          // XOR wszystkich poprzednich pól
 };
 
 // Status urządzenia
@@ -212,501 +215,6 @@ const char PAGE_FOOTER[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 // Strona www   
-// const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
-// <!DOCTYPE html>
-// <html>
-//     <head>
-//         <meta charset='UTF-8'>
-//         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-//         <title>HydroSense</title>
-        
-//         <!-- Style CSS -->
-//         <style>
-//             /* Podstawowe style strony */
-//             body { 
-//                 font-family: Arial, sans-serif; 
-//                 margin: 0; 
-//                 padding: 20px; 
-//                 background-color: #1a1a1a;
-//                 color: #ffffff;
-//             }
-            
-//             /* Kontenery i sekcje */
-//             .container { 
-//                 max-width: 800px; 
-//                 margin: 0 auto; 
-//                 padding: 0 15px;
-//             }
-            
-//             .section {
-//                 background-color: #2a2a2a;
-//                 padding: 20px;
-//                 margin-bottom: 20px;
-//                 border-radius: 8px;
-//                 width: 100%;
-//                 box-sizing: border-box;
-//             }
-            
-//             .buttons-container {
-//                 display: flex;
-//                 justify-content: space-between;
-//                 margin: -5px;
-//             }
-            
-//             /* Nagłówki */
-//             h1 { 
-//                 color: #ffffff; 
-//                 text-align: center;
-//                 margin-bottom: 30px;
-//                 font-size: 2.5em;
-//                 background-color: #2d2d2d;
-//                 padding: 20px;
-//                 border-radius: 8px;
-//                 box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-//             }
-            
-//             h2 { 
-//                 color: #2196F3;
-//                 margin-top: 0;
-//                 font-size: 1.5em;
-//             }
-            
-//             /* Tabele */
-//             table { 
-//                 width: 100%; 
-//                 border-collapse: collapse;
-//             }
-            
-//             td { 
-//                 padding: 12px 8px;
-//                 border-bottom: 1px solid #3d3d3d;
-//             }
-            
-//             .config-table {
-//                 width: 100%;
-//                 border-collapse: collapse;
-//                 table-layout: fixed;
-//             }
-            
-//             .config-table td {
-//                 padding: 8px;
-//             }
-            
-//             .config-table td:first-child {
-//                 width: 65%;
-//             }
-            
-//             .config-table td:last-child {
-//                 width: 35%;
-//             }
-//             /* Style formularzy i inputów */
-//             .config-table input[type="text"],
-//             .config-table input[type="password"],
-//             .config-table input[type="number"] {
-//                 width: 100%;
-//                 padding: 8px;
-//                 border: 1px solid #3d3d3d;
-//                 border-radius: 4px;
-//                 background-color: #1a1a1a;
-//                 color: #ffffff;
-//                 box-sizing: border-box;
-//             }
-            
-//             input[type="text"],
-//             input[type="password"],
-//             input[type="number"] {
-//                 width: 100%;
-//                 padding: 8px;
-//                 border: 1px solid #3d3d3d;
-//                 border-radius: 4px;
-//                 background-color: #1a1a1a;
-//                 color: #ffffff;
-//                 box-sizing: border-box;
-//                 text-align: left;
-//             }
-            
-//             input[type="submit"] { 
-//                 background-color: #4CAF50; 
-//                 color: white; 
-//                 padding: 12px 24px; 
-//                 border: none; 
-//                 border-radius: 4px; 
-//                 cursor: pointer;
-//                 width: 100%;
-//                 font-size: 16px;
-//             }
-            
-//             input[type="submit"]:hover { 
-//                 background-color: #45a049; 
-//             }
-            
-//             /* Style dla przycisków wyboru pliku */
-//             input[type="file"] {
-//                 background-color: #1a1a1a;
-//                 color: #ffffff;
-//                 padding: 8px;
-//                 border: 1px solid #3d3d3d;
-//                 border-radius: 4px;
-//                 width: 100%;
-//                 cursor: pointer;
-//             }
-            
-//             input[type="file"]::-webkit-file-upload-button {
-//                 background-color: #2196F3;
-//                 color: white;
-//                 padding: 8px 16px;
-//                 border: none;
-//                 border-radius: 4px;
-//                 cursor: pointer;
-//                 margin-right: 10px;
-//             }
-            
-//             input[type="file"]::-webkit-file-upload-button:hover {
-//                 background-color: #1976D2;
-//             }
-            
-//             /* Style komunikatów */
-//             .success { 
-//                 color: #4CAF50; 
-//             }
-            
-//             .error { 
-//                 color: #F44336;
-//             }
-            
-//             .alert { 
-//                 padding: 15px; 
-//                 margin-bottom: 20px; 
-//                 border-radius: 0;
-//                 position: fixed;
-//                 top: 0;
-//                 left: 0;
-//                 right: 0;
-//                 width: 100%;
-//                 z-index: 1000;
-//                 text-align: center;
-//                 animation: fadeOut 0.5s ease-in-out 5s forwards;
-//             }
-            
-//             .alert.success { 
-//                 background-color: #4CAF50;
-//                 color: white;
-//                 border: none;
-//                 box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-//             }
-            
-//             /* Style przycisków */
-//             .btn {
-//                 padding: 12px 24px;
-//                 border: none;
-//                 border-radius: 4px;
-//                 cursor: pointer;
-//                 font-size: 14px;
-//                 width: calc(50% - 10px);
-//                 display: inline-block;
-//                 margin: 5px;
-//                 text-align: center;
-//             }
-            
-//             .btn-blue { 
-//                 background-color: #2196F3;
-//                 color: white; 
-//             }
-            
-//             .btn-red { 
-//                 background-color: #F44336;
-//                 color: white; 
-//             }
-            
-//             .btn-orange {
-//                 background-color: #FF9800 !important;
-//                 color: white !important;
-//             }
-            
-//             .btn-orange:hover {
-//                 background-color: #F57C00 !important;
-//             }
-//             /* Style konsoli i komunikatów */
-//             .console {
-//                 background-color: #1a1a1a;
-//                 color: #ffffff;
-//                 padding: 15px;
-//                 border-radius: 4px;
-//                 font-family: monospace;
-//                 height: 200px;
-//                 overflow-y: auto;
-//                 margin-top: 10px;
-//                 border: 1px solid #3d3d3d;
-//             }
-            
-//             .footer {
-//                 background-color: #2d2d2d;
-//                 padding: 20px;
-//                 margin-top: 20px;
-//                 border-radius: 8px;
-//                 text-align: center;
-//                 box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-//             }
-            
-//             .footer a {
-//                 display: inline-block;
-//                 background-color: #2196F3;
-//                 color: white;
-//                 text-decoration: underline;
-//                 padding: 12px 24px;
-//                 border-radius: 4px;
-//                 font-weight: normal;
-//                 transition: background-color 0.3s;
-//                 width: 100%;
-//                 box-sizing: border-box;
-//             }
-            
-//             .footer a:hover {
-//                 background-color: #1976D2;
-//             }
-            
-//             /* Style paska postępu */
-//             .progress {
-//                 width: 100%;
-//                 background-color: #1a1a1a;
-//                 border: 1px solid #3d3d3d;
-//                 border-radius: 4px;
-//                 padding: 3px;
-//                 margin-top: 15px;
-//             }
-            
-//             .progress-bar {
-//                 width: 0%;
-//                 height: 20px;
-//                 background-color: #4CAF50;
-//                 border-radius: 2px;
-//                 transition: width 0.3s ease-in-out;
-//                 text-align: center;
-//                 color: white;
-//                 line-height: 20px;
-//             }
-            
-//             /* Style komunikatów wyskakujących */
-//             .message {
-//                 position: fixed;
-//                 top: 20px;
-//                 left: 50%;
-//                 transform: translateX(-50%);
-//                 padding: 15px 30px;
-//                 border-radius: 5px;
-//                 color: white;
-//                 opacity: 0;
-//                 transition: opacity 0.3s ease-in-out;
-//                 z-index: 1000;
-//             }
-            
-//             .message.success {
-//                 background-color: #4CAF50;
-//                 box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-//             }
-            
-//             .message.error {
-//                 background-color: #f44336;
-//                 box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-//             }
-            
-//             /* Style responsywne */
-//             @media (max-width: 600px) {
-//                 body {
-//                     padding: 10px;
-//                 }
-//                 .container {
-//                     padding: 0;
-//                 }
-//                 .section {
-//                     padding: 15px;
-//                     margin-bottom: 15px;
-//                 }
-//                 .console {
-//                     height: 150px;
-//                 }
-//             }
-//         </style>
-
-//         <!-- Skrypty JavaScript -->
-//         <script>
-//             // Funkcje pomocnicze
-//             function confirmReset() {
-//                 return confirm('Czy na pewno chcesz przywrócić ustawienia fabryczne? Spowoduje to utratę wszystkich ustawień!');
-//             }
-            
-//             // Funkcja wyświetlająca komunikaty
-//             function showMessage(text, type) {
-//                 // Usuń istniejące komunikaty
-//                 var oldMessages = document.querySelectorAll('.message');
-//                 oldMessages.forEach(function(msg) {
-//                     msg.remove();
-//                 });
-                
-//                 // Stwórz i dodaj nowy komunikat
-//                 var messageBox = document.createElement('div');
-//                 messageBox.className = 'message ' + type;
-//                 messageBox.innerHTML = text;
-//                 document.body.appendChild(messageBox);
-                
-//                 // Animacja pokazywania
-//                 setTimeout(function() {
-//                     messageBox.style.opacity = '1';
-//                 }, 10);
-                
-//                 // Animacja ukrywania
-//                 setTimeout(function() {
-//                     messageBox.style.opacity = '0';
-//                     setTimeout(function() {
-//                         messageBox.remove();
-//                     }, 300);
-//                 }, 3000);
-//             }
-//             // Funkcje zarządzania urządzeniem
-//             function rebootDevice() {
-//                 if(confirm('Czy na pewno chcesz zrestartować urządzenie?')) {
-//                     fetch('/reboot', {method: 'POST'})
-//                         .then(() => {
-//                             showMessage('Urządzenie zostanie zrestartowane...', 'success');
-//                             setTimeout(() => { 
-//                                 window.location.reload(); 
-//                             }, 3000);
-//                         });
-//                 }
-//             }
-            
-//             function factoryReset() {
-//                 if(confirmReset()) {
-//                     fetch('/factory-reset', {method: 'POST'})
-//                         .then(() => {
-//                             showMessage('Przywracanie ustawień fabrycznych...', 'success');
-//                             setTimeout(() => { 
-//                                 window.location.reload(); 
-//                             }, 3000);
-//                         });
-//                 }
-//             }
-            
-//             // Inicjalizacja i obsługa WebSocket
-//             var socket;
-//             window.onload = function() {
-//                 // Obsługa formularza
-//                 document.querySelector('form[action="/save"]').addEventListener('submit', function(e) {
-//                     e.preventDefault();
-                    
-//                     var formData = new FormData(this);
-//                     fetch('/save', {
-//                         method: 'POST',
-//                         body: formData
-//                     })
-//                     .then(response => {
-//                         if (!response.ok) {
-//                             throw new Error('Network response was not ok');
-//                         }
-//                     })
-//                     .catch(error => {
-//                         showMessage('Błąd podczas zapisywania!', 'error');
-//                     });
-//                 });
-            
-//                 // Inicjalizacja WebSocket
-//                 socket = new WebSocket('ws://' + window.location.hostname + ':81/');
-//                 socket.onmessage = handleWebSocketMessage;
-                
-//                 // Dodanie obsługi błędów WebSocket
-//                 socket.onerror = function(error) {
-//                     console.error('Błąd WebSocket:', error);
-//                     showMessage('Błąd połączenia WebSocket', 'error');
-//                 };
-                
-//                 socket.onclose = function() {
-//                     console.log('Połączenie WebSocket zostało zamknięte');
-//                     showMessage('Połączenie zostało zamknięte', 'error');
-//                 };
-//             };
-            
-//             // Obsługa wiadomości WebSocket
-//             function handleWebSocketMessage(event) {
-//                 var message = event.data;
-                
-//                 if (message.startsWith('update:')) {
-//                     handleUpdateMessage(message);
-//                 } 
-//                 else if (message.startsWith('save:')) {
-//                     handleSaveMessage(message);
-//                 }
-//                 else {
-//                     updateConsole(message);
-//                 }
-//             }
-            
-//             // Obsługa wiadomości aktualizacji
-//             function handleUpdateMessage(message) {
-//                 if (message.startsWith('update:error:')) {
-//                     document.getElementById('update-progress').style.display = 'none';
-//                     showMessage(message.split(':')[2], 'error');
-//                     return;
-//                 }
-                
-//                 var percentage = message.split(':')[1];
-//                 var progressBar = document.getElementById('progress-bar');
-//                 document.getElementById('update-progress').style.display = 'block';
-//                 progressBar.style.width = percentage + '%';
-//                 progressBar.textContent = percentage + '%';
-                
-//                 if (percentage == '100') {
-//                     document.getElementById('update-progress').style.display = 'none';
-//                     showMessage('Aktualizacja zakończona pomyślnie! Trwa restart urządzenia...', 'success');
-//                     setTimeout(function() {
-//                         window.location.reload();
-//                     }, 3000);
-//                 }
-//             }
-            
-//             // Obsługa wiadomości zapisywania
-//             function handleSaveMessage(message) {
-//                 var parts = message.split(':');
-//                 showMessage(parts[2], parts[1]);
-//             }
-            
-//             // Aktualizacja konsoli
-//             function updateConsole(message) {
-//                 var console = document.getElementById('console');
-//                 console.innerHTML += message + '<br>';
-//                 console.scrollTop = console.scrollHeight;
-//             }
-//         </script>
-//     </head>
-//     <body>
-//         <h1>HydroSense</h1>
-        
-//         <div class='section'>
-//             <h2>Status systemu</h2>
-//             <table class='config-table'>
-//                 <tr>
-//                     <td>Status MQTT</td>
-//                     <td><span class='status %MQTT_STATUS_CLASS%'>%MQTT_STATUS%</span></td>
-//                 </tr>
-//                 <tr>
-//                     <td>Status dźwięku</td>
-//                     <td><span class='status %SOUND_STATUS_CLASS%'>%SOUND_STATUS%</span></td>
-//                 </tr>
-//                 <tr>
-//                     <td>Wersja oprogramowania</td>
-//                     <td>%SOFTWARE_VERSION%</td>
-//                 </tr>
-//             </table>
-//         </div>
-    
-//         <!-- Sekcje dynamiczne -->
-//         %BUTTONS%
-//         %CONFIG_FORMS%
-//         %UPDATE_FORM%
-//         %FOOTER%
-//     </body>
-// </html>
-// )rawliteral";
-
 const char CONFIG_PAGE[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -1059,25 +567,31 @@ void setupPin() {
 
 // Konfiguracja i zarządzanie połączeniem WiFi
 void setupWiFi() {
-    WiFiManager wifiManager;
-       
-    wifiManager.setAPCallback([](WiFiManager *myWiFiManager) {
-        DEBUG_PRINT("Tryb punktu dostępowego");
-        DEBUG_PRINT("SSID: HydroSense");
-        DEBUG_PRINT("IP: 192.168.4.1");
-    });
+    WiFi.mode(WIFI_AP_STA); // Włącz tryb AP+STA
     
+    // Tworzenie unikalnej nazwy AP na podstawie MAC
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    String apName = "HydroSense_" + 
+                   String(mac[0], HEX) + String(mac[1], HEX) + 
+                   String(mac[2], HEX) + String(mac[3], HEX) + 
+                   String(mac[4], HEX) + String(mac[5], HEX);
+    
+    // Uruchom AP z hasłem z konfiguracji
+    WiFi.softAP(apName.c_str(), config.ap_password);
+    Serial.print(F("AP IP address: "));
+    Serial.println(WiFi.softAPIP());
+    
+    // Konfiguracja WiFiManager
+    WiFiManager wifiManager;
     wifiManager.setConfigPortalTimeout(180); // 3 minuty na konfigurację
     
-    // Próba połączenia lub utworzenia AP
-    if (!wifiManager.autoConnect("HydroSense", "hydrosense")) {
-        DEBUG_PRINT("Nie udało się połączyć i timeout upłynął");
-        ESP.restart(); // Restart ESP w przypadku niepowodzenia
+    // Próba połączenia z zapisaną siecią
+    if (!wifiManager.autoConnect(apName.c_str(), config.ap_password)) {
+        Serial.println(F("Nie udało się połączyć z WiFi"));
+    } else {
+        Serial.println(F("Połączono z siecią WiFi"));
     }
-    
-    DEBUG_PRINT("Połączono z WiFi!");
-    DEBUG_PRINT("IP: ");  // Pokaż uzyskane IP
-    DEBUG_PRINT(WiFi.localIP().toString().c_str());
 }
 
 // Funkcja konfigurująca Home Assistant
@@ -1149,6 +663,12 @@ void setupHA() {
     switchPumpAlarm.setName("Alarm pompy");
     switchPumpAlarm.setIcon("mdi:alert");
     switchPumpAlarm.onCommand(onPumpAlarmCommand);
+
+    // Callbacks
+    pumpSwitch.onCommand(onPumpSwitchCommand);
+    pumpAlarmSwitch.onCommand(onPumpAlarmCommand);
+    serviceSwitch.onCommand(onServiceSwitchCommand);
+    soundSwitch.onCommand(onSoundSwitchCommand);
 }
 
 //
@@ -1273,6 +793,78 @@ void handleEvents() {
     server.sendHeader("Connection", "keep-alive");
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "text/event-stream", data);
+}
+
+//
+String getStatusPage() {
+    String page = F("<!DOCTYPE html><html><head>");
+    page += F("<meta name='viewport' content='width=device-width, initial-scale='1.0'>");
+    page += F("<style>");
+    page += F("body{font-family:Arial,sans-serif;margin:20px;background:#f0f0f0;}");
+    page += F(".container{max-width:800px;margin:0 auto;background:white;padding:20px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);}");
+    page += F(".status-box{background:#f8f8f8;padding:15px;border-radius:4px;margin:10px 0;}");
+    page += F(".status-item{margin:5px 0;}");
+    page += F(".success{color:green;}");
+    page += F(".warning{color:orange;}");
+    page += F(".error{color:red;}");
+    page += F("</style>");
+    page += F("</head><body><div class='container'>");
+    
+    // Nagłówek
+    page += F("<h1>HydroSense - Status</h1>");
+    
+    // Status sieci
+    page += F("<div class='status-box'>");
+    page += F("<h2>Status sieci</h2>");
+    page += F("<div class='status-item'>AP: ");
+    page += WiFi.softAPIP().toString();
+    page += F("</div>");
+    page += F("<div class='status-item'>Sieć WiFi: ");
+    if (WiFi.status() == WL_CONNECTED) {
+        page += F("<span class='success'>");
+        page += WiFi.localIP().toString();
+        page += F(" (");
+        page += WiFi.SSID();
+        page += F(")</span>");
+    } else {
+        page += F("<span class='warning'>Niepołączony</span>");
+    }
+    page += F("</div>");
+    
+    // Status systemu
+    page += F("<div class='status-item'>HA Integration: ");
+    page += config.ha_enabled ? F("<span class='success'>Włączona</span>") : F("<span class='warning'>Wyłączona</span>");
+    page += F("</div>");
+    
+    // Status pomiarów
+    page += F("<h2>Status pomiarów</h2>");
+    page += F("<div class='status-item'>Poziom wody: ");
+    page += String(status.waterLevelPercent);
+    page += F("%</div>");
+    page += F("<div class='status-item'>Odległość: ");
+    page += String(status.currentDistance);
+    page += F(" cm</div>");
+    
+    // Status pompy
+    page += F("<h2>Status pompy</h2>");
+    page += F("<div class='status-item'>Stan pompy: ");
+    page += status.isPumpActive ? F("<span class='warning'>Włączona</span>") : F("<span class='success'>Wyłączona</span>");
+    page += F("</div>");
+    
+    // Alarmy
+    page += F("<h2>Alarmy</h2>");
+    page += F("<div class='status-item'>Alarm wody: ");
+    page += status.waterAlarmActive ? F("<span class='error'>Aktywny</span>") : F("<span class='success'>Nieaktywny</span>");
+    page += F("</div>");
+    
+    // Przyciski
+    page += F("<div style='margin-top:20px'>");
+    page += F("<a href='/config' style='background:#007bff;color:white;padding:10px 20px;text-decoration:none;border-radius:4px;margin-right:10px'>Konfiguracja</a>");
+    page += F("<a href='/update' style='background:#28a745;color:white;padding:10px 20px;text-decoration:none;border-radius:4px'>Aktualizacja</a>");
+    page += F("</div>");
+    
+    page += F("</div></body></html>");
+    return page;
 }
 
 // ---------------------- FUNKCJE POMIAROWE ---------------------------
@@ -1862,118 +1454,6 @@ void onSoundSwitchCommand(bool state, HASwitch* sender) {
 // ---------------------- OBSŁUGA SERWERA WWW -------------------------
 
 //
-// String getConfigPage() {
-//     String html = FPSTR(CONFIG_PAGE);
-    
-//     // Przygotuj wszystkie wartości przed zastąpieniem
-//     bool mqttConnected = client.connected();
-//     String mqttStatus = mqttConnected ? "Połączony" : "Rozłączony";
-//     String mqttStatusClass = mqttConnected ? "success" : "error";
-//     String soundStatus = config.soundEnabled ? "Włączony" : "Wyłączony";
-//     String soundStatusClass = config.soundEnabled ? "success" : "error";
-    
-//     // Sekcja przycisków - zmieniona na String zamiast PROGMEM
-//     String buttons = F(
-//         "<div class='section'>"
-//         "<div class='buttons-container'>"
-//         "<button class='btn btn-blue' onclick='rebootDevice()'>Restart urządzenia</button>"
-//         "<button class='btn btn-red' onclick='factoryReset()'>Przywróć ustawienia fabryczne</button>"
-//         "</div>"
-//         "</div>"
-//     );
-
-//     // Zastąp wszystkie placeholdery
-//     html.replace("%MQTT_SERVER%", config.mqtt_server);
-//     html.replace("%MQTT_PORT%", String(config.mqtt_port));
-//     html.replace("%MQTT_USER%", config.mqtt_user);
-//     html.replace("%MQTT_PASSWORD%", config.mqtt_password);
-//     html.replace("%MQTT_STATUS%", mqttStatus);
-//     html.replace("%MQTT_STATUS_CLASS%", mqttStatusClass);
-//     html.replace("%SOUND_STATUS%", soundStatus);
-//     html.replace("%SOUND_STATUS_CLASS%", soundStatusClass);
-//     html.replace("%SOFTWARE_VERSION%", SOFTWARE_VERSION);
-//     html.replace("%TANK_EMPTY%", String(config.tank_empty));
-//     html.replace("%TANK_FULL%", String(config.tank_full));
-//     html.replace("%RESERVE_LEVEL%", String(config.reserve_level));
-//     html.replace("%TANK_DIAMETER%", String(config.tank_diameter));
-//     html.replace("%PUMP_DELAY%", String(config.pump_delay));
-//     html.replace("%PUMP_WORK_TIME%", String(config.pump_work_time));
-//     html.replace("%BUTTONS%", buttons);
-//     html.replace("%UPDATE_FORM%", FPSTR(UPDATE_FORM));
-//     html.replace("%FOOTER%", FPSTR(PAGE_FOOTER));
-//     html.replace("%MESSAGE%", "");
-//     html.replace("%WEB_USER%", config.webUser);
-//     html.replace("%WEB_PASSWORD%", config.webPassword);
-
-//     // Przygotuj formularze konfiguracyjne
-//     String configForms = F("<form method='POST' action='/save'>");
-    
-//     // Ustawienia dostępu
-//     configForms += F("<div class='section'>"
-//                      "<h2>Ustawienia dostępu</h2>"
-//                      "<table class='config-table'>"
-//                      "<tr><td>Nazwa użytkownika WWW</td><td><input type='text' name='webUser' value='");
-//     configForms += config.webUser;
-//     configForms += F("'></td></tr>"
-//                      "</table>"
-//                      "<button type='button' class='btn btn-blue' onclick='showChangePasswordModal()'>Zmień hasło</button>"
-//                      "</div>");
-//     configForms += config.webPassword;
-//     configForms += F("'></td></tr>"
-//                      "</table></div>");
-    
-//     // MQTT
-//     configForms += F("<div class='section'>"
-//                      "<h2>Konfiguracja MQTT</h2>"
-//                      "<table class='config-table'>"
-//                      "<tr><td>Serwer</td><td><input type='text' name='mqtt_server' value='");
-//     configForms += config.mqtt_server;
-//     configForms += F("'></td></tr>"
-//                      "<tr><td>Port</td><td><input type='number' name='mqtt_port' value='");
-//     configForms += String(config.mqtt_port);
-//     configForms += F("'></td></tr>"
-//                      "<tr><td>Użytkownik</td><td><input type='text' name='mqtt_user' value='");
-//     configForms += config.mqtt_user;
-//     configForms += F("'></td></tr>"
-//                      "<tr><td>Hasło</td><td><input type='password' name='mqtt_password' value='");
-//     configForms += config.mqtt_password;
-//     configForms += F("'></td></tr>"
-//                      "</table></div>");
-    
-//     // Zbiornik
-//     configForms += F("<div class='section'>"
-//                      "<h2>Ustawienia zbiornika</h2>"
-//                      "<table class='config-table'>");
-//     configForms += "<tr><td>Odległość przy pustym [mm]</td><td><input type='number' name='tank_empty' value='" + String(config.tank_empty) + "'></td></tr>";
-//     configForms += "<tr><td>Odległość przy pełnym [mm]</td><td><input type='number' name='tank_full' value='" + String(config.tank_full) + "'></td></tr>";
-//     configForms += "<tr><td>Odległość przy rezerwie [mm]</td><td><input type='number' name='reserve_level' value='" + String(config.reserve_level) + "'></td></tr>";
-//     configForms += "<tr><td>Średnica zbiornika [mm]</td><td><input type='number' name='tank_diameter' value='" + String(config.tank_diameter) + "'></td></tr>";
-//     configForms += F("</table></div>");
-    
-//     // Pompa
-//     configForms += F("<div class='section'>"
-//                      "<h2>Ustawienia pompy</h2>"
-//                      "<table class='config-table'>");
-//     configForms += "<tr><td>Opóźnienie załączenia pompy [s]</td><td><input type='number' name='pump_delay' value='" + String(config.pump_delay) + "'></td></tr>";
-//     configForms += "<tr><td>Czas pracy pompy [s]</td><td><input type='number' name='pump_work_time' value='" + String(config.pump_work_time) + "'></td></tr>";
-//     configForms += F("</table></div>");
-    
-//     configForms += F("<div class='section'>"
-//                      "<input type='submit' value='Zapisz ustawienia' class='btn btn-blue'>"
-//                      "</div></form>");
-    
-//     html.replace("%CONFIG_FORMS%", configForms);
-    
-//     // Sprawdź, czy wszystkie znaczniki zostały zastąpione
-//     if (html.indexOf('%') != -1) {
-//         DEBUG_PRINT("Uwaga: Niektóre znaczniki nie zostały zastąpione!");
-//         int pos = html.indexOf('%');
-//         DEBUG_PRINT(html.substring(pos - 20, pos + 20));
-//     }
-    
-//     return html;
-// }
-
 String getConfigPage() {
     String html = FPSTR(CONFIG_PAGE);
     
@@ -2195,7 +1675,81 @@ String getConfigPage() {
 
 //
 void handleRoot() {
-    String content = getConfigPage();
+    // Sprawdzenie autoryzacji
+    if (!server.authenticate(config.www_username, config.www_password)) {
+        return server.requestAuthentication();
+    }
+
+    String content = "<!DOCTYPE html><html><head>";
+    content += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+    content += "<title>HydroSense - Status</title>";
+    content += "<style>";
+    content += "body{font-family:Arial,sans-serif;margin:20px;background:#f0f0f0;}";
+    content += ".container{max-width:800px;margin:0 auto;background:white;padding:20px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);}";
+    content += ".status-box{background:#f8f8f8;padding:15px;border-radius:4px;margin:10px 0;}";
+    content += ".status-item{margin:5px 0;padding:5px;border-bottom:1px solid #eee;}";
+    content += ".success{color:green;}";
+    content += ".warning{color:orange;}";
+    content += ".error{color:red;}";
+    content += ".btn{background:#007bff;color:white;padding:10px 20px;text-decoration:none;border-radius:4px;display:inline-block;margin:5px;}";
+    content += ".btn-config{background:#28a745;}";
+    content += "</style>";
+    content += "</head><body><div class='container'>";
+
+    // Nagłówek
+    content += "<h1>HydroSense - Panel główny</h1>";
+
+    // Status połączeń sieciowych
+    content += "<div class='status-box'>";
+    content += "<h2>Status sieci</h2>";
+    content += "<div class='status-item'>AP: " + WiFi.softAPIP().toString() + "</div>";
+    content += "<div class='status-item'>WiFi: ";
+    if (WiFi.status() == WL_CONNECTED) {
+        content += "<span class='success'>" + WiFi.localIP().toString() + " (" + WiFi.SSID() + ")</span>";
+    } else {
+        content += "<span class='warning'>Niepołączony</span>";
+    }
+    content += "</div>";
+    
+    // Status HA
+    content += "<div class='status-item'>Home Assistant: ";
+    if (config.ha_enabled && mqtt.isConnected()) {
+        content += "<span class='success'>Połączony</span>";
+    } else if (config.ha_enabled) {
+        content += "<span class='warning'>Rozłączony</span>";
+    } else {
+        content += "<span class='warning'>Wyłączony</span>";
+    }
+    content += "</div></div>";
+
+    // Status pomiarów
+    content += "<div class='status-box'>";
+    content += "<h2>Status systemu</h2>";
+    content += "<div class='status-item'>Poziom wody: " + String(status.waterLevelBeforePump, 1) + " cm</div>";
+    content += "<div class='status-item'>Procent wypełnienia: " + String(status.waterLevelPercent) + "%</div>";
+    content += "<div class='status-item'>Stan pompy: ";
+    content += status.isPumpActive ? "<span class='warning'>Włączona</span>" : "<span class='success'>Wyłączona</span>";
+    content += "</div>";
+    content += "<div class='status-item'>Alarm wody: ";
+    content += status.waterAlarmActive ? "<span class='error'>Aktywny</span>" : "<span class='success'>Nieaktywny</span>";
+    content += "</div>";
+    content += "<div class='status-item'>Dźwięk: " + String(config.soundEnabled ? "Włączony" : "Wyłączony") + "</div>";
+    content += "</div>";
+
+    // Przyciski nawigacyjne
+    content += "<div style='margin-top:20px;text-align:center;'>";
+    content += "<a href='/config' class='btn'>Konfiguracja</a>";
+    content += "<a href='/update' class='btn btn-config'>Aktualizacja</a>";
+    content += "</div>";
+
+    // Informacje systemowe
+    content += "<div class='status-box' style='font-size:0.8em;margin-top:20px;'>";
+    content += "<div class='status-item'>Wersja: " + String(SOFTWARE_VERSION) + "</div>";
+    content += "<div class='status-item'>Uptime: " + String(millis() / 1000) + " s</div>";
+    content += "<div class='status-item'>Free Heap: " + String(ESP.getFreeHeap()) + " bytes</div>";
+    content += "</div>";
+
+    content += "</div></body></html>";
 
     server.send(200, "text/html", content);
 }
@@ -2454,68 +2008,13 @@ void sendSerialMessage(String message) {
     Serial.println(message);
 }
 
-// function updateStatus(data) {
-//     // Aktualizacja poziomu wody i statusu pompy
-//     if (data.waterLevel !== undefined) {
-//         document.getElementById('waterLevel').textContent = data.waterLevel.toFixed(1);
-//     }
-//     if (data.isPumpActive !== undefined) {
-//         document.getElementById('pumpState').textContent = data.isPumpActive ? 'Włączona' : 'Wyłączona';
-//         document.getElementById('pumpState').className = data.isPumpActive ? 'status success' : 'status normal';
-//     }
-    
-//     // Aktualizacja stanów alarmowych
-//     if (data.waterAlarmActive !== undefined) {
-//         document.getElementById('alarmState').textContent = data.waterAlarmActive ? 'Aktywny' : 'Nieaktywny';
-//         document.getElementById('alarmState').className = data.waterAlarmActive ? 'status error' : 'status success';
-//     }
-//     if (data.waterReserveActive !== undefined) {
-//         document.getElementById('reserveState').textContent = data.waterReserveActive ? 'Aktywna' : 'Nieaktywna';
-//         document.getElementById('reserveState').className = data.waterReserveActive ? 'status warning' : 'status normal';
-//     }
-    
-//     // Aktualizacja stanu zabezpieczeń
-//     if (data.pumpSafetyLock !== undefined) {
-//         document.getElementById('safetyState').textContent = data.pumpSafetyLock ? 'Zablokowana' : 'Odblokowana';
-//         document.getElementById('safetyState').className = data.pumpSafetyLock ? 'status error' : 'status success';
-//     }
-    
-//     // Aktualizacja statusu dźwięku
-//     if (data.soundEnabled !== undefined) {
-//         document.getElementById('soundStatus').textContent = data.soundEnabled ? 'Włączony' : 'Wyłączony';
-//         document.getElementById('soundStatus').className = data.soundEnabled ? 'status success' : 'status normal';
-//     }
-    
-//     // Aktualizacja statusu połączeń
-//     if (data.mqttConnected !== undefined) {
-//         document.getElementById('mqttStatus').textContent = data.mqttConnected ? 'Połączony' : 'Rozłączony';
-//         document.getElementById('mqttStatus').className = data.mqttConnected ? 'status success' : 'status error';
-//     }
-//     if (data.wifiStrength !== undefined) {
-//         const rssi = parseInt(data.wifiStrength);
-//         let signalQuality = 'Słaby';
-//         let statusClass = 'status error';
-        
-//         if (rssi > -60) {
-//             signalQuality = 'Dobry';
-//             statusClass = 'status success';
-//         } else if (rssi > -70) {
-//             signalQuality = 'Średni';
-//             statusClass = 'status warning';
-//         }
-        
-//         document.getElementById('wifiStatus').textContent = signalQuality + ' (' + rssi + ' dBm)';
-//         document.getElementById('wifiStatus').className = statusClass;
-//     }
-    
-//     // Aktualizacja czasu pracy
-//     if (data.uptime !== undefined) {
-//         const hours = Math.floor(data.uptime / 3600);
-//         const minutes = Math.floor((data.uptime % 3600) / 60);
-//         document.getElementById('uptime').textContent = 
-//             hours + 'h ' + minutes + 'm';
-//     }
-// }
+bool handleAuth() {
+    if (!server.authenticate(config.www_username, config.www_password)) {
+        server.requestAuthentication();
+        return false;
+    }
+    return true;
+}
 
 // ---------------------- GŁÓWNE FUNKCJE PROGRAMU ---------------------
 
@@ -2623,6 +2122,5 @@ void loop() {
         }
     }
 } 
-
 //----------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------
