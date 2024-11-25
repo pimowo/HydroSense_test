@@ -64,7 +64,14 @@ struct Config {
     uint8_t version;          // Wersja konfiguracji do kontroli kompatybilności
     bool soundEnabled;        // Globalne ustawienie dźwięku
     bool ha_enabled;         // Czy integracja z Home Assistant jest aktywna
+
+    // Ustawienia AP
+    char ap_password[32];     // Hasło AP
     
+    // Ustawienia WWW
+    char www_username[32];    // Użytkownik www
+    char www_password[32];    // Hasło wwww
+
     // Ustawienia sieciowe
     char wifi_ssid[32];     // SSID sieci WiFi (zapisywane przez WiFiManager)
     char wifi_pass[64];     // Hasło do sieci WiFi (zapisywane przez WiFiManager)
@@ -91,6 +98,20 @@ struct Config {
     
     // Suma kontrolna
     char checksum;          // XOR wszystkich poprzednich pól
+
+    Config() : 
+        version(1),
+        mqtt_port(1883) {
+        strcpy(ap_password, "hydrosense");
+        strcpy(www_username, "HydroSense");
+        strcpy(www_password, "hydrosense");
+        wifi_ssid[0] = '\0';
+        wifi_pass[0] = '\0';
+        mqtt_server[0] = '\0';
+        mqtt_user[0] = '\0';
+        mqtt_pass[0] = '\0';
+        updateChecksum();
+    }
 };
 
 // Status urządzenia
@@ -103,7 +124,9 @@ struct Status {
     bool pumpSafetyLock;                      // Flaga wskazująca, czy blokada bezpieczeństwa pompy jest aktywna
     bool isServiceMode;                       // Flaga wskazująca, czy tryb serwisowy jest włączony
     bool needsUpdate;                         // Flaga wskazująca potrzebę aktualizacji interfejsu
-    float waterLevelBeforePump;               // Poziom wody przed uruchomieniem pompy
+    float waterLevelPercent;    // Dodane
+    float currentDistance;      // Dodane   
+    pumpSwitchfloat waterLevelBeforePump;               // Poziom wody przed uruchomieniem pompy
     unsigned long pumpStartTime;              // Znacznik czasu uruchomienia pompy
     unsigned long pumpDelayStartTime;         // Znacznik czasu rozpoczęcia opóźnienia pompy
     unsigned long lastSoundAlert;             // Znacznik czasu ostatniego alertu dźwiękowego
@@ -665,10 +688,10 @@ void setupHA() {
     switchPumpAlarm.onCommand(onPumpAlarmCommand);
 
     // Callbacks
-    pumpSwitch.onCommand(onPumpSwitchCommand);
-    pumpAlarmSwitch.onCommand(onPumpAlarmCommand);
-    serviceSwitch.onCommand(onServiceSwitchCommand);
-    soundSwitch.onCommand(onSoundSwitchCommand);
+    //pumpSwitch.onCommand(onPumpSwitchCommand);
+    //pumpAlarmSwitch.onCommand(onPumpAlarmCommand);
+    //serviceSwitch.onCommand(onServiceSwitchCommand);
+    //soundSwitch.onCommand(onSoundSwitchCommand);
 }
 
 //
@@ -2122,5 +2145,6 @@ void loop() {
         }
     }
 } 
+
 //----------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------
