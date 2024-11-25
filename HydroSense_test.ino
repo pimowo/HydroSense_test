@@ -523,6 +523,8 @@ bool saveConfig() {
     } else {
         DEBUG_PRINT("Błąd zapisu konfiguracji!");
     }
+
+    return;
 }
 
 // Obliczanie sumy kontrolnej
