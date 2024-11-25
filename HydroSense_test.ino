@@ -99,6 +99,17 @@ struct Config {
     // Suma kontrolna
     char checksum;          // XOR wszystkich poprzednich pól
 
+    // Metoda do aktualizacji sumy kontrolnej
+    void updateChecksum() {
+        char sum = 0;
+        uint8_t* ptr = (uint8_t*)this;
+        for(size_t i = 0; i < sizeof(Config) - 1; i++) {
+            sum ^= ptr[i];
+        }
+        checksum = sum;
+    }
+
+    // Konstruktor
     Config() : 
         version(1),
         mqtt_port(1883) {
@@ -111,7 +122,7 @@ struct Config {
         mqtt_user[0] = '\0';
         mqtt_pass[0] = '\0';
         updateChecksum();
-    }
+    }9
 };
 
 // Status urządzenia
@@ -785,7 +796,7 @@ void handleEvents() {
     data += "\"soundEnabled\":" + String(config.soundEnabled ? "true" : "false") + ",";
     
     // Dane zbiornika
-    data += "\"waterLevel\":" + String(status.waterLevelBeforePump, 1) + ",";
+    data += "\"waterLevel\":" + String(status.waterLevelPercent, 1) + ",";
     
     // Status pompy
     data += "\"isPumpActive\":" + String(status.isPumpActive ? "true" : "false") + ",";
@@ -1748,7 +1759,7 @@ void handleRoot() {
     // Status pomiarów
     content += "<div class='status-box'>";
     content += "<h2>Status systemu</h2>";
-    content += "<div class='status-item'>Poziom wody: " + String(status.waterLevelBeforePump, 1) + " cm</div>";
+    content += "<div class='status-item'>Poziom wody: " + String(status.waterLevelPercent, 1) + " %</div>";
     content += "<div class='status-item'>Procent wypełnienia: " + String(status.waterLevelPercent) + "%</div>";
     content += "<div class='status-item'>Stan pompy: ";
     content += status.isPumpActive ? "<span class='warning'>Włączona</span>" : "<span class='success'>Wyłączona</span>";
