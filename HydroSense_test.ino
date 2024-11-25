@@ -120,9 +120,9 @@ struct Config {
         wifi_pass[0] = '\0';
         mqtt_server[0] = '\0';
         mqtt_user[0] = '\0';
-        mqtt_pass[0] = '\0';
+        //mqtt_pass[0] = '\0';
         updateChecksum();
-    }9
+    }
 };
 
 // Status urządzenia
@@ -137,7 +137,7 @@ struct Status {
     bool needsUpdate;                         // Flaga wskazująca potrzebę aktualizacji interfejsu
     float waterLevelPercent;    // Dodane
     float currentDistance;      // Dodane   
-    pumpSwitchfloat waterLevelBeforePump;               // Poziom wody przed uruchomieniem pompy
+    //pumpSwitchfloat waterLevelBeforePump;               // Poziom wody przed uruchomieniem pompy
     unsigned long pumpStartTime;              // Znacznik czasu uruchomienia pompy
     unsigned long pumpDelayStartTime;         // Znacznik czasu rozpoczęcia opóźnienia pompy
     unsigned long lastSoundAlert;             // Znacznik czasu ostatniego alertu dźwiękowego
@@ -153,7 +153,7 @@ struct Status {
         pumpSafetyLock(false),
         isServiceMode(false),
         needsUpdate(false),
-        waterLevelBeforePump(0),
+        //waterLevelBeforePump(0),
         pumpStartTime(0),
         pumpDelayStartTime(0),
         lastSoundAlert(0),
